@@ -1,0 +1,10 @@
+.engine-ui { padding: 12px; background: #fff; border: 1px solid #eee; border-radius: 8px; }
+.engine-ui__controls { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap }
+.engine-ui__main { display: flex; gap: 12px; }
+.engine-ui__logs { flex: 1; max-height: 340px; overflow: auto; background: #fafafa; padding: 10px; border: 1px solid #eee }
+.engine-ui__state { width: 480px; max-height: 520px; overflow: auto; background: #fafafa; padding: 10px; border: 1px solid #eee }
+
+@media (max-width: 800px) {
+  .engine-ui__main { flex-direction: column }
+  .engine-ui__state { width: 100% }
+}

@@ -1,0 +1,9 @@
+{
+  "meta": { "name": "breakaway-demo", "desc": "A small breakaway with one attacker" },
+  "track": "111111111111F",
+  "round": 2,
+  "cards": {
+    "Leader": { "position": 10, "group": 1, "finished": false, "move_distance_for_prel": 0, "cards": [], "discarded": [], "prel_time": 10000, "result": 1000, "team": "Break" },
+    "Chaser": { "position": 5, "group": 2, "finished": false, "move_distance_for_prel": 0, "cards": [], "discarded": [], "prel_time": 10000, "result": 1000, "team": "Chase" }
+  }
+}

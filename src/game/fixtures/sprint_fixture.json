@@ -1,0 +1,9 @@
+{
+  "meta": { "name": "sprint-finish-demo", "desc": "Two riders close to finish to exercise runSprintsPure" },
+  "track": "11111111F",
+  "round": 3,
+  "cards": {
+    "Alice": { "position": 6, "group": 1, "finished": false, "move_distance_for_prel": 3, "cards": [], "discarded": [], "prel_time": 10000, "result": 1000, "team": "Me" },
+    "Bob": { "position": 7, "group": 1, "finished": false, "move_distance_for_prel": 2, "cards": [], "discarded": [], "prel_time": 10000, "result": 1000, "team": "Comp1" }
+  }
+}

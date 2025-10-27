@@ -1,0 +1,9 @@
+# Ignore legacy/experimental app variants to reduce lint noise
+src/App7.js
+src/App9.js
+src/App10.js
+src/App11.js
+src/AppFinall1.js
+
+# Ignore any other large legacy files starting with App
+src/App*.js
