@@ -146,16 +146,53 @@ export const detectSprintGroups = (cards, track) => {
 };
 
 export const getRandomTrack = (rng = Math.random) => {
-  let track = String(Math.floor(rng() * 4));
-  for (let i = 0; i < 60; i++) {
-    const a = rng();
-    if (a < 0.03) track += '0';
-    else if (a < 0.25) track += '1';
-    else if (a < 0.32) track += '2';
-    else if (a < 0.62) track += '_';
-    else track += '3';
+  const randInt = (min, max) => Math.floor(rng() * (max - min + 1)) + min;
+
+  // Start with the max of two random ints in [0,3]
+  let track = String(Math.max(randInt(0, 3), randInt(0, 3)));
+  let ned = 0;
+
+  // If initial is '2', sometimes make it '1'
+  if (track === '2' && rng() > 0.4) track = '1';
+
+  const limit = 55 + randInt(0, 6) + randInt(0, 6);
+  let i = 0;
+  while (i < limit) {
+    const cur = track.charAt(i);
+
+    if (cur === '_' && rng() < ned * 0.04) {
+      // repeat underscore and re-evaluate same index (python set i = i-1 -> keep i)
+      track += '_';
+      // do not increment i so the loop will examine this same i again
+      continue;
+    } else if (cur !== '_' && rng() > (0.5 - (parseInt(cur) || 0) * 0.1)) {
+      // copy the current token
+      track += cur;
+    } else {
+      const a = rng();
+      if (a < 0.03) {
+        track += '0';
+        ned += 1;
+      } else if (a < 0.25) {
+        track += '1';
+        ned += 1;
+      } else if (a < 0.32) {
+        track += '2';
+        ned += 0.5;
+      } else if (a < 0.62 && cur !== '3') {
+        track += '_';
+        ned -= 1.5;
+      } else {
+        track += '3';
+        ned = 0;
+      }
+    }
+
+    i += 1;
   }
-  return track + 'FFFFFFFFFFF';
+
+  track += 'FFFFFFFFFFF';
+  return track;
 };
 
 export const getNumberEcs = (rider) => {

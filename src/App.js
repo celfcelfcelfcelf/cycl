@@ -1974,30 +1974,39 @@ if (potentialLeaders.length > 0) {
     onSubmit={(choices) => handleHumanChoices(groupNum, choices)}
   />
 	) : (
-              <div className="bg-gray-50 p-2 rounded flex justify-between">
+                <div className="bg-gray-50 p-2 rounded flex justify-between">
                 <span className="text-sm">{currentTeam}'s turn</span>
-                <button onClick={() => {
-    const result = autoPlayTeam(groupNum);
-    if (result) {
-      setCards(result.updatedCards);
-      const teamAtCall = currentTeam;
-                // Submit the team's pace immediately so other AIs see it right away.
-                            // Compute the team's non-attacker pace from the updatedCards and
-                            // set isAttack if the team declared an attacker. This mirrors
-                            // the human flow where attackers don't determine the basic team pace.
-                            const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === groupNum && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
-                            const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                            const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
-                            const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
-                            handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack);
-                // Clear the AI message after a short delay for UX
-                setTimeout(() => { setAiMessage(''); }, 1500);
-    }
-  }} 
-  className="px-2 py-1 bg-gray-600 text-white rounded text-xs"
->
-  AI Play
-</button></div>
+                {(() => {
+                  const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === groupNum && r.team === currentTeam && !r.finished);
+                  if (!teamHasRiders) {
+                    return <span className="text-sm italic text-gray-500">no riders in the group</span>;
+                  }
+                  return (
+                    <button onClick={() => {
+                      const result = autoPlayTeam(groupNum);
+                      if (result) {
+                        setCards(result.updatedCards);
+                        const teamAtCall = currentTeam;
+                        // Submit the team's pace immediately so other AIs see it right away.
+                        // Compute the team's non-attacker pace from the updatedCards and
+                        // set isAttack if the team declared an attacker. This mirrors
+                        // the human flow where attackers don't determine the basic team pace.
+                        const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === groupNum && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
+                        const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                        const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                        const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                        handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack);
+                        // Clear the AI message after a short delay for UX
+                        setTimeout(() => { setAiMessage(''); }, 1500);
+                      }
+                    }} 
+                    className="px-2 py-1 bg-gray-600 text-white rounded text-xs"
+                  >
+                    Computer's Choice
+                    </button>
+                  );
+                })()}
+</div>
             )}
           </div>
         )}
@@ -2302,10 +2311,8 @@ if (potentialLeaders.length > 0) {
                           <span className="font-semibold">Group {g}:</span>{' '}
                           {ridersInGroup.map((rt, idx) => (
                             <span key={rt.name} className="mr-2">
-                              <span>{rt.name}</span>{' '}
-                              <span style={{ backgroundColor: teamColors[rt.team] || 'transparent', color: teamTextColors[rt.team] || '#000', padding: '0 6px', borderRadius: 6, fontWeight: 700 }}>
-                                {rt.team}
-                              </span>
+                              <span style={{ color: teamColors[rt.team] || '#000', fontWeight: 600 }}>{rt.name}</span>{' '}
+                              <span className="text-xs text-gray-600">({rt.team})</span>
                               {idx < ridersInGroup.length - 1 && <span className="text-gray-500">, </span>}
                             </span>
                           ))}
@@ -2381,26 +2388,34 @@ if (potentialLeaders.length > 0) {
                               {aiMessage}
                             </div>
                           )}
-                          <button
-                            onClick={() => {
-                              const result = autoPlayTeam(currentGroup);
-                              if (result) {
-                                setCards(result.updatedCards);
-                                const teamAtCall = currentTeam;
-                                const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
-                                const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                                const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
-                                const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
-                                // Set a short-lived AI message for UX
-                                setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack);
-                                setTimeout(() => { setAiMessage(''); }, 1500);
-                              }
-                            }}
-                            className="px-3 py-2 bg-gray-700 text-white rounded"
-                          >
-                            AI Play
-                          </button>
+                          {(() => {
+                            const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentTeam && !r.finished);
+                            if (!teamHasRiders) {
+                              return <div className="text-sm italic text-gray-500">no riders in the group</div>;
+                            }
+                            return (
+                              <button
+                                onClick={() => {
+                                  const result = autoPlayTeam(currentGroup);
+                                  if (result) {
+                                    setCards(result.updatedCards);
+                                    const teamAtCall = currentTeam;
+                                    const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
+                                    const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                    const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                    const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                    // Set a short-lived AI message for UX
+                                    setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
+                                    handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack);
+                                    setTimeout(() => { setAiMessage(''); }, 1500);
+                                  }
+                                }}
+                                className="px-3 py-2 bg-gray-700 text-white rounded"
+                              >
+                                Computer's Choice
+                              </button>
+                            );
+                          })()}
                         </div>
                       );
                     })()
