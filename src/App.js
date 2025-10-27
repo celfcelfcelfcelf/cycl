@@ -2019,7 +2019,7 @@ if (potentialLeaders.length > 0) {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold">Cycling Race Game v9</h1>
+          <h1 className="text-3xl font-bold">CYCL.v1.0</h1>
           <div>
             <button onClick={() => setShowEngineUI(s => !s)} className="py-2 px-3 bg-indigo-600 text-white rounded">
               {showEngineUI ? 'Hide Engine UI' : 'Show Engine UI'}
