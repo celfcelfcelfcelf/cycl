@@ -205,7 +205,9 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
   }
   
   if (isBreakaway) {
-    for (let i = 0; i < 4; i++) newCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+    // Breakaway riders start with two exhaustion cards (kort: 16)
+    // Previously this pushed 4 cards; reduce to 2 as initial state.
+    for (let i = 0; i < 2; i++) newCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
   }
   return newCards.sort(() => rng() - 0.5);
 };

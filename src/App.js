@@ -101,6 +101,7 @@ const CyclingGame = () => {
   const [sprintGroupsPending, setSprintGroupsPending] = useState([]);
   const [showDebugMobile, setShowDebugMobile] = useState(false);
   const [showEngineUI, setShowEngineUI] = useState(false);
+  const [postMoveInfo, setPostMoveInfo] = useState(null);
 
   const addLog = (msg) => {
     setLogs(p => {
@@ -1183,6 +1184,15 @@ const confirmMove = () => {
   
   // Opret en kopi af hele cards-objektet som vi opdaterer
   const updatedCards = {...cards};
+
+  // Capture old positions and planned cards for all riders in this group
+  const oldPositions = {};
+  const plannedCards = {};
+  names.forEach(n => {
+    oldPositions[n] = Number(cards[n] && cards[n].position ? cards[n].position : 0);
+    // prefer planned_card_id, fallback to attack_card (object) or undefined
+    plannedCards[n] = (cards[n] && (cards[n].planned_card_id || (cards[n].attack_card && cards[n].attack_card.id))) || null;
+  });
   
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
@@ -1248,6 +1258,72 @@ const confirmMove = () => {
   // mark this group as moved this round
   setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
   addLog(`Group ${currentGroup} moved`);
+
+  // Compute post-move summary and postpone auto-advance until user presses "Move next group"
+  try {
+    const remainingGroupsAll = Object.values(updatedCards).filter(r => !r.finished).map(r => r.group);
+    const remainingGroupsSet = Array.from(new Set(remainingGroupsAll));
+    const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRound || []), currentGroup]));
+    const remainingNotMoved = remainingGroupsSet.filter(g => !groupsMovedLocal.includes(g));
+
+    // Build per-rider message objects for the moved group
+    const msgs = [];
+    for (const n of names) {
+      try {
+        const newPos = updatedCards[n] ? Number(updatedCards[n].position || 0) : oldPositions[n];
+        const team = (cards[n] && cards[n].team) || (updatedCards[n] && updatedCards[n].team) || '';
+        const plannedId = plannedCards[n];
+
+        // Determine display label for the card (handle TK extras)
+        // Prefer the actual played card id from the post-move updatedCards if available,
+        // then fall back to any planned_card_id we had before the move. If neither is
+        // available, show '??'. We try to look up the original card object in the
+        // pre-move `cards` snapshot so we can show flat/uphill values when possible.
+        let displayCard = '??';
+        let cardVals = null;
+        const playedId = updatedCards[n] && updatedCards[n].played_card;
+        const candidates = [playedId, plannedId].filter(Boolean);
+        let foundObj = null;
+        for (const id of candidates) {
+          if (id && cards[n] && Array.isArray(cards[n].cards)) {
+            const obj = cards[n].cards.find(c => c && c.id === id) || null;
+            if (obj) { foundObj = obj; displayCard = obj.id; cardVals = `${obj.flat}-${obj.uphill}`; break; }
+          }
+        }
+        // If we couldn't find a card object but have an id (played or planned), show the id string
+        if (displayCard === '??') {
+          if (playedId) displayCard = String(playedId);
+          else if (plannedId) displayCard = String(plannedId);
+        } else {
+          // Normalize displayCard to the numeric short form when possible
+          const numMatch = (foundObj && foundObj.id && foundObj.id.match(/\d+/)) ? foundObj.id.match(/\d+/)[0] : null;
+          if (numMatch) displayCard = numMatch;
+          // If the id looks like a TK/TK-1 style, prefer a 'tk_extra <num>' label
+          if (foundObj && /^TK/i.test(foundObj.id)) {
+            const tkNum = foundObj.id.match(/\d+/)?.[0] || displayCard;
+            displayCard = `tk_extra ${tkNum}`;
+          }
+        }
+
+        // Determine moved fields — prefer explicit moved_fields, otherwise diff
+        const movedFields = updatedCards[n] && typeof updatedCards[n].moved_fields === 'number'
+          ? Number(updatedCards[n].moved_fields)
+          : Math.max(0, (updatedCards[n] ? Number(updatedCards[n].position || 0) : newPos) - (oldPositions[n] || 0));
+
+        const failed = movedFields < Math.round(groupSpeed || 0);
+        const isLead = (cards[n] && cards[n].takes_lead === 1) || (updatedCards[n] && updatedCards[n].takes_lead === 1);
+
+        const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ✓`;
+        msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine });
+        // Also write the plain textual line to the global log so it appears in the Log panel
+        addLog(plainLine);
+      } catch (e) {
+        // ignore per-rider errors
+      }
+    }
+
+    setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved });
+  } catch (e) {}
 
   // After moving this group, compute remaining (non-finished) groups.
   // If any remain that haven't moved this round, continue the round with
@@ -1324,6 +1400,28 @@ const confirmMove = () => {
         addLog('All groups moved. Groups reassigned');
       }, 100);
     }
+  }
+};
+
+// Called by the UI after a move has been confirmed and the post-move
+// summary is displayed. Advances to the next not-yet-moved group, or
+// if none remain, starts the next round.
+const moveToNextGroup = () => {
+  if (!postMoveInfo) return;
+  const remaining = postMoveInfo.remainingNotMoved || [];
+  if (remaining.length > 0) {
+    const nextGroup = Math.max(...remaining);
+    setCurrentGroup(nextGroup);
+    setTeamPaces({});
+    const shuffled = [...teams].sort(() => Math.random() - 0.5);
+    setTeams(shuffled);
+    setCurrentTeam(shuffled[0]);
+    setMovePhase('input');
+    setPostMoveInfo(null);
+  } else {
+    // No remaining groups -> start new round
+    setPostMoveInfo(null);
+    startNewRound();
   }
 };
 
@@ -2324,6 +2422,26 @@ if (potentialLeaders.length > 0) {
                       <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
                         <SkipForward size={14}/> Next Round
                       </button>
+                    </div>
+                  )}
+
+                  {postMoveInfo && (
+                    <div className="mt-3 p-3 border rounded bg-yellow-50">
+                      <div className="mb-2 text-sm font-medium">
+                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
+                          <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : ''}`}>
+                            {m.isLead ? (
+                              <strong className={`${m.failed ? 'text-red-600' : ''}`}>{m.name} ({m.team})</strong>
+                            ) : (
+                              <span>{m.name} ({m.team})</span>
+                            )}{' '}
+                            <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-end">
+                        <button onClick={moveToNextGroup} className="px-3 py-2 bg-blue-600 text-white rounded font-semibold">Move next group</button>
+                      </div>
                     </div>
                   )}
                 </div>

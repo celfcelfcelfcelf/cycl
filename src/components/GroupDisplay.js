@@ -6,6 +6,16 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
   const entries = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished).sort((a,b) => b[1].position - a[1].position);
   const hasHuman = entries.some(([, r]) => r.team === 'Me');
 
+  // map a team name to a deterministic readable HSL color for text
+  const teamColorFromName = (team) => {
+    if (!team) return '#111';
+    // simple hash
+    let h = 0;
+    for (let i = 0; i < team.length; i++) h = (h * 31 + team.charCodeAt(i)) >>> 0;
+    const hue = h % 360;
+    return `hsl(${hue} 70% 40%)`;
+  };
+
   // build a compact map of riders in this group for the human UI
   const groupRiders = entries.reduce((acc, [name, r]) => { acc[name] = r; return acc; }, {});
 
@@ -24,6 +34,14 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
   return (
     <div className="border border-gray-200 p-2 rounded">
       <div className="font-bold">Group {groupNum} - pos {entries.length ? Math.max(...entries.map(([,r])=>r.position)) : 0}</div>
+      {/* Compact group listing: Name (Team), Name (Team), ... colored by team */}
+      <div className="text-sm mt-2 mb-2">
+        {entries.map(([name, r], idx) => (
+          <span key={name} style={{ color: teamTextColors[r.team] || teamColorFromName(r.team) }}>
+            {name} ({r.team}){idx < entries.length - 1 ? ', ' : ''}
+          </span>
+        ))}
+      </div>
       <div className="flex gap-2 mt-2">
         {entries.map(([name, r]) => (
           <div key={name} className="p-1">
