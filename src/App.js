@@ -2270,13 +2270,21 @@ if (potentialLeaders.length > 0) {
 
               <div className="max-h-72 overflow-y-auto mb-4 grid grid-cols-2 gap-2">
                 {draftPool.map((r, i) => {
-                  // compute current picking team from selections (authoritative)
+                  // Authoritative next team for current pick (may consult draftPickSequence)
                   const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
-                  const isClickable = isDrafting && currentPickingTeam === 'Me';
+                  // Only allow clicking when: drafting active, it's Me's turn, and
+                  // the rider is still present in the live remaining list.
+                  const inRemaining = Array.isArray(draftRemaining) && draftRemaining.some(rr => rr.NAVN === r.NAVN);
+                  const isClickable = isDrafting && currentPickingTeam === 'Me' && inRemaining;
                   return (
-                    <div key={i} className={`p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50'}`}
-                      onClick={() => { if (isClickable) handleHumanPick(r); }}>
-                      <div className="font-semibold">{r.NAVN}</div>
+                    <div
+                      key={i}
+                      className={`p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60'}`}
+                      onClick={() => { if (isClickable) handleHumanPick(r); }}
+                      role="button"
+                      aria-disabled={!isClickable}
+                    >
+                      <div className="font-semibold">{r.NAVN}{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}</div>
                       <div className="text-xs text-gray-500">FLAD: {r.FLAD} BJERG: {r.BJERG} SPRINT: {r.SPRINT}</div>
                     </div>
                   );
