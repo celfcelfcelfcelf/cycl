@@ -2260,7 +2260,17 @@ if (potentialLeaders.length > 0) {
                   const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
                   if (humanPositions && humanPositions.length > 0) {
                     return (
-                      <div className="text-sm text-gray-700 mb-2">Your picks: <strong>{humanPositions.join(', ')}</strong></div>
+                      <div>
+                        <div className="text-sm text-gray-700 mb-2">Your picks: <strong>{humanPositions.join(', ')}</strong></div>
+                        {/* Debug panel: shows pool/sequence info to diagnose mismatches */}
+                        <div className="text-xs text-gray-500 mb-2 bg-gray-50 p-2 rounded">
+                          <div>Pool total (draftPool.length): <strong>{Array.isArray(draftPool) ? draftPool.length : 0}</strong></div>
+                          <div>Remaining (draftRemaining.length): <strong>{Array.isArray(draftRemaining) ? draftRemaining.length : 0}</strong></div>
+                          <div>draftTotalPicks: <strong>{draftTotalPicks || 'n/a'}</strong></div>
+                          <div>humanPositions: <strong>{humanPositions.join(', ')}</strong></div>
+                          <div>draftPickSequence: <strong>{draftPickSequence ? draftPickSequence.join(', ') : 'n/a'}</strong></div>
+                        </div>
+                      </div>
                     );
                   }
                 } catch (e) {}
