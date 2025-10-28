@@ -515,10 +515,18 @@ return { pace, updatedCards };
   const startDraft = () => {
     // Start an interactive draft: clear previous riders and build pool
     // Ensure a fresh set of riders each time Start Game is clicked.
+    // Defensive reset of all draft state to avoid stale values when re-entering the draft
     setCards({});
     setDraftSelections([]);
     setDraftRemaining([]);
     setDraftPool([]);
+    setDraftTeamsOrder([]);
+    setDraftPickSequence(null);
+    setDraftTotalPicks(null);
+    setDraftCurrentPickIdx(0);
+    setDraftRoundNum(1);
+    setIsDrafting(false);
+    setDraftDebugMsg(null);
     // Ensure the track preview matches the currently selected trackName
     const selectedTrack = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
     setTrack(selectedTrack);
@@ -701,6 +709,10 @@ return { pace, updatedCards };
 
   const startInteractiveDraft = (pool) => {
     // pool: array of rider objects
+    // Defensive reset at start of interactive draft to ensure no stale state
+    setDraftPickSequence(null);
+    setDraftTotalPicks(null);
+    setDraftDebugMsg(null);
     const remaining = [...pool];
     // Teams: computers first then human last
     const teamsOrder = [];
