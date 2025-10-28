@@ -2258,7 +2258,7 @@ if (potentialLeaders.length > 0) {
           // long content (pool + selections) is reachable. On larger screens
           // keep centered behaviour.
           <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto z-50" style={{ position: 'relative' }}>
               {/* Track title + coloured track preview above the draft header */}
               <div className="mb-3">
                 <div className="text-2xl font-extrabold mb-2">{trackName}</div>
@@ -2320,8 +2320,10 @@ if (potentialLeaders.length > 0) {
                       key={i}
                       type="button"
                       disabled={!isClickable}
-                      onClick={() => { if (isClickable) handleHumanPick(r); }}
+                      onClick={(e) => { e.stopPropagation(); console.debug('pool click', r && r.NAVN, 'isClickable=', isClickable); if (isClickable) handleHumanPick(r); }}
+                      onTouchStart={(e) => { e.stopPropagation(); console.debug('pool touchstart', r && r.NAVN, 'isClickable=', isClickable); if (isClickable) handleHumanPick(r); }}
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
+                      style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
                       <div className="font-semibold">{r.NAVN}{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}</div>
                       <div className="text-xs text-gray-500">FLAD: {r.FLAD} BJERG: {r.BJERG} SPRINT: {r.SPRINT}</div>
