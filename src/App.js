@@ -65,6 +65,7 @@ const CyclingGame = () => {
   const [draftRoundNum, setDraftRoundNum] = useState(1);
   const [isDrafting, setIsDrafting] = useState(false);
   const [draftTotalPicks, setDraftTotalPicks] = useState(null);
+const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [trackName, setTrackName] = useState(() => {
     // Pick a random named track as the initial selection (exclude the 'random' sentinel)
     try {
@@ -2320,8 +2321,22 @@ if (potentialLeaders.length > 0) {
                       key={i}
                       type="button"
                       disabled={!isClickable}
-                      onClick={(e) => { e.stopPropagation(); console.debug('pool click', r && r.NAVN, 'isClickable=', isClickable); if (isClickable) handleHumanPick(r); }}
-                      onTouchStart={(e) => { e.stopPropagation(); console.debug('pool touchstart', r && r.NAVN, 'isClickable=', isClickable); if (isClickable) handleHumanPick(r); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const msg = `pool click ${r && r.NAVN} isClickable=${isClickable}`;
+                        console.debug(msg);
+                        setDraftDebugMsg(msg);
+                        if (isClickable) handleHumanPick(r);
+                        setTimeout(() => setDraftDebugMsg(null), 2000);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        const msg = `pool touch ${r && r.NAVN} isClickable=${isClickable}`;
+                        console.debug(msg);
+                        setDraftDebugMsg(msg);
+                        if (isClickable) handleHumanPick(r);
+                        setTimeout(() => setDraftDebugMsg(null), 2000);
+                      }}
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
@@ -2330,6 +2345,14 @@ if (potentialLeaders.length > 0) {
                     </button>
                   );
                 })}
+
+                {/* Small on-screen debug toast for mobile where console is hard to access */}
+                {draftDebugMsg && (
+                  <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 rounded text-xs z-[9999]">
+                    {draftDebugMsg}
+                  </div>
+                )}
+
               </div>
 
                 <div className="mb-4">
