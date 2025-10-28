@@ -729,6 +729,9 @@ return { pace, updatedCards };
     // Compute explicit pick sequence using the actual remaining pool length
     // as the authoritative total number of picks. The helper returns 1-based
     // global pick indices where the human should pick (e.g. [2,5,8]).
+    // Declare seq in the outer scope so it's safe to reference below even
+    // if the try-block fails (avoids ReferenceError).
+    let seq = null;
     try {
       const totalPicks = remaining.length;
       setDraftTotalPicks(totalPicks);
@@ -739,7 +742,7 @@ return { pace, updatedCards };
       const countsRemaining = {};
       for (const t of teamsOrder) countsRemaining[t] = ridersPerTeam;
       // Reserve human picks in the sequence
-      const seq = Array(totalPicks).fill(null);
+  seq = Array(totalPicks).fill(null);
       for (const p of uniq) {
         if (countsRemaining['Me'] > 0) {
           seq[p - 1] = 'Me';
@@ -776,17 +779,20 @@ return { pace, updatedCards };
     }
 
     // kick off the first automated picks (if first picks are computers)
-    setTimeout(() => processNextPick(remaining, teamsOrder, 0), 50);
+    // Pass the freshly computed seq into the pick loop to avoid a race
+    // where the async setDraftPickSequence hasn't propagated to state yet.
+    setTimeout(() => processNextPick(remaining, teamsOrder, 0, seq), 50);
   };
 
   // Helper: compute which team should pick next based on current selections
-  const getNextDraftTeam = (selections, teamsOrderLocal) => {
+  const getNextDraftTeam = (selections, teamsOrderLocal, pickSequenceParam = null) => {
     if (!teamsOrderLocal || teamsOrderLocal.length === 0) return null;
     // If an explicit pick sequence is provided, prefer it
     try {
-      if (draftPickSequence && Array.isArray(draftPickSequence) && selections && selections.length < draftPickSequence.length) {
+      const seq = Array.isArray(pickSequenceParam) ? pickSequenceParam : (draftPickSequence && Array.isArray(draftPickSequence) ? draftPickSequence : null);
+      if (seq && selections && selections.length < seq.length) {
         const idx = selections.length;
-        const candidate = draftPickSequence[idx];
+        const candidate = seq[idx];
         // validate candidate still has remaining picks
         const counts = {};
         for (const t of teamsOrderLocal) counts[t] = 0;
@@ -811,7 +817,10 @@ return { pace, updatedCards };
     return null;
   };
 
-  const processNextPick = (remainingArg = null, teamsArg = null, selectionsArg = null) => {
+  // pickSequenceParam: optional explicit per-pick sequence array; when provided
+  // the function will use the passed-in sequence for all internal decisions
+  // to avoid state races with async setState updates.
+  const processNextPick = (remainingArg = null, teamsArg = null, selectionsArg = null, pickSequenceParam = null) => {
     // Accept current values or use provided args
     const remaining = remainingArg || draftRemaining;
     const teamsOrder = teamsArg || draftTeamsOrder;
@@ -830,7 +839,7 @@ return { pace, updatedCards };
 
 
     // Determine next team using the helper (which may consult draftPickSequence)
-    const teamPicking = getNextDraftTeam(selections, teamsOrder);
+  const teamPicking = getNextDraftTeam(selections, teamsOrder, pickSequenceParam);
     if (!teamPicking) { setIsDrafting(false); return; }
 
     // If it's human's turn, set state and wait for UI interaction
@@ -860,7 +869,7 @@ return { pace, updatedCards };
 
     // Continue to next pick automatically (pass newSelections so state-sync not required)
     if (newSelections.length < totalPicksNeeded) {
-      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections), 150);
+      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections, pickSequenceParam), 150);
     } else {
       setIsDrafting(false);
     }
@@ -868,9 +877,17 @@ return { pace, updatedCards };
 
   const handleHumanPick = (rider) => {
     if (!isDrafting) return;
-    // Use the authoritative next-team calculation (may consult explicit draftPickSequence)
-    const teamPicking = getNextDraftTeam(draftSelections, draftTeamsOrder);
-    if (teamPicking !== 'Me') return; // not human's turn
+    // Use the authoritative next-team calculation and pass the explicit
+    // sequence so we avoid any potential state-race (Vercel timing differences).
+    const seqLocal = Array.isArray(draftPickSequence) ? draftPickSequence : null;
+    const teamPicking = getNextDraftTeam(draftSelections, draftTeamsOrder, seqLocal);
+    const dbgMsg = `humanPick clicked: expected=${teamPicking} seqLen=${seqLocal ? seqLocal.length : 'n/a'} total=${draftTotalPicks || 'n/a'}`;
+    setDraftDebugMsg(dbgMsg);
+    setTimeout(() => setDraftDebugMsg(null), 2000);
+    if (teamPicking !== 'Me') {
+      // Not our turn — log and ignore click
+      return;
+    }
 
     const chosenIdx = draftRemaining.findIndex(r => r.NAVN === rider.NAVN);
     if (chosenIdx === -1) return;
@@ -882,8 +899,9 @@ return { pace, updatedCards };
     setDraftRemaining(newRemaining);
     setDraftPool(newRemaining);
 
-    // Continue automatic picks after human selection — pass newSelections to avoid state-timing races
-    setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections), 120);
+    // Continue automatic picks after human selection — pass the explicit
+    // pick sequence to avoid races between setState and the pick loop.
+    setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections, seqLocal), 120);
   };
 
   const confirmDraftAndStart = () => {
