@@ -671,6 +671,19 @@ return { pace, updatedCards };
       list_.push(first);
       list_.push(second);
       list_.push(third);
+    } else if (riders_per_team === 2) {
+      // Ported from provided Python logic for riders_per_team == 2
+      const average = level * (maximum - minimum) / 100 + minimum;
+      let first = Math.max(Math.round(average - teams_count / 2), 1);
+      let second = Math.round(average * 2 - first);
+      // Ensure second does not exceed riders: bump first and decrement second until in range
+      while (second > riders) {
+        first = 1 + first;
+        second = second - 1;
+      }
+
+      list_.push(first);
+      list_.push(second);
     } else {
       // Fallback: evenly space human picks across the draft
       const total = riders_per_team * teams_count;
