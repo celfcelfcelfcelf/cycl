@@ -2253,6 +2253,17 @@ if (potentialLeaders.length > 0) {
 
               <h2 className="text-xl font-bold mb-2">Draft Riders</h2>
               <p className="text-sm text-gray-600 mb-2">Teams: {numberOfTeams} × Riders/Team: {ridersPerTeam} =&nbsp;<strong>{numberOfTeams * ridersPerTeam}</strong> riders total</p>
+              {(() => {
+                try {
+                  const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
+                  if (humanPositions && humanPositions.length > 0) {
+                    return (
+                      <div className="text-sm text-gray-700 mb-2">Your picks: <strong>{humanPositions.join(', ')}</strong></div>
+                    );
+                  }
+                } catch (e) {}
+                return null;
+              })()}
               <div className="mb-3 text-sm">
                 {isDrafting ? (
                   (() => {
