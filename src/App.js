@@ -87,6 +87,8 @@ const CyclingGame = () => {
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
   const [teamPaces, setTeamPaces] = useState({});
+  // Meta information about team submissions for a given group: key -> { isAttack, attacker }
+  const [teamPaceMeta, setTeamPaceMeta] = useState({});
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
   const [slipstream, setSlipstream] = useState(0);
@@ -489,6 +491,7 @@ return { pace, updatedCards };
   setRound(0);
   setCurrentGroup(2);
   setTeamPaces({});
+  setTeamPaceMeta({});
   setMovePhase('input');
   setGroupSpeed(0);
   setSlipstream(0);
@@ -787,7 +790,7 @@ return { pace, updatedCards };
   };
   
   
-  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false) => {
+  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null) => {
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -797,10 +800,15 @@ return { pace, updatedCards };
       return;
     }
 
-    // Build a local copy including this submission so we can synchronously
-    // decide whether all teams have submitted for the group.
-    const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
-    setTeamPaces(newTeamPaces);
+  // Build a local copy including this submission so we can synchronously
+  // decide whether all teams have submitted for the group. Keep numeric
+  // pace values in `teamPaces` (backwards compatible) and store a
+  // per-team metadata entry in `teamPaceMeta` so the UI can show attacks
+  // and distinguish "no submission" from an explicit 0 choice.
+  const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
+  setTeamPaces(newTeamPaces);
+  const newMeta = { ...teamPaceMeta, [paceKey]: { isAttack: !!isAttack, attacker: attackerName || null } };
+  setTeamPaceMeta(newMeta);
 
     if (isAttack) {
       addLog(`${submittingTeam}: attack`);
@@ -1170,7 +1178,8 @@ const handleHumanChoices = (groupNum, choice) => {
   // Compute the team's non-attacker pace (attackers should not determine this)
   const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(name => updatedCards[name].selected_value || 0));
   const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
-  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack);
+  const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
+  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName);
 };
 
 const confirmMove = () => {
@@ -1343,7 +1352,8 @@ const confirmMove = () => {
       // If nextGroup is the same as currentGroup (possible if some riders remained),
       // still set up for the next input phase to avoid a stuck UI.
       setCurrentGroup(nextGroup);
-      setTeamPaces({});
+  setTeamPaces({});
+  setTeamPaceMeta({});
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
       setCurrentTeam(shuffled[0]);
@@ -1388,7 +1398,8 @@ const confirmMove = () => {
     // On any error fallback to the previous sequential behavior
     if (currentGroup > 1) {
       setCurrentGroup(p => p - 1);
-      setTeamPaces({});
+  setTeamPaces({});
+  setTeamPaceMeta({});
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
       setCurrentTeam(shuffled[0]);
@@ -1412,7 +1423,8 @@ const moveToNextGroup = () => {
   if (remaining.length > 0) {
     const nextGroup = Math.max(...remaining);
     setCurrentGroup(nextGroup);
-    setTeamPaces({});
+  setTeamPaces({});
+  setTeamPaceMeta({});
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
     setCurrentTeam(shuffled[0]);
@@ -1438,6 +1450,7 @@ const moveToNextGroup = () => {
   setRound(newRound);
   setCurrentGroup(maxGroup);
   setTeamPaces({});
+  setTeamPaceMeta({});
   // Compute deterministic team order for this round based on base order
   const base = teamBaseOrder && teamBaseOrder.length === teams.length ? teamBaseOrder : [...teams];
   let order = [...base];
@@ -1992,14 +2005,15 @@ if (potentialLeaders.length > 0) {
                           const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
                           const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                           const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                          const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                           setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack);
+                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
                         } else {
                           // No riders / no auto result: advance with zero pace so flow continues
                           const aiTeamPace = 0;
                           const aiIsAttack = false;
                           setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack);
+                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack, null);
                         }
                         // Clear the AI message after a short delay for UX
                         setTimeout(() => { setAiMessage(''); }, 1500);
@@ -2340,31 +2354,36 @@ if (potentialLeaders.length > 0) {
 
                 {/* Current chosen values for the group */}
                 {(() => {
-                  const teamPaceMap = {};
-                  Object.entries(teamPaces).forEach(([k, v]) => {
-                    if (!k.startsWith(`${currentGroup}-`)) return;
-                    const t = k.split('-')[1];
-                    teamPaceMap[t] = Math.max(teamPaceMap[t] || 0, parseInt(v) || 0);
-                  });
-                  Object.entries(cards).forEach(([, r]) => {
-                    if (r.finished) return;
-                    if (r.group !== currentGroup) return;
-                    if (typeof r.selected_value === 'number' && r.selected_value > 0 && r.attacking_status !== 'attacker') {
-                      teamPaceMap[r.team] = Math.max(teamPaceMap[r.team] || 0, Math.round(r.selected_value));
-                    }
-                  });
-
-                  const teamsWithValues = (teams || []).map(t => ({ team: t, value: teamPaceMap[t] || 0 }));
                   return (
                     <div className="mt-3">
                       <div className="text-sm font-semibold mb-2">Current chosen values</div>
                       <div className="grid grid-cols-3 gap-2">
-                        {teamsWithValues.map(({team, value}) => (
-                          <div key={team} className="p-2 rounded border flex items-center justify-between">
-                            <div className="font-medium">{team}</div>
-                            <div className="text-lg font-bold">{value}</div>
-                          </div>
-                        ))}
+                        {(teams || []).map((t) => {
+                          const paceKey = `${currentGroup}-${t}`;
+                          const meta = teamPaceMeta && teamPaceMeta[paceKey];
+                          const hasChosen = typeof meta !== 'undefined';
+                          const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === t && !r.finished);
+                          const value = hasChosen ? (teamPaces[paceKey] !== undefined ? teamPaces[paceKey] : 0) : null;
+                          const attackText = hasChosen && meta && meta.isAttack ? (meta.attacker ? `${meta.attacker} attacks` : 'attacks') : null;
+
+                          return (
+                            <div key={t} className="p-2 rounded border">
+                              <div className="font-medium">{t}</div>
+                              <div className="mt-1">
+                                {!teamHasRiders ? (
+                                  <div className="text-lg font-bold">X</div>
+                                ) : hasChosen ? (
+                                  <div className="text-lg font-bold">{String(value)}</div>
+                                ) : (
+                                  <div className="text-lg font-bold">&nbsp;</div>
+                                )}
+                                {attackText && (
+                                  <div className="text-xs text-red-600 mt-1">{attackText}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -2409,13 +2428,14 @@ if (potentialLeaders.length > 0) {
                                       const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                       const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
                                       // Set a short-lived AI message for UX
+                                      const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                                       setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack);
+                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
                                     } else {
                                       const aiTeamPace = 0;
                                       const aiIsAttack = false;
                                       setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack);
+                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null);
                                     }
                                     setTimeout(() => { setAiMessage(''); }, 1500);
                                   }}
