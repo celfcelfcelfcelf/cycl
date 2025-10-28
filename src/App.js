@@ -64,6 +64,7 @@ const CyclingGame = () => {
   const [draftCurrentPickIdx, setDraftCurrentPickIdx] = useState(0);
   const [draftRoundNum, setDraftRoundNum] = useState(1);
   const [isDrafting, setIsDrafting] = useState(false);
+  const [draftTotalPicks, setDraftTotalPicks] = useState(null);
   const [trackName, setTrackName] = useState(() => {
     // Pick a random named track as the initial selection (exclude the 'random' sentinel)
     try {
@@ -699,11 +700,12 @@ return { pace, updatedCards };
     setDraftRoundNum(1);
     setIsDrafting(true);
 
-    // Compute explicit pick sequence if the user supplied a level-based
-    // preference for human pick positions. The helper returns 1-based
+    // Compute explicit pick sequence using the actual remaining pool length
+    // as the authoritative total number of picks. The helper returns 1-based
     // global pick indices where the human should pick (e.g. [2,5,8]).
     try {
-      const totalPicks = numberOfTeams * ridersPerTeam;
+      const totalPicks = remaining.length;
+      setDraftTotalPicks(totalPicks);
       const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
       // clamp positions and make unique
       const uniq = Array.from(new Set(humanPositions.map(p => Math.max(1, Math.min(totalPicks, Math.round(p)))))).sort((a,b) => a-b);
@@ -792,8 +794,8 @@ return { pace, updatedCards };
     // Basic guards
     if (!remaining || remaining.length === 0 || !teamsOrder || teamsOrder.length === 0) return;
 
-    const totalPicksNeeded = numberOfTeams * ridersPerTeam;
-    if (selections.length >= totalPicksNeeded) { setIsDrafting(false); return; }
+  const totalPicksNeeded = draftTotalPicks || (numberOfTeams * ridersPerTeam);
+  if (selections.length >= totalPicksNeeded) { setIsDrafting(false); return; }
 
     // Build counts per team from provided selections
     const counts = {};
