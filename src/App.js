@@ -2226,7 +2226,7 @@ if (potentialLeaders.length > 0) {
               </div>
 
               <div className="mt-4 p-3 bg-white rounded border">
-                <label className="block text-sm font-medium mb-2">Team Level</label>
+                <label className="block text-sm font-medium mb-2">Level</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -2238,7 +2238,7 @@ if (potentialLeaders.length > 0) {
                   />
                   <div className="w-12 text-right font-bold">{level}</div>
                 </div>
-                <div className="text-xs text-gray-500 mt-2">Default 50 — affects rider generation strength (not wired into gameplay yet)</div>
+                <div className="text-xs text-gray-500 mt-2">Works for 2 and 3 riders per team</div>
               </div>
             </div>
           </div>
