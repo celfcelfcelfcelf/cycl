@@ -60,6 +60,7 @@ const CyclingGame = () => {
   const [draftRemaining, setDraftRemaining] = useState([]);
   const [draftSelections, setDraftSelections] = useState([]); // {team, rider}
   const [draftTeamsOrder, setDraftTeamsOrder] = useState([]);
+  const [draftPickSequence, setDraftPickSequence] = useState(null); // explicit full sequence of picks (team names) when set
   const [draftCurrentPickIdx, setDraftCurrentPickIdx] = useState(0);
   const [draftRoundNum, setDraftRoundNum] = useState(1);
   const [isDrafting, setIsDrafting] = useState(false);
@@ -637,6 +638,52 @@ return { pace, updatedCards };
     }
   };
 
+  // Compute human pick positions for the interactive draft.
+  // Ported from the provided Python snippet. Currently supports riders_per_team == 3 behavior.
+  const computeHumanPickPositions = (riders_per_team, teams_count, level) => {
+    const riders = riders_per_team * teams_count;
+    const list_ = [];
+    const minimum = 1 + riders_per_team * 0.5 - 0.5;
+    const maximum = riders - 0.5 * riders_per_team + 0.5;
+
+    if (riders_per_team === 3) {
+      // replicate the Python logic
+      const avg = level * (maximum - minimum) / 100 + minimum;
+      let first = Math.round(level * (maximum - minimum) / 100 + minimum);
+      let second = Math.max(first - teams_count, 1);
+      const thirdInitial = Math.round(avg * riders_per_team - first - second);
+      let third = thirdInitial;
+      let a = 0;
+      // Ensure third does not exceed riders
+      while (third > riders) {
+        if (a % 2 === 1) {
+          first = 1 + first;
+          third = third - 1;
+          a = 1 + a;
+        } else {
+          second = 1 + second;
+          third = third - 1;
+          a = 1 + a;
+        }
+      }
+
+      list_.push(first);
+      list_.push(second);
+      list_.push(third);
+    } else {
+      // Fallback: evenly space human picks across the draft
+      const total = riders_per_team * teams_count;
+      for (let i = 0; i < riders_per_team; i++) {
+        list_.push(1 + Math.round((i * total) / riders_per_team));
+      }
+    }
+
+    // Ensure unique, sorted, and within range
+    const uniq = Array.from(new Set(list_.map(x => Math.max(1, Math.min(x, riders)))));
+    uniq.sort((a, b) => a - b);
+    return uniq;
+  };
+
   const startInteractiveDraft = (pool) => {
     // pool: array of rider objects
     const remaining = [...pool];
@@ -652,6 +699,54 @@ return { pace, updatedCards };
     setDraftRoundNum(1);
     setIsDrafting(true);
 
+    // Compute explicit pick sequence if the user supplied a level-based
+    // preference for human pick positions. The helper returns 1-based
+    // global pick indices where the human should pick (e.g. [2,5,8]).
+    try {
+      const totalPicks = numberOfTeams * ridersPerTeam;
+      const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
+      // clamp positions and make unique
+      const uniq = Array.from(new Set(humanPositions.map(p => Math.max(1, Math.min(totalPicks, Math.round(p)))))).sort((a,b) => a-b);
+      // Prepare counts remaining per team after reserving human picks
+      const countsRemaining = {};
+      for (const t of teamsOrder) countsRemaining[t] = ridersPerTeam;
+      // Reserve human picks in the sequence
+      const seq = Array(totalPicks).fill(null);
+      for (const p of uniq) {
+        if (countsRemaining['Me'] > 0) {
+          seq[p - 1] = 'Me';
+          countsRemaining['Me'] = countsRemaining['Me'] - 1;
+        }
+      }
+      // Build an available teams list in round-robin order from remaining counts
+      const tempCounts = { ...countsRemaining };
+      const available = [];
+      for (let r = 0; r < ridersPerTeam; r++) {
+        for (const t of teamsOrder) {
+          if (tempCounts[t] > 0) {
+            available.push(t);
+            tempCounts[t] = tempCounts[t] - 1;
+          }
+        }
+      }
+      // Fill remaining slots from the available list
+      let aiIdx = 0;
+      for (let i = 0; i < seq.length; i++) {
+        if (seq[i] === null) {
+          if (aiIdx < available.length) {
+            seq[i] = available[aiIdx++];
+          } else {
+            // fallback: assign in round-robin
+            seq[i] = teamsOrder[i % teamsOrder.length];
+          }
+        }
+      }
+      setDraftPickSequence(seq);
+    } catch (e) {
+      // ignore and leave draftPickSequence null if something fails
+      setDraftPickSequence(null);
+    }
+
     // kick off the first automated picks (if first picks are computers)
     setTimeout(() => processNextPick(remaining, teamsOrder, 0), 50);
   };
@@ -659,6 +754,22 @@ return { pace, updatedCards };
   // Helper: compute which team should pick next based on current selections
   const getNextDraftTeam = (selections, teamsOrderLocal) => {
     if (!teamsOrderLocal || teamsOrderLocal.length === 0) return null;
+    // If an explicit pick sequence is provided, prefer it
+    try {
+      if (draftPickSequence && Array.isArray(draftPickSequence) && selections && selections.length < draftPickSequence.length) {
+        const idx = selections.length;
+        const candidate = draftPickSequence[idx];
+        // validate candidate still has remaining picks
+        const counts = {};
+        for (const t of teamsOrderLocal) counts[t] = 0;
+        for (const s of (selections || [])) if (s && s.team) counts[s.team] = (counts[s.team] || 0) + 1;
+        if ((counts[candidate] || 0) < ridersPerTeam) return candidate;
+        // otherwise fall through to fallback logic
+      }
+    } catch (e) {
+      // ignore and fallback to default
+    }
+
     const counts = {};
     for (const t of teamsOrderLocal) counts[t] = 0;
     for (const s of (selections || [])) if (s && s.team) counts[s.team] = (counts[s.team] || 0) + 1;
@@ -689,22 +800,17 @@ return { pace, updatedCards };
     for (const t of teamsOrder) counts[t] = 0;
     for (const s of selections) if (s && s.team) counts[s.team] = (counts[s.team] || 0) + 1;
 
-    // Determine next team by position in the round sequence using selections.length
-    let offset = 0;
-    let teamPicking = null;
-    while (offset < teamsOrder.length) {
-      const idx = (selections.length + offset) % teamsOrder.length;
-      const candidate = teamsOrder[idx];
-      if ((counts[candidate] || 0) < ridersPerTeam) { teamPicking = candidate; break; }
-      offset += 1;
-    }
 
+    // Determine next team using the helper (which may consult draftPickSequence)
+    const teamPicking = getNextDraftTeam(selections, teamsOrder);
     if (!teamPicking) { setIsDrafting(false); return; }
 
     // If it's human's turn, set state and wait for UI interaction
     if (teamPicking === 'Me') {
-      setDraftCurrentPickIdx(selections.length + offset);
-      setDraftRoundNum(Math.floor(selections.length / teamsOrder.length) + 1);
+      // current pick index equals current selections length
+      const pickIndex = selections.length;
+      setDraftCurrentPickIdx(pickIndex);
+      setDraftRoundNum(Math.floor(pickIndex / teamsOrder.length) + 1);
       return;
     }
 
@@ -734,22 +840,8 @@ return { pace, updatedCards };
 
   const handleHumanPick = (rider) => {
     if (!isDrafting) return;
-    // Determine whether it's actually the human's turn using the same
-    // selection-length based logic as processNextPick to avoid races.
-    const teamsOrder = draftTeamsOrder;
-    if (!teamsOrder || teamsOrder.length === 0) return;
-    const counts = {};
-    for (const t of teamsOrder) counts[t] = 0;
-    for (const s of draftSelections) if (s && s.team) counts[s.team] = (counts[s.team] || 0) + 1;
-    // find next team index
-    let offset = 0;
-    let teamPicking = null;
-    while (offset < teamsOrder.length) {
-      const idx = (draftSelections.length + offset) % teamsOrder.length;
-      const candidate = teamsOrder[idx];
-      if ((counts[candidate] || 0) < ridersPerTeam) { teamPicking = candidate; break; }
-      offset += 1;
-    }
+    // Use the authoritative next-team calculation (may consult explicit draftPickSequence)
+    const teamPicking = getNextDraftTeam(draftSelections, draftTeamsOrder);
     if (teamPicking !== 'Me') return; // not human's turn
 
     const chosenIdx = draftRemaining.findIndex(r => r.NAVN === rider.NAVN);
