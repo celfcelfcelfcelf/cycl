@@ -2313,16 +2313,16 @@ if (potentialLeaders.length > 0) {
                   const inRemaining = Array.isArray(draftRemaining) && draftRemaining.some(rr => rr.NAVN === r.NAVN);
                   const isClickable = isDrafting && currentPickingTeam === 'Me' && inRemaining;
                   return (
-                    <div
+                    <button
                       key={i}
-                      className={`p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60'}`}
+                      type="button"
+                      disabled={!isClickable}
                       onClick={() => { if (isClickable) handleHumanPick(r); }}
-                      role="button"
-                      aria-disabled={!isClickable}
+                      className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                     >
                       <div className="font-semibold">{r.NAVN}{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}</div>
                       <div className="text-xs text-gray-500">FLAD: {r.FLAD} BJERG: {r.BJERG} SPRINT: {r.SPRINT}</div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
