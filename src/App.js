@@ -2254,8 +2254,11 @@ if (potentialLeaders.length > 0) {
         )}
 
         {gameState === 'draft' && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6">
+          // On mobile we align modal to the top and allow inner scrolling so
+          // long content (pool + selections) is reachable. On larger screens
+          // keep centered behaviour.
+          <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
               {/* Track title + coloured track preview above the draft header */}
               <div className="mb-3">
                 <div className="text-2xl font-extrabold mb-2">{trackName}</div>
@@ -2304,7 +2307,7 @@ if (potentialLeaders.length > 0) {
                 )}
               </div>
 
-              <div className="max-h-72 overflow-y-auto mb-4 grid grid-cols-2 gap-2">
+              <div className="max-h-[48vh] sm:max-h-72 overflow-y-auto mb-4 grid grid-cols-2 gap-2">
                 {draftPool.map((r, i) => {
                   // Authoritative next team for current pick (may consult draftPickSequence)
                   const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
@@ -2327,9 +2330,9 @@ if (potentialLeaders.length > 0) {
                 })}
               </div>
 
-              <div className="mb-4">
+                <div className="mb-4">
                 <div className="text-sm font-semibold mb-2">Selections so far</div>
-                <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                <div className="grid grid-cols-2 gap-2 max-h-[28vh] sm:max-h-32 overflow-y-auto">
                   {(() => {
                     // Build team list for display (use draftTeamsOrder when available)
                     const teamsForDisplay = (draftTeamsOrder && draftTeamsOrder.length > 0) ? draftTeamsOrder : (() => {
