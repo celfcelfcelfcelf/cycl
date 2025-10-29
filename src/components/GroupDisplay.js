@@ -34,21 +34,26 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
   return (
     <div className="border border-gray-200 p-2 rounded">
       <div className="font-bold">Group {groupNum} - pos {entries.length ? Math.max(...entries.map(([,r])=>r.position)) : 0}</div>
-      {/* Compact group listing: Name (Team), Name (Team), ... colored by team */}
-      <div className="text-sm mt-2 mb-2">
-        {entries.map(([name, r], idx) => (
-          <span key={name} style={{ color: teamTextColors[r.team] || teamColorFromName(r.team) }}>
-            {name} ({r.team}){idx < entries.length - 1 ? ', ' : ''}
-          </span>
-        ))}
-      </div>
-      <div className="flex gap-2 mt-2">
-        {entries.map(([name, r]) => (
-          <div key={name} className="p-1">
-            <RiderCard name={name} rider={r} teamColor={teamColors[r.team]} textColor={teamTextColors[r.team]} />
-          </div>
-        ))}
-      </div>
+      {/* Compact group listing and rider cards removed per request.
+          Previously displayed the list of members with percentages and a
+          RiderCard for each rider. Commented out to reduce clutter. */}
+
+      {/**
+       <div className="text-sm mt-2 mb-2">
+         {entries.map(([name, r], idx) => (
+           <span key={name} style={{ color: teamTextColors[r.team] || teamColorFromName(r.team) }}>
+             {name} ({r.team}){idx < entries.length - 1 ? ', ' : ''}
+           </span>
+         ))}
+       </div>
+       <div className="flex gap-2 mt-2">
+         {entries.map(([name, r]) => (
+           <div key={name} className="p-1">
+             <RiderCard name={name} rider={r} teamColor={teamColors[r.team]} textColor={teamTextColors[r.team]} />
+           </div>
+         ))}
+       </div>
+      */}
       {hasHuman && <div className="mt-2">
         <HumanTurnInterface groupRiders={groupRiders} groupNum={groupNum} onSubmit={handleSubmit} />
       </div>}
