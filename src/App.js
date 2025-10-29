@@ -2744,6 +2744,7 @@ if (potentialLeaders.length > 0) {
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
                   <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
+                    <div className="text-sm text-gray-600 mb-3">Speed: <strong>{groupSpeed}</strong>, SV: <strong>{slipstream}</strong></div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
                         <div key={name} className="p-3 border rounded">
