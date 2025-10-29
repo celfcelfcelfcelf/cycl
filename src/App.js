@@ -1752,6 +1752,18 @@ if (potentialLeaders.length > 0) {
       setSprintResults(res.result);
       setLatestPrelTime(res.latestPt);
       for (const l of res.logs || []) addLog(l);
+      // Remove the sprintGroup we just ran from the pending list so the
+      // UI no longer shows the "Sprint with group X" button.
+      // If sprintGroup is null we ran all detected groups -> clear all pending.
+      setSprintGroupsPending(prev => {
+        try {
+          if (sprintGroup === null) return [];
+          return (prev || []).filter(g => g !== sprintGroup);
+        } catch (e) {
+          return [];
+        }
+      });
+
       return res;
     } catch (e) {
       addLog('runSprintsPure failed: ' + (e && e.message));
@@ -2658,6 +2670,41 @@ if (potentialLeaders.length > 0) {
                   );
                 })()}
                 <div className="mt-1 text-xs text-gray-600">Length: {getLength(track)} km</div>
+
+                {/* Sprint button and final standings placed immediately under the field display */}
+                <div className="mt-2">
+                  {sprintGroupsPending.length > 0 && (() => {
+                    const minG = Math.min(...sprintGroupsPending);
+                    return (
+                      <div className="mb-2">
+                        <button onClick={() => runSprints(track, minG)} className="w-full bg-purple-500 text-white py-2 rounded">
+                          Sprint with group {minG}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Final standings: position, name, time */}
+                  <div className="bg-white rounded p-2 border mt-1">
+                    <div className="text-sm font-semibold mb-1">Final Standings</div>
+                    {(() => {
+                      const finished = Object.entries(cards)
+                        .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
+                        .sort((a, b) => (a[1].result || 9999) - (b[1].result || 9999));
+                      if (finished.length === 0) return <div className="text-xs text-gray-500">No finishers yet</div>;
+                      return (
+                        <div className="text-sm">
+                          {finished.map(([name, r]) => (
+                            <div key={name} className="flex justify-between text-xs py-0.5">
+                              <div>{r.result}. {name}</div>
+                              <div className="text-gray-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
 
                 {/* Group compositions listed beneath the length, with team colors */}
                 <div className="mt-2 space-y-1">
