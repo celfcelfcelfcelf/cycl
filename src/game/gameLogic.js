@@ -769,11 +769,13 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
         let acceptPlanned = true;
         if (isLeadRider) {
           const targetVal = Math.round(chosenValue);
-          const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
-          const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
-          const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
-          const plannedCardVal = svForLead > 2 ? plannedCandidate.flat : plannedCandidate.uphill;
-          if ((plannedCardVal - localPenalty) !== targetVal) acceptPlanned = false;
+    const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
+    const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
+    const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+    const plannedCardVal = svForLead > 2 ? plannedCandidate.flat : plannedCandidate.uphill;
+    // Accept planned if it exactly matches target, or if it's greater-or-equal (lenient acceptance)
+    const plannedEffective = plannedCardVal - localPenalty;
+    if (plannedEffective < targetVal) acceptPlanned = false;
         }
         if (acceptPlanned) { chosenCard = plannedCandidate; managed = true; delete updatedCards[name].planned_card_id; }
       }
@@ -784,11 +786,23 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
         const targetVal = Math.round(chosenValue);
         const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
         const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
+        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
         let found = null;
+        // Prefer exact match
         for (const c of top4) {
           const cv = svForLead > 2 ? c.flat : c.uphill;
-          const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
           if ((cv - localPenalty) === targetVal) { found = c; break; }
+        }
+        // If no exact match, choose smallest card that is >= target (lenient)
+        if (!found) {
+          let candidate = null;
+          let candidateEff = Infinity;
+          for (const c of top4) {
+            const cv = svForLead > 2 ? c.flat : c.uphill;
+            const eff = cv - localPenalty;
+            if (eff >= targetVal && eff < candidateEff) { candidate = c; candidateEff = eff; }
+          }
+          if (candidate) found = candidate;
         }
         if (found) { chosenCard = found; managed = true; }
       }
@@ -1139,10 +1153,23 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const svForAttack = getSlipstreamValue(rider.position, rider.position + Math.floor(targetNumeric), track);
       const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+      // Prefer exact match
       for (const c of top4) {
         if (c.id && c.id.startsWith('TK-1')) continue;
         const cardVal = svForAttack > 2 ? c.flat : c.uphill;
         if ((cardVal - localPenalty) === targetNumeric) { chosenCard = c; managed = true; break; }
+      }
+      // If no exact, choose smallest >= targetNumeric
+      if (!chosenCard) {
+        let candidate = null;
+        let candidateEff = Infinity;
+        for (const c of top4) {
+          if (c.id && c.id.startsWith('TK-1')) continue;
+          const cardVal = svForAttack > 2 ? c.flat : c.uphill;
+          const eff = cardVal - localPenalty;
+          if (eff >= targetNumeric && eff < candidateEff) { candidate = c; candidateEff = eff; }
+        }
+        if (candidate) { chosenCard = candidate; managed = true; }
       }
     }
 
@@ -1154,11 +1181,27 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const svCheck = getSlipstreamValue(rider.position, rider.position + Math.floor(targetNumeric), track);
+      // Prefer exact
+      let replacement = null;
       for (const c of top4) {
         if (c.id && c.id.startsWith('TK-1')) continue;
         const cardVal = svCheck > 2 ? c.flat : c.uphill;
-        if (cardVal === targetNumeric) { chosenCard = c; break; }
+        if (cardVal === targetNumeric) { replacement = c; break; }
       }
+      // Fallback to smallest >= targetNumeric
+      if (!replacement) {
+        let candidate = null;
+        let candidateEff = Infinity;
+        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+        for (const c of top4) {
+          if (c.id && c.id.startsWith('TK-1')) continue;
+          const cardVal = svCheck > 2 ? c.flat : c.uphill;
+          const eff = cardVal - localPenalty;
+          if (eff >= targetNumeric && eff < candidateEff) { candidate = c; candidateEff = eff; }
+        }
+        if (candidate) replacement = candidate;
+      }
+      if (replacement) chosenCard = replacement;
     }
 
     if (!chosenCard) { logs.push(`${name} (${rider.team}) attacker: No valid card found!`); continue; }

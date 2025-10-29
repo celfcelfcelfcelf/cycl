@@ -2055,6 +2055,9 @@ if (potentialLeaders.length > 0) {
   // --- Card selection UI for human riders when moving a group ---
   const [cardSelectionOpen, setCardSelectionOpen] = useState(false);
   const [cardSelections, setCardSelections] = useState({}); // { riderName: cardId }
+  const [fallBackOpen, setFallBackOpen] = useState(false);
+  const [fallRider, setFallRider] = useState(null);
+  const [fallTargetGroup, setFallTargetGroup] = useState(null);
 
   const openCardSelectionForGroup = (groupNum) => {
     // find human riders in the group
@@ -2073,14 +2076,22 @@ if (potentialLeaders.length > 0) {
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const isLeader = (rider.takes_lead || 0) === 1;
       if (isLeader) {
-        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupNum && groupSpeed ? groupSpeed : 0), track);
+        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
         const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
         const targetVal = Math.round(groupSpeed || 0);
-        const ok = top4.find(c => {
+        // prefer exact match, otherwise pick smallest card >= targetVal
+        let best = null;
+        let bestExcess = Infinity;
+        for (const c of top4) {
           const cardVal = svForLead > 2 ? c.flat : c.uphill;
-          return (cardVal - localPenalty) === targetVal;
-        });
-        initial[name] = ok ? ok.id : null;
+          const eff = (cardVal - localPenalty);
+          if (eff === targetVal) { best = c; bestExcess = 0; break; }
+          if (eff >= targetVal) {
+            const excess = eff - targetVal;
+            if (excess < bestExcess) { best = c; bestExcess = excess; }
+          }
+        }
+        initial[name] = best ? best.id : null;
       } else {
         initial[name] = top4.length > 0 ? top4[0].id : null;
       }
@@ -2113,6 +2124,35 @@ if (potentialLeaders.length > 0) {
     setCardSelectionOpen(false);
     setCards(updated);
     setTimeout(() => confirmMove(), 60);
+  };
+
+  const confirmFallBack = () => {
+    if (!fallRider || fallTargetGroup === null) return;
+    const targetG = Number(fallTargetGroup);
+    const riderObj = cards[fallRider];
+    if (!riderObj) return;
+    // Only allow falling to a group strictly behind (higher group number)
+    if (!(targetG > (riderObj.group || 0))) {
+      addLog(`Invalid fall-back: ${fallRider} cannot fall to group ${targetG} (not behind)`);
+      setFallBackOpen(false);
+      setFallRider(null);
+      setFallTargetGroup(null);
+      return;
+    }
+
+    setCards(prev => {
+      const updated = { ...prev };
+      if (!updated[fallRider]) return prev;
+      // Determine the furthest forward position of the target group (max position)
+      const positions = Object.values(prev).filter(r => r.group === targetG && !r.finished).map(r => Number(r.position || 0));
+      const targetPos = positions.length > 0 ? Math.max(...positions) : 0;
+      updated[fallRider] = { ...updated[fallRider], group: targetG, position: targetPos };
+      return updated;
+    });
+    addLog(`Action: ${fallRider} fell back to group ${fallTargetGroup}`);
+    setFallBackOpen(false);
+    setFallRider(null);
+    setFallTargetGroup(null);
   };
 
   const GroupDisplay = ({ groupNum }) => {
@@ -2721,9 +2761,12 @@ if (potentialLeaders.length > 0) {
                   )}
                   {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
                     <div className="mt-3 flex justify-end">
-                      <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
-                        <SkipForward size={14}/> Next Round
-                      </button>
+                        <div className="flex gap-2">
+                          <button onClick={() => setFallBackOpen(true)} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Let rider fall back</button>
+                          <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
+                            <SkipForward size={14}/> Next Round
+                          </button>
+                        </div>
                     </div>
                   )}
 
@@ -2767,6 +2810,7 @@ if (potentialLeaders.length > 0) {
                             {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
                               const isLeader = (rider.takes_lead || 0) === 1;
                               let disabled = false;
+                              let title = '';
                               try {
                                 if (isLeader) {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
@@ -2774,11 +2818,14 @@ if (potentialLeaders.length > 0) {
                                   const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
                                   const cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   const targetVal = Math.round(groupSpeed || 0);
-                                  if ((cardVal - localPenalty) !== targetVal) disabled = true;
+                                  if ((cardVal - localPenalty) < targetVal) {
+                                    disabled = true;
+                                    title = `Must be ≥ ${targetVal}`;
+                                  }
                                 }
                               } catch (e) { disabled = false; }
                               return (
-                                <button key={c.id} type="button" onClick={() => !disabled && handleCardChoice(name, c.id)} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                <button key={c.id} type="button" title={title} onClick={() => !disabled && handleCardChoice(name, c.id)} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
                                   <div className="font-bold">{c.id}</div>
                                   <div className="text-xs">{c.flat}|{c.uphill}</div>
                                 </button>
@@ -2802,6 +2849,55 @@ if (potentialLeaders.length > 0) {
                     <div className="flex justify-end gap-3">
                       <button onClick={() => setCardSelectionOpen(false)} className="px-3 py-2 border rounded">Cancel</button>
                       <button disabled={Object.values(cardSelections).length === 0 || Object.values(cardSelections).some(v => v === null)} onClick={submitCardSelections} className="px-4 py-2 bg-green-600 text-white rounded">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Fall-back modal: let one human rider fall back to a group behind them */}
+              {fallBackOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                  <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto">
+                    <h3 className="text-lg font-bold mb-3">Let rider fall back</h3>
+                    <p className="text-sm text-gray-600 mb-3">Choose one of your riders and move them back to a group behind them.</p>
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium mb-1">Which rider</label>
+                      <select value={fallRider || ''} onChange={e => { setFallRider(e.target.value || null); setFallTargetGroup(null); }} className="w-full p-2 border rounded">
+                        <option value="">-- select rider --</option>
+                        {Object.entries(cards).filter(([, r]) => r.team === 'Me' && !r.finished).map(([name, r]) => (
+                          <option key={name} value={name}>{name} (Group {r.group})</option>
+                        ))}
+                      </select>
+                    </div>
+                    {fallRider && (
+                      <div className="mb-3">
+                        <label className="block text-sm font-medium mb-1">Back to group (only groups behind the rider are allowed)</label>
+                        {(() => {
+                          const riderObj = cards[fallRider];
+                          const allGroups = Array.from(new Set(Object.values(cards).filter(rr => !rr.finished).map(rr => rr.group))).sort((a,b) => b - a);
+                          // groups behind the rider are those with a greater group number
+                          // (do NOT allow falling forward to groups with a lower group number)
+                          const behind = allGroups.filter(g => g > (riderObj ? riderObj.group : 0));
+                          if (behind.length === 0) return <div className="text-sm text-gray-500">No group is behind {fallRider}.</div>;
+                          return (
+                            <div className="space-y-2">
+                              {behind.map(g => (
+                                <label key={g} className={`p-2 border rounded flex items-start gap-3 ${Number(fallTargetGroup) === Number(g) ? 'bg-gray-100' : ''}`}>
+                                  <input type="radio" name="fallGroup" value={g} checked={Number(fallTargetGroup) === Number(g)} onChange={() => setFallTargetGroup(g)} />
+                                  <div className="text-sm">
+                                    <div className="font-semibold">Group {g}</div>
+                                    <div className="text-xs text-gray-600">Riders: {Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([n]) => n).join(', ')}</div>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => { setFallBackOpen(false); setFallRider(null); setFallTargetGroup(null); }} className="px-3 py-2 border rounded">Cancel</button>
+                      <button onClick={confirmFallBack} disabled={!fallRider || fallTargetGroup === null} className="px-4 py-2 bg-yellow-500 text-black rounded">Confirm</button>
                     </div>
                   </div>
                 </div>
@@ -2891,6 +2987,11 @@ if (potentialLeaders.length > 0) {
                 {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
                   <button onClick={startNewRound} className="w-full mt-3 bg-green-600 text-white py-2 rounded flex items-center justify-center gap-2">
                     <SkipForward size={14}/>Round {round + 1}
+                  </button>
+                )}
+                {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
+                  <button onClick={() => setFallBackOpen(true)} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">
+                    Let rider fall back
                   </button>
                 )}
 
