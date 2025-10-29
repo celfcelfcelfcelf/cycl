@@ -89,6 +89,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
+  // Touch helpers to avoid accidental taps while scrolling the draft pool on mobile
+  const touchInfoRef = useRef({});
+  const lastTouchHandledRef = useRef({});
   const [teamPaces, setTeamPaces] = useState({});
   // Meta information about team submissions for a given group: key -> { isAttack, attacker }
   const [teamPaceMeta, setTeamPaceMeta] = useState({});
@@ -2373,6 +2376,8 @@ if (potentialLeaders.length > 0) {
                 </div>
                 <div className="text-xs text-gray-500 mt-2">Works for 2 and 3 riders per team</div>
               </div>
+              {/* Spacer so mobile users can scroll the level slider above the fixed footer */}
+              <div className="h-28 sm:h-32" />
             </div>
           </div>
         )}
@@ -2455,19 +2460,58 @@ if (potentialLeaders.length > 0) {
                       disabled={!isClickable}
                       onClick={(e) => {
                         e.stopPropagation();
+                        // If a recent touch event already handled this tap, ignore click
+                        const last = lastTouchHandledRef.current[r && r.NAVN];
+                        if (last && Date.now() - last < 700) {
+                          // ignore synthetic click after touch
+                          return;
+                        }
                         const msg = `pool click ${r && r.NAVN} isClickable=${isClickable}`;
                         console.debug(msg);
                         setDraftDebugMsg(msg);
                         if (isClickable) handleHumanPick(r);
                         setTimeout(() => setDraftDebugMsg(null), 2000);
                       }}
+                      // Touch handling: register start, track move, and only treat as
+                      // a tap on touchend when there was no significant movement.
                       onTouchStart={(e) => {
                         e.stopPropagation();
-                        const msg = `pool touch ${r && r.NAVN} isClickable=${isClickable}`;
-                        console.debug(msg);
-                        setDraftDebugMsg(msg);
-                        if (isClickable) handleHumanPick(r);
-                        setTimeout(() => setDraftDebugMsg(null), 2000);
+                        const t = e.touches && e.touches[0];
+                        if (!t) return;
+                        touchInfoRef.current[r && r.NAVN] = { x: t.clientX, y: t.clientY, time: Date.now(), moved: false };
+                      }}
+                      onTouchMove={(e) => {
+                        const t = e.touches && e.touches[0];
+                        if (!t) return;
+                        const info = touchInfoRef.current[r && r.NAVN];
+                        if (!info) return;
+                        const dx = Math.abs(t.clientX - info.x);
+                        const dy = Math.abs(t.clientY - info.y);
+                        // treat small jitter as no-move; threshold 8px
+                        if (dx > 8 || dy > 8) info.moved = true;
+                      }}
+                      onTouchEnd={(e) => {
+                        e.stopPropagation();
+                        const info = touchInfoRef.current[r && r.NAVN];
+                        if (!info) return;
+                        const duration = Date.now() - info.time;
+                        const moved = info.moved;
+                        // cleanup
+                        delete touchInfoRef.current[r && r.NAVN];
+                        if (!moved && duration < 500 && isClickable) {
+                          // treat as tap
+                          lastTouchHandledRef.current[r && r.NAVN] = Date.now();
+                          const msg = `pool tap ${r && r.NAVN} isClickable=${isClickable}`;
+                          console.debug(msg);
+                          setDraftDebugMsg(msg);
+                          handleHumanPick(r);
+                          setTimeout(() => setDraftDebugMsg(null), 2000);
+                        } else {
+                          // likely a scroll gesture — ignore
+                          const msg = `scroll ignored ${r && r.NAVN}`;
+                          setDraftDebugMsg(msg);
+                          setTimeout(() => setDraftDebugMsg(null), 800);
+                        }
                       }}
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
