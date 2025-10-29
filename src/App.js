@@ -2824,9 +2824,47 @@ if (potentialLeaders.length > 0) {
                                   }
                                 }
                               } catch (e) { disabled = false; }
+                              // Determine state for this card: leader-disabled (grey), non-leader-danger (red), selected, or normal
+                              const isSelected = cardSelections[name] === c.id;
+                              let localDisabled = false;
+                              let danger = false;
+                              let titleText = title || '';
+                              try {
+                                if (isLeader) {
+                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  const targetVal = Math.round(groupSpeed || 0);
+                                  if ((cardVal - localPenalty) < targetVal) {
+                                    localDisabled = true; // leader cannot play this card for the required pace
+                                    titleText = `Must be ≥ ${targetVal}`;
+                                  }
+                                } else {
+                                  // Non-leader: determine whether playing this card would cause rider to fall out
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const cardVal = slipstream > 2 ? c.flat : c.uphill;
+                                  const effective = (cardVal - localPenalty);
+                                  const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
+                                  if (effective < minRequiredToFollow) {
+                                    danger = true; // would fall out of group
+                                    titleText = titleText || 'Would fall out of group if played';
+                                  }
+                                }
+                              } catch (e) { /* ignore */ }
+
+                              const btnClass = isSelected
+                                ? 'p-2 rounded text-sm border bg-blue-600 text-white'
+                                : (localDisabled)
+                                  ? 'p-2 rounded text-sm border bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : (danger)
+                                    ? 'p-2 rounded text-sm border border-red-600 bg-red-50 text-red-700'
+                                    : 'p-2 rounded text-sm border bg-white hover:bg-gray-50';
+
                               return (
-                                <button key={c.id} type="button" title={title} onClick={() => !disabled && handleCardChoice(name, c.id)} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
-                                  <div className="font-bold">{c.id}</div>
+                                <button key={c.id} type="button" title={titleText} onClick={() => !localDisabled && handleCardChoice(name, c.id)} disabled={localDisabled} className={btnClass}>
+                                  <div className={`font-bold ${danger ? 'text-red-700' : ''}`}>{c.id}</div>
                                   <div className="text-xs">{c.flat}|{c.uphill}</div>
                                 </button>
                               );
