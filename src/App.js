@@ -2066,10 +2066,24 @@ if (potentialLeaders.length > 0) {
     }
     // Prepare default selections (choose first top-4 or null)
     const initial = {};
+    // Pre-select a valid card for leaders (must match the group's speed) or
+    // fallback to first top-4 for non-leaders.
     humanRiders.forEach(name => {
       const rider = cards[name] || { cards: [] };
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-      initial[name] = top4.length > 0 ? top4[0].id : null;
+      const isLeader = (rider.takes_lead || 0) === 1;
+      if (isLeader) {
+        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupNum && groupSpeed ? groupSpeed : 0), track);
+        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+        const targetVal = Math.round(groupSpeed || 0);
+        const ok = top4.find(c => {
+          const cardVal = svForLead > 2 ? c.flat : c.uphill;
+          return (cardVal - localPenalty) === targetVal;
+        });
+        initial[name] = ok ? ok.id : null;
+      } else {
+        initial[name] = top4.length > 0 ? top4[0].id : null;
+      }
     });
     setCardSelections(initial);
     setCardSelectionOpen(true);
@@ -2750,17 +2764,37 @@ if (potentialLeaders.length > 0) {
                         <div key={name} className="p-3 border rounded">
                           <div className="font-semibold mb-2">{name}</div>
                           <div className="grid grid-cols-4 gap-2">
-                            {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => (
-                              <button key={c.id} type="button" onClick={() => handleCardChoice(name, c.id)} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}>
-                                <div className="font-bold">{c.id}</div>
-                                <div className="text-xs">{c.flat}|{c.uphill}</div>
-                              </button>
-                            ))}
+                            {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
+                              const isLeader = (rider.takes_lead || 0) === 1;
+                              let disabled = false;
+                              try {
+                                if (isLeader) {
+                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  const targetVal = Math.round(groupSpeed || 0);
+                                  if ((cardVal - localPenalty) !== targetVal) disabled = true;
+                                }
+                              } catch (e) { disabled = false; }
+                              return (
+                                <button key={c.id} type="button" onClick={() => !disabled && handleCardChoice(name, c.id)} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                  <div className="font-bold">{c.id}</div>
+                                  <div className="text-xs">{c.flat}|{c.uphill}</div>
+                                </button>
+                              );
+                            })}
                             {/* TK-extra option */}
-                            <button type="button" onClick={() => handleCardChoice(name, 'tk_extra 15')} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}>
-                              <div className="font-bold">tk_extra</div>
-                              <div className="text-xs">use top-4 as discard</div>
-                            </button>
+                            {(() => {
+                              const isLeader = (rider.takes_lead || 0) === 1;
+                              const disabled = !!isLeader; // disallow tk_extra for leaders
+                              return (
+                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 15')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                  <div className="font-bold">tk_extra</div>
+                                  <div className="text-xs">use top-4 as discard</div>
+                                </button>
+                              );
+                            })()}
                           </div>
                         </div>
                       ))}
