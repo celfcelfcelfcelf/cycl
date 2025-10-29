@@ -2294,7 +2294,6 @@ if (potentialLeaders.length > 0) {
         
         {gameState === 'setup' && (
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
-            <h2 className="text-xl font-bold mb-4">Setup</h2>
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Track</label>
