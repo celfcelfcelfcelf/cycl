@@ -2052,6 +2052,55 @@ if (potentialLeaders.length > 0) {
   );
 };
 
+  // --- Card selection UI for human riders when moving a group ---
+  const [cardSelectionOpen, setCardSelectionOpen] = useState(false);
+  const [cardSelections, setCardSelections] = useState({}); // { riderName: cardId }
+
+  const openCardSelectionForGroup = (groupNum) => {
+    // find human riders in the group
+    const humanRiders = Object.entries(cards).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
+    if (!humanRiders || humanRiders.length === 0) {
+      // nothing to do
+      confirmMove();
+      return;
+    }
+    // Prepare default selections (choose first top-4 or null)
+    const initial = {};
+    humanRiders.forEach(name => {
+      const rider = cards[name] || { cards: [] };
+      const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+      initial[name] = top4.length > 0 ? top4[0].id : null;
+    });
+    setCardSelections(initial);
+    setCardSelectionOpen(true);
+  };
+
+  const handleCardChoice = (riderName, cardId) => {
+    setCardSelections(prev => ({ ...prev, [riderName]: cardId }));
+  };
+
+  const submitCardSelections = () => {
+    // Apply selections into a fresh cards object and then call confirmMove after state update
+    const updated = JSON.parse(JSON.stringify(cards || {}));
+    for (const [riderName, cardId] of Object.entries(cardSelections || {})) {
+      if (!updated[riderName]) continue;
+      if (cardId === 'tk_extra 15') {
+        // inject a special tk_extra card at the front so the engine can find it
+        const existing = updated[riderName].cards || [];
+        const synthetic = { id: 'tk_extra 15', flat: 15, uphill: 15 };
+        updated[riderName].cards = [synthetic, ...existing];
+        updated[riderName].planned_card_id = 'tk_extra 15';
+      } else if (typeof cardId === 'string') {
+        // set planned_card_id to the chosen id (should exist in hand)
+        updated[riderName].planned_card_id = cardId;
+      }
+    }
+    // Close modal and set cards; then call confirmMove after a short delay so state is in sync
+    setCardSelectionOpen(false);
+    setCards(updated);
+    setTimeout(() => confirmMove(), 60);
+  };
+
   const GroupDisplay = ({ groupNum }) => {
   const gr = Object.entries(cards).filter(([,r]) => r.group === groupNum && !r.finished);
     if (gr.length === 0) return null;
@@ -2649,8 +2698,8 @@ if (potentialLeaders.length > 0) {
                   {movePhase === 'cardSelection' && (
                     <div className="border-t pt-3 bg-green-50 p-3 rounded mt-3">
                       <div className="mb-2 text-sm font-medium">Speed: <span className="font-bold">{groupSpeed}</span>, SV: <span className="font-bold">{slipstream}</span></div>
-                      <div className="flex justify-end">
-                        <button onClick={confirmMove} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
+                        <div className="flex justify-end">
+                        <button onClick={() => openCardSelectionForGroup(currentGroup)} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
                           <ArrowRight size={14}/> Move Group
                         </button>
                       </div>
@@ -2689,6 +2738,39 @@ if (potentialLeaders.length > 0) {
               {Array.from(new Set(Object.values(cards).map(r => r.group))).sort((a,b) => a - b).map(g => (
                 <GroupDisplay key={g} groupNum={g} cards={cards} teamColors={teamColors} teamTextColors={teamTextColors} />
               ))}
+
+              {/* Card selection modal for human riders when moving a group */}
+              {cardSelectionOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 max-h-[80vh] overflow-y-auto">
+                    <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
+                    <div className="space-y-4 mb-4">
+                      {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
+                        <div key={name} className="p-3 border rounded">
+                          <div className="font-semibold mb-2">{name}</div>
+                          <div className="grid grid-cols-4 gap-2">
+                            {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => (
+                              <button key={c.id} type="button" onClick={() => handleCardChoice(name, c.id)} className={`p-2 rounded text-sm border ${cardSelections[name] === c.id ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}>
+                                <div className="font-bold">{c.id}</div>
+                                <div className="text-xs">{c.flat}|{c.uphill}</div>
+                              </button>
+                            ))}
+                            {/* TK-extra option */}
+                            <button type="button" onClick={() => handleCardChoice(name, 'tk_extra 15')} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}>
+                              <div className="font-bold">tk_extra</div>
+                              <div className="text-xs">use top-4 as discard</div>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => setCardSelectionOpen(false)} className="px-3 py-2 border rounded">Cancel</button>
+                      <button disabled={Object.values(cardSelections).length === 0 || Object.values(cardSelections).some(v => v === null)} onClick={submitCardSelections} className="px-4 py-2 bg-green-600 text-white rounded">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Mobile debug toggle button */}
               <div className="lg:hidden mt-3 px-3">
