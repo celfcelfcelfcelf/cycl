@@ -2,7 +2,7 @@ import React from 'react';
 import HumanTurnInterface from './HumanTurnInterface';
 import { convertToSeconds } from '../game/gameLogic';
 
-export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamColors = {}, teamTextColors = {} }) {
+export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamColors = {}, teamTextColors = {}, groupTimeGaps = {} }) {
   const entries = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished).sort((a,b) => b[1].position - a[1].position);
   const hasHuman = entries.some(([, r]) => r.team === 'Me');
 
@@ -31,12 +31,13 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
     }
   }
 
-  // compute overall max position across all (non-finished) riders
-  const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
-  const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
-  const groupFrontPos = entries.length ? Math.max(...entries.map(([, r]) => r.position)) : 0;
-  const fieldsToFront = Math.max(0, overallMax - groupFrontPos);
-  const timeSeconds = 13 * fieldsToFront;
+  // Only show a precomputed time gap provided by the app. This ensures the
+  // parenthetical time is updated only when the app explicitly sets
+  // `groupTimeGaps` (for example at the start of a round or after pressing
+  // "Move Group"). If no value exists, show 0:00.
+  const timeSeconds = (groupTimeGaps && typeof groupTimeGaps[groupNum] === 'number')
+    ? groupTimeGaps[groupNum]
+    : 0;
   const timeStr = convertToSeconds(timeSeconds);
 
   return (

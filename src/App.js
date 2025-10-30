@@ -1408,6 +1408,7 @@ const confirmMove = () => {
   setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
   addLog(`Group ${currentGroup} moved`);
 
+
   // Compute post-move summary and postpone auto-advance until user presses "Move next group"
   try {
     const remainingGroupsAll = Object.values(updatedCards).filter(r => !r.finished).map(r => r.group);
@@ -2180,125 +2181,7 @@ if (potentialLeaders.length > 0) {
     setFallTargetGroup(null);
   };
 
-  const GroupDisplay = ({ groupNum }) => {
-  const gr = Object.entries(cards).filter(([,r]) => r.group === groupNum && !r.finished);
-    if (gr.length === 0) return null;
-    const gp = Math.max(...gr.map(([,r]) => r.position));
-    const mr = gr.filter(([,r]) => r.team === 'Me');
-    const storedGap = groupTimeGaps[groupNum] || 0;
-    const timeGapStr = convertToSeconds(storedGap);
-    
-    return (
-      <div className={`mb-4 p-4 bg-white rounded-lg shadow border-2 ${currentGroup === groupNum ? 'border-blue-500' : 'border-gray-200'}`}>
-        <div className="flex justify-between mb-2">
-          <div>
-            <h3 className="text-lg font-bold">Group {groupNum}</h3>
-            <div className="text-xs text-gray-600">({timeGapStr})</div>
-          </div>
-          <div className="text-sm">Pos: {gp}</div>
-        </div>
-        <div className="text-sm mb-2 p-2 bg-gray-100 rounded font-mono overflow-x-auto">
-          {colourTrackTokens(track.slice(gp, gp + 20)).map((t, i) => (
-            <span key={i} className={t.className}>{t.char}</span>
-          ))}
-        </div>
-        
-        <div className="mb-3 space-y-2">
-          {(() => {
-            // Group riders by team so teams become visually grouped in the list
-            const teamOrder = (teamBaseOrder && teamBaseOrder.length > 0)
-              ? teamBaseOrder
-              : Array.from(new Set(gr.map(([, r]) => r.team)));
-            return teamOrder.map(t => {
-              const teamRiders = gr.filter(([, r]) => r.team === t);
-              if (teamRiders.length === 0) return null;
-              const bg = teamColors[t] || '#3b82f6';
-              const txt = teamTextColors[t] || '#ffffff';
-              return (
-                <div key={t} className="mb-2">
-                  <div className="mb-1 text-sm font-semibold" style={{ color: txt }}>{t}</div>
-                  <div className="space-y-2">
-                    {teamRiders.map(([name, rider]) => (
-                      <div key={name}>
-                        <button
-                          onClick={() => {
-                            addLog(`Clicked ${name}`);
-                            setExpandedRider(expandedRider === name ? null : name);
-                          }}
-                          className="w-full text-left px-4 py-3 rounded font-bold"
-                          style={{ backgroundColor: bg, color: txt }}
-                        >
-                          <span style={{ color: txt }}>{name}</span>{' '}
-                          <span className="text-sm" style={{ color: txt, opacity: 0.9 }}>({rider.team})</span>
-                          {typeof rider.win_chance === 'number' && (
-                            <span className="float-right mr-2" style={{ color: txt }}>{Math.round(rider.win_chance)}%</span>
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            });
-          })()}
-        </div>
-        
-        {movePhase === 'input' && currentGroup === groupNum && (
-          <div className="border-t pt-2">
-            {aiMessage && <div className="mb-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-sm font-semibold">{aiMessage}</div>}
-            {currentTeam === 'Me' && mr.length > 0 ? (
-  <HumanTurnInterface 
-    groupNum={groupNum}
-    riders={mr}
-    onSubmit={(choices) => handleHumanChoices(groupNum, choices)}
-  />
-	) : (
-                <div className="bg-gray-50 p-2 rounded flex justify-between">
-                <span className="text-sm">{currentTeam}'s turn</span>
-                {(() => {
-                  const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === groupNum && r.team === currentTeam && !r.finished);
-                  // Show a small hint if no riders, but always allow advancing
-                  return (
-                    <div className="flex items-center gap-2">
-                      {!teamHasRiders && <span className="text-sm italic text-gray-500">no riders in the group</span>}
-                      <button onClick={() => {
-                        const result = autoPlayTeam(groupNum);
-                        const teamAtCall = currentTeam;
-                        if (result) {
-                          setCards(result.updatedCards);
-                          // Submit the team's pace immediately so other AIs see it right away.
-                          const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === groupNum && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
-                          const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                          const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
-                          const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
-                          const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
-                          setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
-                        } else {
-                          // No riders / no auto result: advance with zero pace so flow continues
-                          const aiTeamPace = 0;
-                          const aiIsAttack = false;
-                          setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                          handlePaceSubmit(groupNum, aiTeamPace, teamAtCall, aiIsAttack, null);
-                        }
-                        // Clear the AI message after a short delay for UX
-                        setTimeout(() => { setAiMessage(''); }, 1500);
-                      }} 
-                      className="px-2 py-1 bg-gray-600 text-white rounded text-xs"
-                      >
-                        {currentTeam + "'s choice"}
-                      </button>
-                    </div>
-                  );
-                })()}
-</div>
-            )}
-          </div>
-        )}
-        {/* move UI moved to the central group chooser/status box under the track */}
-      </div>
-    );
-  };
+  // Group UI removed per user request.
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
@@ -2725,25 +2608,20 @@ if (potentialLeaders.length > 0) {
                   </div>
                 </div>
 
-                {/* Group compositions listed beneath the length, with team colors */}
-                  <div className="mt-2 space-y-1">
+                {/* Compact group overview beneath the track */}
+                <div className="mt-2 space-y-1">
                   {(() => {
                     const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                    if (groupsListLocal.length === 0) return null;
+                    const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
+                    const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
                     return groupsListLocal.map(g => {
                       const ridersInGroup = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n, r]) => ({ name: n, team: r.team, position: r.position }));
-                      // compute overall max position across non-finished riders
-                      const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
-                      const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
-                      const groupFrontPos = ridersInGroup.length ? Math.max(...ridersInGroup.map(rt => rt.position || 0)) : 0;
-                      const fieldsToFront = Math.max(0, overallMax - groupFrontPos);
-                      // time in seconds according to requested formula: time = 13 * (max_position - group_position)
-                      const timeSeconds = 13 * fieldsToFront;
-                      const timeStr = convertToSeconds(timeSeconds);
-                      // compute km left from the current front (slice track at overallMax)
+                      const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
+                      const timeStr = convertToSeconds(storedGap);
                       const kmLeft = typeof track === 'string' ? getLength(track.slice(overallMax)) : 0;
                       return (
                           <div key={g} className="text-sm">
-                            {/* show km left above first group only */}
                             {g === groupsListLocal[0] && (
                               <div className="text-xs text-gray-600 mb-1">{kmLeft} km left</div>
                             )}
@@ -2926,9 +2804,7 @@ if (potentialLeaders.length > 0) {
                 </div>
               </div>
 
-              {Array.from(new Set(Object.values(cards).map(r => r.group))).sort((a,b) => a - b).map(g => (
-                <GroupDisplay key={g} groupNum={g} cards={cards} teamColors={teamColors} teamTextColors={teamTextColors} />
-              ))}
+              {/* Per-group panels removed per user request */}
 
               {/* Card selection modal for human riders when moving a group */}
               {cardSelectionOpen && (
