@@ -2875,8 +2875,7 @@ if (potentialLeaders.length > 0) {
                         ))}
                       </div>
                       <div className="flex justify-end">
-                        <button onClick={moveToNextGroup} className="px-3 py-2 bg-blue-600 text-white rounded font-semibold">Move next group</button>
-                      </div>
+                      {/* 'Move next group' button removed per UX polish — no user-facing action required here */}
                     </div>
                   )}
                 </div>
