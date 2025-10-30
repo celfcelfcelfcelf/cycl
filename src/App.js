@@ -1463,16 +1463,23 @@ const confirmMove = () => {
         const failed = movedFields < Math.round(groupSpeed || 0);
         const isLead = (cards[n] && cards[n].takes_lead === 1) || (updatedCards[n] && updatedCards[n].takes_lead === 1);
 
-        // Heuristic: lead riders take 1 exhaustion card (EC). If the played card is very low
-        // (numeric value <= 2) they also take a TK-1. Engine doesn't currently expose these
-        // counts directly, so we infer from the displayed card value.
+        // Heuristic: infer exhaustion (EC) and TK-1 counts from the played card when
+        // possible. The engine doesn't currently expose these counts directly, so we
+        // inspect the pre-move card object (foundObj) when available. Additionally,
+        // retain the legacy rule that the lead rider takes 1 EC.
         let ecTaken = 0;
         let tkTaken = 0;
-        if (isLead) {
-          ecTaken = 1;
-          const num = parseInt(String(displayCard).match(/\d+/)?.[0] || '', 10);
-          if (!Number.isNaN(num) && num <= 2) tkTaken = 1;
-        }
+        try {
+          if (foundObj && foundObj.id) {
+            const idLower = String(foundObj.id).toLowerCase();
+            // TK-style cards often have 'TK' in the id
+            if (/tk/i.test(idLower)) tkTaken = 1;
+            // Exhaustion EC card uses id 'kort: 16' in the CSV loader
+            if (/kort\s*:\s*16/i.test(idLower) || idLower === 'kort: 16') ecTaken = 1;
+          }
+        } catch (e) {}
+        // Legacy: leaders take 1 EC even if their played card object doesn't indicate it
+        if (isLead && ecTaken === 0) ecTaken = 1;
 
         const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ✓`;
         msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken });
@@ -2782,8 +2789,8 @@ if (potentialLeaders.length > 0) {
                               <span>{m.name} ({m.team})</span>
                             )}{' '}
                             <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
-                            {/* Additional consequences for leaders: TK-1 and Exhaustion (EC) */}
-                            { (m.isLead && (m.tkTaken || m.ecTaken)) && (
+                            {/* Additional consequences for riders who took TK-1 or EC */}
+                            { (m.tkTaken || m.ecTaken) && (
                               <div className="text-xs text-gray-700 ml-3">
                                 {(() => {
                                   const parts = [];
