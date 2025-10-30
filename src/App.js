@@ -1463,23 +1463,26 @@ const confirmMove = () => {
         const failed = movedFields < Math.round(groupSpeed || 0);
         const isLead = (cards[n] && cards[n].takes_lead === 1) || (updatedCards[n] && updatedCards[n].takes_lead === 1);
 
-        // Heuristic: infer exhaustion (EC) and TK-1 counts from the played card when
-        // possible. The engine doesn't currently expose these counts directly, so we
-        // inspect the pre-move card object (foundObj) when available. Additionally,
-        // retain the legacy rule that the lead rider takes 1 EC.
+        // Determine how many TK-1 and EC cards were added as a result of the move
+        // by comparing pre-move and post-move hand+discard counts. This is robust
+        // because the engine inserts 'TK-1: 99' and 'kort: 16' into hands/discards.
         let ecTaken = 0;
         let tkTaken = 0;
         try {
-          if (foundObj && foundObj.id) {
-            const idLower = String(foundObj.id).toLowerCase();
-            // TK-style cards often have 'TK' in the id
-            if (/tk/i.test(idLower)) tkTaken = 1;
-            // Exhaustion EC card uses id 'kort: 16' in the CSV loader
-            if (/kort\s*:\s*16/i.test(idLower) || idLower === 'kort: 16') ecTaken = 1;
-          }
-        } catch (e) {}
-        // Legacy: leaders take 1 EC even if their played card object doesn't indicate it
-        if (isLead && ecTaken === 0) ecTaken = 1;
+          const pre = cards[n] || { cards: [], discarded: [] };
+          const post = updatedCards[n] || { cards: [], discarded: [] };
+          const preAll = [...(pre.cards || []), ...(pre.discarded || [])];
+          const postAll = [...(post.cards || []), ...(post.discarded || [])];
+          const preTK = preAll.filter(c => c && String(c.id) === 'TK-1: 99').length;
+          const postTK = postAll.filter(c => c && String(c.id) === 'TK-1: 99').length;
+          const preEC = preAll.filter(c => c && String(c.id) === 'kort: 16').length;
+          const postEC = postAll.filter(c => c && String(c.id) === 'kort: 16').length;
+          tkTaken = Math.max(0, postTK - preTK);
+          ecTaken = Math.max(0, postEC - preEC);
+        } catch (e) {
+          // fallback: legacy leader heuristic
+          if (isLead) ecTaken = 1;
+        }
 
         const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ✓`;
         msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken });
