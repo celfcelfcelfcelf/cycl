@@ -1765,14 +1765,49 @@ if (potentialLeaders.length > 0) {
   setLatestPrelTime(0);
 };
 
-  const runSprints = (trackStr, sprintGroup = null) => {
-    // Delegate to pure helper in shared gameLogic module
+  const runSprints = async (trackStr, sprintGroup = null) => {
+    // Run the pure sprint logic to compute results, but present an animated
+    // sequence in the UI: show riders' sprint stats, then sequentially "sprint"
+    // the lowest->highest sprinter with delays to make it more exciting.
     try {
       const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
+
+      // Collect riders in this sprint group and their computed sprint stats
+      const updated = res.updatedCards || {};
+      const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup && !r.finished);
+      // Build stats array
+      const stats = groupRiders.map(([name, r]) => ({
+        name,
+        sprint_points: Math.round(r.sprint_points || 0),
+        sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
+        tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
+      }));
+
+      if (stats.length > 0) {
+        // 1) Write the riders sprint stats in reversed order (descending -> reversed)
+        const desc = stats.slice().sort((a,b) => b.sprint_points - a.sprint_points);
+        const reversed = desc.slice().reverse();
+        for (const s of reversed) {
+          addLog(`${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+        }
+
+        // Wait 1.5s
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
+        const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
+        for (const s of asc) {
+          addLog(`Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+
+      // After animation, apply the computed results to state and global logs
       setCards(res.updatedCards);
       setSprintResults(res.result);
       setLatestPrelTime(res.latestPt);
       for (const l of res.logs || []) addLog(l);
+
       // Remove the sprintGroup we just ran from the pending list so the
       // UI no longer shows the "Sprint with group X" button.
       // If sprintGroup is null we ran all detected groups -> clear all pending.
