@@ -2647,22 +2647,30 @@ if (potentialLeaders.length > 0) {
                                                   const movedHere = groups.filter(g => moved.includes(g));
                                                   const notMovedHere = groups.filter(g => !moved.includes(g));
 
+                                                  // If there are groups that haven't moved here, show them prominently
+                                                  // in the center. If there are also groups that have moved here,
+                                                  // show those beneath in the smaller moved-group style.
                                                   if (notMovedHere.length > 0) {
-                                                    // One or more groups here haven't moved yet — show prominent label
-                                                    const label = notMovedHere.map(g => `G${g}`).join(',');
+                                                    const centerLabel = notMovedHere.map(g => `G${g}`).join(',');
                                                     return (
-                                                      <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', textAlign: 'center', fontSize: '1.05rem', fontWeight: 800 }}>
-                                                        {label}
-                                                      </div>
+                                                      <>
+                                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', textAlign: 'center', fontSize: '1.05rem', fontWeight: 800 }}>
+                                                          {centerLabel}
+                                                        </div>
+                                                        {movedHere.length > 0 && (
+                                                          <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
+                                                            {movedHere.map(g => `G${g}`).join(',')}
+                                                          </div>
+                                                        )}
+                                                      </>
                                                     );
                                                   }
 
+                                                  // No unmoved groups here; if moved groups exist, show them small
                                                   if (movedHere.length > 0) {
-                                                    // All groups here have moved — show small bottom-aligned labels
-                                                    const label = movedHere.map(g => `G${g}`).join(',');
                                                     return (
                                                       <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                        {label}
+                                                        {movedHere.map(g => `G${g}`).join(',')}
                                                       </div>
                                                     );
                                                   }
