@@ -2630,16 +2630,20 @@ if (potentialLeaders.length > 0) {
                           Sprint with group {minG}
                         </button>
                         {/* Animated sprint messages shown directly below the button */}
-                        {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
-                          <div className="mt-2 p-2 bg-purple-50 border rounded">
-                            {sprintAnimMsgs.map((m, idx) => (
-                              <div key={idx} className="text-sm text-gray-800">{m}</div>
-                            ))}
-                          </div>
-                        )}
+                        { /* kept here for immediate visibility while button is present */ }
                       </div>
                     );
                   })()}
+
+                    {/* Also render animation messages persistently below the sprint area
+                        so they remain visible even if the sprint pending list changes */}
+                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                      <div className="mt-2 p-2 bg-purple-50 border rounded">
+                        {sprintAnimMsgs.map((m, idx) => (
+                          <div key={idx} className="text-sm text-gray-800">{m}</div>
+                        ))}
+                      </div>
+                    )}
 
                   {/* Final standings: position, name, time */}
                   <div className="bg-white rounded p-2 border mt-1">
