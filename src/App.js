@@ -823,8 +823,7 @@ return { pace, updatedCards };
   // pickSequenceParam: optional explicit per-pick sequence array; when provided
   // the function will use the passed-in sequence for all internal decisions
   // to avoid state races with async setState updates.
-  const processNextPick = (remainingArg = null, teamsArg = null, selectionsArg = null, pickSequenceParam = null) => {
-    // Accept current values or use provided args
+  const processNextPick = (remainingArg = null, teamsArg = null, selectionsArg = null, pickSequenceParam = null) => {                                                                                             // Accept current values or use provided args
     const remaining = remainingArg || draftRemaining;
     const teamsOrder = teamsArg || draftTeamsOrder;
     const selections = Array.isArray(selectionsArg) ? selectionsArg : draftSelections;
@@ -2687,6 +2686,7 @@ if (potentialLeaders.length > 0) {
                   {/* Final standings: position, name, time */}
                   <div className="bg-white rounded p-2 border mt-1">
                     <div className="text-sm font-semibold mb-1">Final Standings</div>
+                    <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                     {(() => {
                       const finished = Object.entries(cards)
                         .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
@@ -2696,7 +2696,7 @@ if (potentialLeaders.length > 0) {
                         <div className="text-sm">
                           {finished.map(([name, r]) => (
                             <div key={name} className="flex justify-between text-xs py-0.5">
-                              <div>{r.result}. {name}</div>
+                              <div>{r.result}. {r.team === 'Me' ? (<strong>{name}</strong>) : name}</div>
                               <div className="text-gray-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
                             </div>
                           ))}
@@ -2865,7 +2865,7 @@ if (potentialLeaders.length > 0) {
                       <div className="mb-2 text-sm font-medium">
                         {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
                           <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : ''}`}>
-                            {m.isLead ? (
+                            {m.isLead || m.team === 'Me' ? (
                               <strong className={`${m.failed ? 'text-red-600' : ''}`}>{m.name} ({m.team})</strong>
                             ) : (
                               <span>{m.name} ({m.team})</span>
@@ -2875,7 +2875,8 @@ if (potentialLeaders.length > 0) {
                         ))}
                       </div>
                       <div className="flex justify-end">
-                      {/* 'Move next group' button removed per UX polish — no user-facing action required here */}
+                        {/* Move next group button removed per UX polish */}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2965,7 +2966,7 @@ if (potentialLeaders.length > 0) {
                               return (
                                 <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 15')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
                                   <div className="font-bold">tk_extra</div>
-                                  <div className="text-xs">use top-4 as discard</div>
+                                  <div className="text-xs">2|2</div>
                                 </button>
                               );
                             })()}
@@ -3142,6 +3143,7 @@ if (potentialLeaders.length > 0) {
                 {/* Final standings */}
                 <div className="bg-white rounded-lg shadow p-3 mt-3">
                   <h3 className="font-bold mb-2">Final Standings</h3>
+                  <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                   {(() => {
                     const finished = Object.entries(cards)
                       .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
@@ -3151,7 +3153,7 @@ if (potentialLeaders.length > 0) {
                       <div className="text-sm space-y-1">
                         {finished.map(([name, r]) => (
                           <div key={name} className="flex justify-between">
-                            <div>{r.result}. {name} <span className="text-xs text-gray-500">({r.team})</span></div>
+                            <div>{r.result}. {r.team === 'Me' ? (<strong>{name}</strong>) : name} <span className="text-xs text-gray-500">({r.team})</span></div>
                             <div className="text-xs text-green-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
                           </div>
                         ))}
