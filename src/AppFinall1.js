@@ -2709,7 +2709,7 @@ if (potentialLeaders.length > 0) {
                       <div className="text-sm space-y-1">
                         {finished.map(([name, r]) => (
                           <div key={name} className="flex justify-between">
-                            <div>{r.result}. {name} <span className="text-xs text-gray-500">({r.team})</span></div>
+                            <div>{r.result}. {r.team === 'Me' ? (<strong>{name}</strong>) : name} <span className="text-xs text-gray-500">({r.team})</span></div>
                             <div className="text-xs text-green-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
                           </div>
                         ))}
