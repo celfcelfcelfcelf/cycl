@@ -107,6 +107,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [latestPrelTime, setLatestPrelTime] = useState(0);
   const [sprintResults, setSprintResults] = useState([]);
   const [sprintGroupsPending, setSprintGroupsPending] = useState([]);
+  const [sprintAnimMsgs, setSprintAnimMsgs] = useState([]);
   const [showDebugMobile, setShowDebugMobile] = useState(false);
   const [showEngineUI, setShowEngineUI] = useState(false);
   const [postMoveInfo, setPostMoveInfo] = useState(null);
@@ -1784,11 +1785,13 @@ if (potentialLeaders.length > 0) {
       }));
 
       if (stats.length > 0) {
+        // Clear any previous animation messages
+        setSprintAnimMsgs([]);
         // 1) Write the riders sprint stats in reversed order (descending -> reversed)
         const desc = stats.slice().sort((a,b) => b.sprint_points - a.sprint_points);
         const reversed = desc.slice().reverse();
         for (const s of reversed) {
-          addLog(`${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+          setSprintAnimMsgs(prev => [...prev, `${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`]);
         }
 
         // Wait 1.5s
@@ -1797,7 +1800,7 @@ if (potentialLeaders.length > 0) {
         // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
         const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
         for (const s of asc) {
-          addLog(`Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+          setSprintAnimMsgs(prev => [...prev, `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`]);
           await new Promise(r => setTimeout(r, 1500));
         }
       }
@@ -2619,13 +2622,21 @@ if (potentialLeaders.length > 0) {
 
                 {/* Sprint button and final standings placed immediately under the field display */}
                 <div className="mt-2">
-                  {sprintGroupsPending.length > 0 && (() => {
+                      {sprintGroupsPending.length > 0 && (() => {
                     const minG = Math.min(...sprintGroupsPending);
                     return (
                       <div className="mb-2">
-                        <button onClick={() => runSprints(track, minG)} className="w-full bg-purple-500 text-white py-2 rounded">
+                        <button onClick={() => { setSprintAnimMsgs([]); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
                           Sprint with group {minG}
                         </button>
+                        {/* Animated sprint messages shown directly below the button */}
+                        {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                          <div className="mt-2 p-2 bg-purple-50 border rounded">
+                            {sprintAnimMsgs.map((m, idx) => (
+                              <div key={idx} className="text-sm text-gray-800">{m}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
