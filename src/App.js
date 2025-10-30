@@ -1462,8 +1462,19 @@ const confirmMove = () => {
         const failed = movedFields < Math.round(groupSpeed || 0);
         const isLead = (cards[n] && cards[n].takes_lead === 1) || (updatedCards[n] && updatedCards[n].takes_lead === 1);
 
+        // Heuristic: lead riders take 1 exhaustion card (EC). If the played card is very low
+        // (numeric value <= 2) they also take a TK-1. Engine doesn't currently expose these
+        // counts directly, so we infer from the displayed card value.
+        let ecTaken = 0;
+        let tkTaken = 0;
+        if (isLead) {
+          ecTaken = 1;
+          const num = parseInt(String(displayCard).match(/\d+/)?.[0] || '', 10);
+          if (!Number.isNaN(num) && num <= 2) tkTaken = 1;
+        }
+
         const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ✓`;
-        msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine });
+        msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken });
         // Also write the plain textual line to the global log so it appears in the Log panel
         addLog(plainLine);
       } catch (e) {
@@ -2865,12 +2876,23 @@ if (potentialLeaders.length > 0) {
                       <div className="mb-2 text-sm font-medium">
                         {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
                           <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : ''}`}>
-                            {m.isLead || m.team === 'Me' ? (
+                            {m.isLead ? (
                               <strong className={`${m.failed ? 'text-red-600' : ''}`}>{m.name} ({m.team})</strong>
                             ) : (
                               <span>{m.name} ({m.team})</span>
                             )}{' '}
                             <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
+                            {/* Additional consequences for leaders: TK-1 and Exhaustion (EC) */}
+                            { (m.isLead && (m.tkTaken || m.ecTaken)) && (
+                              <div className="text-xs text-gray-700 ml-3">
+                                {(() => {
+                                  const parts = [];
+                                  if (m.tkTaken) parts.push(`${m.tkTaken} Tk-1`);
+                                  if (m.ecTaken) parts.push(`${m.ecTaken} EC`);
+                                  return `.... takes ${parts.join(' and ')}`;
+                                })()}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
