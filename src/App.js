@@ -2626,7 +2626,7 @@ if (potentialLeaders.length > 0) {
                     const minG = Math.min(...sprintGroupsPending);
                     return (
                       <div className="mb-2">
-                        <button onClick={() => { setSprintAnimMsgs([]); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
+                        <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
                           Sprint with group {minG}
                         </button>
                         {/* Animated sprint messages shown directly below the button */}
