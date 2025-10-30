@@ -1771,10 +1771,13 @@ if (potentialLeaders.length > 0) {
     // sequence in the UI: show riders' sprint stats, then sequentially "sprint"
     // the lowest->highest sprinter with delays to make it more exciting.
     try {
-      const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
+  const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
+  // Debug: indicate pure runner returned
+  try { addLog(`runSprints: pure runner returned (result.riders=${Object.keys(res.updatedCards || {}).length})`); } catch (e) {}
+  setSprintAnimMsgs(prev => [...prev, 'Computed sprint results']);
 
-      // Collect riders in this sprint group and their computed sprint stats
-      const updated = res.updatedCards || {};
+  // Collect riders in this sprint group and their computed sprint stats
+  const updated = res.updatedCards || {};
       const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup && !r.finished);
       // Build stats array
       const stats = groupRiders.map(([name, r]) => ({
@@ -1785,8 +1788,9 @@ if (potentialLeaders.length > 0) {
       }));
 
       if (stats.length > 0) {
-        // Clear any previous animation messages
-        setSprintAnimMsgs([]);
+        // Clear any previous animation messages (keep the initial 'Preparing sprint...' briefly)
+        setSprintAnimMsgs(['Preparing sprint...']);
+        try { addLog(`runSprints: stats count=${stats.length}`); } catch (e) {}
         // 1) Write the riders sprint stats in reversed order (descending -> reversed)
         const desc = stats.slice().sort((a,b) => b.sprint_points - a.sprint_points);
         const reversed = desc.slice().reverse();
@@ -1801,8 +1805,13 @@ if (potentialLeaders.length > 0) {
         const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
         for (const s of asc) {
           setSprintAnimMsgs(prev => [...prev, `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`]);
+          try { addLog(`runSprints: animated sprint for ${s.name}`); } catch (e) {}
           await new Promise(r => setTimeout(r, 1500));
         }
+      }
+      else {
+        try { addLog('runSprints: no sprint stats found for group'); } catch (e) {}
+        setSprintAnimMsgs(prev => [...prev, 'No sprintable riders found.']);
       }
 
       // After animation, apply the computed results to state and global logs
