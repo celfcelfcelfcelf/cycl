@@ -2718,14 +2718,28 @@ if (potentialLeaders.length > 0) {
                 </div>
 
                 {/* Group compositions listed beneath the length, with team colors */}
-                <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-1">
                   {(() => {
                     const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
                     return groupsListLocal.map(g => {
-                      const ridersInGroup = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n, r]) => ({ name: n, team: r.team }));
+                      const ridersInGroup = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n, r]) => ({ name: n, team: r.team, position: r.position }));
+                      // compute overall max position across non-finished riders
+                      const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
+                      const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
+                      const groupFrontPos = ridersInGroup.length ? Math.max(...ridersInGroup.map(rt => rt.position || 0)) : 0;
+                      const fieldsToFront = Math.max(0, overallMax - groupFrontPos);
+                      // time in seconds according to requested formula: time = 13 * (max_position - group_position)
+                      const timeSeconds = 13 * fieldsToFront;
+                      const timeStr = convertToSeconds(timeSeconds);
+                      // compute km left from the current front (slice track at overallMax)
+                      const kmLeft = typeof track === 'string' ? getLength(track.slice(overallMax)) : 0;
                       return (
-                        <div key={g} className="text-sm">
-                          <span className="font-semibold">Group {g}:</span>{' '}
+                          <div key={g} className="text-sm">
+                            {/* show km left above first group only */}
+                            {g === groupsListLocal[0] && (
+                              <div className="text-xs text-gray-600 mb-1">{kmLeft} km left</div>
+                            )}
+                            <span className="font-semibold">Group {g} ({timeStr}):</span>{' '}
                           {ridersInGroup.map((rt, idx) => (
                             <span key={rt.name} className="mr-2">
                               <span style={{ color: teamColors[rt.team] || '#000', fontWeight: 600 }}>{rt.name}</span>{' '}

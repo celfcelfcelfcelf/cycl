@@ -1,5 +1,6 @@
 import React from 'react';
 import HumanTurnInterface from './HumanTurnInterface';
+import { convertToSeconds } from '../game/gameLogic';
 
 export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamColors = {}, teamTextColors = {} }) {
   const entries = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished).sort((a,b) => b[1].position - a[1].position);
@@ -30,9 +31,17 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
     }
   }
 
+  // compute overall max position across all (non-finished) riders
+  const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
+  const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
+  const groupFrontPos = entries.length ? Math.max(...entries.map(([, r]) => r.position)) : 0;
+  const fieldsToFront = Math.max(0, overallMax - groupFrontPos);
+  const timeSeconds = 13 * fieldsToFront;
+  const timeStr = convertToSeconds(timeSeconds);
+
   return (
     <div className="border border-gray-200 p-2 rounded">
-      <div className="font-bold">Group {groupNum} - pos {entries.length ? Math.max(...entries.map(([,r])=>r.position)) : 0}</div>
+      <div className="font-bold">Group {groupNum} ({timeStr}):</div>
       {/* Group member list and per-rider cards removed. */}
       {hasHuman && <div className="mt-2">
         <HumanTurnInterface groupRiders={groupRiders} groupNum={groupNum} onSubmit={handleSubmit} />
