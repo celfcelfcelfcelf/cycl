@@ -1772,41 +1772,70 @@ if (potentialLeaders.length > 0) {
     // the lowest->highest sprinter with delays to make it more exciting.
     try {
   const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
-  // Debug: indicate pure runner returned
+  // Debug: indicate pure runner returned and wipe previous animation messages
   try { addLog(`runSprints: pure runner returned (result.riders=${Object.keys(res.updatedCards || {}).length})`); } catch (e) {}
-  setSprintAnimMsgs(prev => [...prev, 'Computed sprint results']);
+  // Wipe the animation box when a new group sprints and show initial Preparing message
+  setSprintAnimMsgs(['Preparing sprint...']);
 
   // Collect riders in this sprint group and their computed sprint stats
   const updated = res.updatedCards || {};
       const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup && !r.finished);
-      // Build stats array
-      const stats = groupRiders.map(([name, r]) => ({
+      // Build stats array from the pure-runner's updated cards
+      let stats = groupRiders.map(([name, r]) => ({
         name,
         sprint_points: Math.round(r.sprint_points || 0),
         sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
         tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
       }));
 
+      // If the pure runner returned no stats for this group, fall back to
+      // computing a lightweight stats array from the current `cards` state so
+      // the UI animation still shows something useful.
+      if (stats.length === 0) {
+        try { addLog('runSprints: pure runner returned no stats, attempting fallback from cards'); } catch (e) {}
+        const fallbackGroup = Object.entries(cards).filter(([, r]) => r.group === sprintGroup && !r.finished);
+        const fallbackStats = fallbackGroup.map(([name, r]) => ({
+          name,
+          // Prefer explicit sprint_points if present, otherwise approximate from r.sprint
+          sprint_points: Math.round((typeof r.sprint_points === 'number') ? r.sprint_points : (typeof r.sprint === 'number' ? r.sprint : 0)),
+          sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
+          tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
+        }));
+
+        if (fallbackStats.length > 0) {
+          stats = fallbackStats;
+          try { addLog(`runSprints: using fallback stats from cards, count=${stats.length}`); } catch (e) {}
+          // Reset animation messages to the initial state before we animate
+          setSprintAnimMsgs(['Preparing sprint...']);
+        }
+      }
+
       if (stats.length > 0) {
         // Clear any previous animation messages (keep the initial 'Preparing sprint...' briefly)
         setSprintAnimMsgs(['Preparing sprint...']);
         try { addLog(`runSprints: stats count=${stats.length}`); } catch (e) {}
-        // 1) Write the riders sprint stats in reversed order (descending -> reversed)
-        const desc = stats.slice().sort((a,b) => b.sprint_points - a.sprint_points);
-        const reversed = desc.slice().reverse();
-        for (const s of reversed) {
-          setSprintAnimMsgs(prev => [...prev, `${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`]);
-        }
-
-        // Wait 1.5s
-        await new Promise(r => setTimeout(r, 1500));
+        // Helper: try to find an exact sprint log line for a rider from res.logs
+        const findLogLine = (name) => {
+          try {
+            if (!res.logs || res.logs.length === 0) return null;
+            // Find first log entry that contains the rider name and 'sprint points'
+            const entry = res.logs.find(l => l && l.includes(name) && l.includes('sprint points'));
+            if (!entry) return null;
+            // Strip any leading numeric placement like '7. ' to match previous UI format
+            const m = entry.match(/^\s*\d+\.\s*(.*)$/);
+            return m ? m[1] : entry;
+          } catch (e) { return null; }
+        };
 
         // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
         const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
         for (const s of asc) {
-          setSprintAnimMsgs(prev => [...prev, `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`]);
+          const logLine = findLogLine(s.name);
+          const msg = logLine ? `Sprint: ${logLine}` : `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`;
+          setSprintAnimMsgs(prev => [...prev, msg]);
           try { addLog(`runSprints: animated sprint for ${s.name}`); } catch (e) {}
-          await new Promise(r => setTimeout(r, 1500));
+          // Wait 3 seconds between each message to emphasize the animation
+          await new Promise(r => setTimeout(r, 3000));
         }
       }
       else {
@@ -2312,6 +2341,9 @@ if (potentialLeaders.length > 0) {
                 </div>
               </div>
 
+              {/* Spacer so main content is not hidden behind the fixed sticky track footer */}
+              <div style={{ height: '6.25rem' }} />
+
               <div>
                 <label className="block text-sm font-medium mb-2">Riders / Team</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -2549,81 +2581,8 @@ if (potentialLeaders.length > 0) {
                   Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
 
                   return (
-                    <div ref={topTilesRef} className="overflow-x-auto p-2 bg-gray-50 rounded font-mono mb-2" style={{ height: '6rem' }}>
-                      <div className="flex items-center" style={{ height: '100%' }}>
-                        {tokens.map((t) => {
-                          const groupsHere = posToGroups[t.idx] || [];
-                          return (
-                            <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: 'auto', marginRight: 3 }}>
-                                      <div style={{ fontSize: '12px', marginBottom: 4 }}>{t.idx}</div>
-                                      {/* Box: width reduced by 20%, height increased by 10% (relative to previous). */}
-                                      {(() => {
-                                        const base = 40; // previous base width
-                                        const w = Math.round(base * 0.8); // 20% less width
-                                        const h = Math.round(w * 2 * 1.1); // twice as high, then 10% taller
-                                        const char = t.char;
-                                        const groups = groupsHere || [];
-                                        // map token char to background + text colors
-                                        const map = {
-                                          '3': { bg: '#D1D5DB', text: '#111827' }, // grey
-                                          '2': { bg: '#8B3A3A', text: '#FFFFFF' }, // red-brown
-                                          '1': { bg: '#DC2626', text: '#FFFFFF' }, // red
-                                          '0': { bg: '#F9A8D4', text: '#111827' }, // pink
-                                          '_': { bg: '#60A5FA', text: '#03133E' }, // light blue
-                                          'F': { bg: '#FACC15', text: '#111827' }  // yellow
-                                        };
-                                        const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
-                                        const groupLabel = groups.length > 0 ? groups.map(g => `G${g}`).join(',') : null;
-
-                                        return (
-                                          <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
-                                            {/* Token char in top-right (small) */}
-                                            <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
-                                                {/* Group label: if the group(s) at this field have moved this round,
-                                                    show them at the bottom with a much smaller font; otherwise
-                                                    show the label prominently centered. */}
-                                                {groups.length > 0 && (() => {
-                                                  const moved = (groupsMovedThisRound || []).map(Number);
-                                                  const movedHere = groups.filter(g => moved.includes(g));
-                                                  const notMovedHere = groups.filter(g => !moved.includes(g));
-
-                                                  // If there are groups that haven't moved here, show them prominently
-                                                  // in the center. If there are also groups that have moved here,
-                                                  // show those beneath in the smaller moved-group style.
-                                                  if (notMovedHere.length > 0) {
-                                                    const centerLabel = notMovedHere.map(g => `G${g}`).join(',');
-                                                    return (
-                                                      <>
-                                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', textAlign: 'center', fontSize: '1.05rem', fontWeight: 800 }}>
-                                                          {centerLabel}
-                                                        </div>
-                                                        {movedHere.length > 0 && (
-                                                          <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                            {movedHere.map(g => `G${g}`).join(',')}
-                                                          </div>
-                                                        )}
-                                                      </>
-                                                    );
-                                                  }
-
-                                                  // No unmoved groups here; if moved groups exist, show them small
-                                                  if (movedHere.length > 0) {
-                                                    return (
-                                                      <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
-                                                        {movedHere.map(g => `G${g}`).join(',')}
-                                                      </div>
-                                                    );
-                                                  }
-
-                                                  return null;
-                                                })()}
-                                          </div>
-                                        );
-                                      })()}
-                                    </div>
-                          );
-                        })}
-                      </div>
+                    <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono mb-2">
+                      <div className="text-sm text-gray-600">Track preview pinned to the bottom — see the sticky track player.</div>
                     </div>
                   );
                 })()}
@@ -2655,15 +2614,15 @@ if (potentialLeaders.length > 0) {
                     )}
 
                   {/* Final standings: position, name, time */}
-                  <div className="bg-white rounded p-2 border mt-1">
-                    <div className="text-sm font-semibold mb-1">Final Standings</div>
-                    <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
-                    {(() => {
-                      const finished = Object.entries(cards)
-                        .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
-                        .sort((a, b) => (a[1].result || 9999) - (b[1].result || 9999));
-                      if (finished.length === 0) return <div className="text-xs text-gray-500">No finishers yet</div>;
-                      return (
+                  {(() => {
+                    const finished = Object.entries(cards)
+                      .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
+                      .sort((a, b) => (a[1].result || 9999) - (b[1].result || 9999));
+                    if (finished.length === 0) return null; // hide final standings until someone finishes
+                    return (
+                      <div className="bg-white rounded p-2 border mt-1">
+                        <div className="text-sm font-semibold mb-1">Final Standings</div>
+                        <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                         <div className="text-sm">
                           {finished.map(([name, r]) => (
                             <div key={name} className="flex justify-between text-xs py-0.5">
@@ -2672,9 +2631,9 @@ if (potentialLeaders.length > 0) {
                             </div>
                           ))}
                         </div>
-                      );
-                    })()}
-                  </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Compact group overview beneath the track */}
@@ -2783,33 +2742,36 @@ if (potentialLeaders.length > 0) {
                             const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentTeam && !r.finished);
                             return (
                               <div className="flex items-center gap-2">
-                                {!teamHasRiders && <div className="text-sm italic text-gray-500">no riders in the group</div>}
-                                <button
-                                  onClick={() => {
-                                    const result = autoPlayTeam(currentGroup);
-                                    const teamAtCall = currentTeam;
-                                    if (result) {
-                                      setCards(result.updatedCards);
-                                      const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
-                                      const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                                      const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
-                                      const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
-                                      // Set a short-lived AI message for UX
-                                      const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
-                                      setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
-                                    } else {
-                                      const aiTeamPace = 0;
-                                      const aiIsAttack = false;
-                                      setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                      handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null);
-                                    }
-                                    setTimeout(() => { setAiMessage(''); }, 1500);
-                                  }}
-                                  className="px-3 py-2 bg-gray-700 text-white rounded"
-                                >
-                                  {currentTeam + "'s choice"}
-                                </button>
+                                {!teamHasRiders ? (
+                                  <div className="text-sm italic text-gray-500">no riders in the group</div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      const result = autoPlayTeam(currentGroup);
+                                      const teamAtCall = currentTeam;
+                                      if (result) {
+                                        setCards(result.updatedCards);
+                                        const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
+                                        const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                        const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                        const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                        // Set a short-lived AI message for UX
+                                        const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
+                                        setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
+                                      } else {
+                                        const aiTeamPace = 0;
+                                        const aiIsAttack = false;
+                                        setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null);
+                                      }
+                                      setTimeout(() => { setAiMessage(''); }, 1500);
+                                    }}
+                                    className="px-3 py-2 bg-gray-700 text-white rounded"
+                                  >
+                                    {currentTeam + "'s choice"}
+                                  </button>
+                                )}
                               </div>
                             );
                           })()}
@@ -3065,6 +3027,106 @@ if (potentialLeaders.length > 0) {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Sticky track footer: condensed track + sprint controls always visible at bottom */}
+            <div className="fixed left-0 right-0 bottom-0 bg-white border-t shadow-lg z-50">
+              <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4">
+                <div className="flex-1 overflow-x-auto">
+                  <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono" style={{ height: '6rem' }}>
+                    <div className="flex items-center" style={{ height: '100%' }}>
+                      {(() => {
+                        const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
+                        // compute group positions similar to the top-area logic
+                        const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                        const groupPosMap = {};
+                        groupsList.forEach(g => {
+                          const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
+                          groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
+                        });
+                        const posToGroups = {};
+                        Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                        return tokens.map((t) => {
+                          const groupsHere = posToGroups[t.idx] || [];
+                          const base = 40;
+                          const w = Math.round(base * 0.8);
+                          const h = Math.round(w * 2 * 1.1);
+                          const char = t.char;
+                          const groups = groupsHere || [];
+                          const map = {
+                            '3': { bg: '#D1D5DB', text: '#111827' },
+                            '2': { bg: '#8B3A3A', text: '#FFFFFF' },
+                            '1': { bg: '#DC2626', text: '#FFFFFF' },
+                            '0': { bg: '#F9A8D4', text: '#111827' },
+                            '_': { bg: '#60A5FA', text: '#03133E' },
+                            'F': { bg: '#FACC15', text: '#111827' }
+                          };
+                          const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
+
+                          return (
+                            <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: 'auto', marginRight: 3 }}>
+                              <div style={{ fontSize: '12px', marginBottom: 4 }}>{t.idx}</div>
+                              <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
+                                <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
+                                {groups.length > 0 && (() => {
+                                  const moved = (groupsMovedThisRound || []).map(Number);
+                                  const movedHere = groups.filter(g => moved.includes(g));
+                                  const notMovedHere = groups.filter(g => !moved.includes(g));
+                                  if (notMovedHere.length > 0) {
+                                    const centerLabel = notMovedHere.map(g => `G${g}`).join(',');
+                                    return (
+                                      <>
+                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', textAlign: 'center', fontSize: '1.05rem', fontWeight: 800 }}>
+                                          {centerLabel}
+                                        </div>
+                                        {movedHere.length > 0 && (
+                                          <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
+                                            {movedHere.map(g => `G${g}`).join(',')}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  }
+                                  if (movedHere.length > 0) {
+                                    return (
+                                      <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
+                                        {movedHere.map(g => `G${g}`).join(',')}
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-shrink-0 w-64">
+                  {sprintGroupsPending.length > 0 && (() => {
+                    const minG = Math.min(...sprintGroupsPending);
+                    return (
+                      <div className="mb-1">
+                        <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
+                          Sprint with group {minG}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                    <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                      {sprintAnimMsgs.map((m, idx) => (
+                        <div key={idx} className="text-xs text-gray-800">{m}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
