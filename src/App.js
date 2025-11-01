@@ -110,6 +110,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [sprintAnimMsgs, setSprintAnimMsgs] = useState([]);
   const [showDebugMobile, setShowDebugMobile] = useState(false);
   const [showEngineUI, setShowEngineUI] = useState(false);
+  const [footerCollapsed, setFooterCollapsed] = useState(false);
   const [postMoveInfo, setPostMoveInfo] = useState(null);
 
   const addLog = (msg) => {
@@ -3031,13 +3032,18 @@ if (potentialLeaders.length > 0) {
               </div>
             </div>
 
-            {/* Sticky track footer: full-width track on top, groups below */}
+            {/* Sticky footer: minimizable */}
             <div className="fixed left-0 right-0 bottom-0 bg-white border-t shadow-lg z-50">
-              <div className="max-w-7xl mx-auto px-3 py-2">
-                {/* (track row removed per user request) */}
+              <div className="max-w-7xl mx-auto px-3">
+                <div className="relative">
+                  {/* Toggle button to minimize/restore footer */}
+                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow">
+                    <span className="text-sm">{footerCollapsed ? '▲' : '▼'}</span>
+                  </button>
 
-                {/* Controls + groups below the track */}
-                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                  <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
+                    {/* Controls + groups below the track */}
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                   <div className="md:col-span-1">
                     {sprintGroupsPending.length > 0 && (() => {
                       const minG = Math.min(...sprintGroupsPending);
@@ -3092,6 +3098,13 @@ if (potentialLeaders.length > 0) {
                       })()}
                     </div>
                   </div>
+                </div>
+                  </div>
+
+                  {footerCollapsed && (
+                    <div className="py-2 flex items-center justify-center text-sm text-gray-700">Sticky footer minimized</div>
+                  )}
+
                 </div>
               </div>
             </div>
