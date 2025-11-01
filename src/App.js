@@ -3035,8 +3035,8 @@ if (potentialLeaders.length > 0) {
             <div className="fixed left-0 right-0 bottom-0 bg-white border-t shadow-lg z-50">
               <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4">
                 <div className="flex-1 overflow-x-auto">
-                  <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono" style={{ height: '6rem' }}>
-                    <div className="flex items-center whitespace-nowrap" style={{ height: '100%' }}>
+                  <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono" style={{ height: '6rem', WebkitOverflowScrolling: 'touch' }}>
+                    <div style={{ display: 'inline-flex', height: '100%', whiteSpace: 'nowrap' }}>
                       {(() => {
                         const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
                         // compute group positions similar to the top-area logic
@@ -3049,6 +3049,8 @@ if (potentialLeaders.length > 0) {
                         const posToGroups = {};
                         Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
 
+                        // Responsive sizing: avoid relying on window at render time in SSR.
+                        // Use a safe fallback size; CSS will also help on small viewports.
                         const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
                         return tokens.map((t) => {
                           const groupsHere = posToGroups[t.idx] || [];
@@ -3069,7 +3071,7 @@ if (potentialLeaders.length > 0) {
 
                           return (
                             <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 8, marginRight: 3, display: 'inline-flex' }}>
-                              <div style={{ fontSize: isSmall ? '10px' : '12px', marginBottom: 4 }}>{t.idx}</div>
+                              <div style={{ fontSize: isSmall ? '10px' : '12px', marginBottom: 4, lineHeight: 1 }}>{t.idx}</div>
                               <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
                                 <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
                                 {groups.length > 0 && (() => {
@@ -3119,9 +3121,12 @@ if (potentialLeaders.length > 0) {
                       return groupsListLocal.map(g => {
                         const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
                         const timeStr = convertToSeconds(storedGap);
+                        const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
+                        const namesStr = riders.join(', ');
                         return (
                           <div key={g} className="truncate">
-                            <span className="font-medium">G{g}</span> <span className="text-gray-500">{timeStr}</span>
+                            <div><span className="font-medium">G{g}</span> <span className="text-gray-500">{timeStr}</span></div>
+                            <div className="text-[11px] text-gray-600 truncate">{namesStr}</div>
                           </div>
                         );
                       });
