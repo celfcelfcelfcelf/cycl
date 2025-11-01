@@ -3031,127 +3031,99 @@ if (potentialLeaders.length > 0) {
               </div>
             </div>
 
-            {/* Sticky track footer: condensed track + sprint controls always visible at bottom */}
+            {/* Sticky track footer: full-width track on top, groups below */}
             <div className="fixed left-0 right-0 bottom-0 bg-white border-t shadow-lg z-50">
-              <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4">
-                <div className="flex-1 overflow-x-auto" style={{ minWidth: 0 }}>
-                  <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono" style={{ height: '6rem', WebkitOverflowScrolling: 'touch', width: '100%' }}>
-                    <div style={{ display: 'inline-flex', height: '100%', whiteSpace: 'nowrap' }}>
+              <div className="max-w-7xl mx-auto px-3 py-2">
+                {/* Track row: full-width, horizontally scrollable, higher contrast container */}
+                <div className="overflow-x-auto bg-gray-50 rounded p-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', height: '6rem', whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
+                      const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                      const groupPosMap = {};
+                      groupsList.forEach(g => {
+                        const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
+                        groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
+                      });
+                      const posToGroups = {};
+                      Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                      const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
+                      const base = isSmall ? 24 : 40;
+                      const w = Math.round(base * 0.8);
+                      const h = Math.round(w * 2 * (isSmall ? 1.0 : 1.1));
+
+                      return tokens.map(t => {
+                        const groupsHere = posToGroups[t.idx] || [];
+                        const char = t.char;
+                        const map = {
+                          '3': { bg: '#D1D5DB', text: '#111827' },
+                          '2': { bg: '#8B3A3A', text: '#FFFFFF' },
+                          '1': { bg: '#DC2626', text: '#FFFFFF' },
+                          '0': { bg: '#F9A8D4', text: '#111827' },
+                          '_': { bg: '#60A5FA', text: '#03133E' },
+                          'F': { bg: '#FACC15', text: '#111827' }
+                        };
+                        const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
+                        return (
+                          <div key={t.idx} style={{ width: w + 8, display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+                            <div style={{ fontSize: isSmall ? 10 : 12, marginBottom: 4, lineHeight: 1 }}>{t.idx}</div>
+                            <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
+                              <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
+                              {groupsHere.length > 0 && (
+                                <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Controls + groups below the track */}
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                  <div className="md:col-span-1">
+                    {sprintGroupsPending.length > 0 && (() => {
+                      const minG = Math.min(...sprintGroupsPending);
+                      return (
+                        <div className="mb-1">
+                          <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
+                            Sprint with group {minG}
+                          </button>
+                        </div>
+                      );
+                    })()}
+
+                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                      <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                        {sprintAnimMsgs.map((m, idx) => (
+                          <div key={idx} className="text-xs text-gray-800">{m}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <div className="text-sm font-semibold mb-1">Groups</div>
+                    <div className="text-sm text-gray-600 max-h-28 overflow-y-auto">
                       {(() => {
-                        const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
-                        // compute group positions similar to the top-area logic
-                        const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                        const groupPosMap = {};
-                        groupsList.forEach(g => {
-                          const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
-                          groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
-                        });
-                        const posToGroups = {};
-                        Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
-
-                        // Responsive sizing: avoid relying on window at render time in SSR.
-                        // Use a safe fallback size; CSS will also help on small viewports.
-                        const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
-                        return tokens.map((t) => {
-                          const groupsHere = posToGroups[t.idx] || [];
-                          const base = isSmall ? 24 : 40; // smaller base on phones
-                          const w = Math.round(base * 0.8);
-                          const h = Math.round(w * 2 * (isSmall ? 1.0 : 1.1));
-                          const char = t.char;
-                          const groups = groupsHere || [];
-                          const map = {
-                            '3': { bg: '#D1D5DB', text: '#111827' },
-                            '2': { bg: '#8B3A3A', text: '#FFFFFF' },
-                            '1': { bg: '#DC2626', text: '#FFFFFF' },
-                            '0': { bg: '#F9A8D4', text: '#111827' },
-                            '_': { bg: '#60A5FA', text: '#03133E' },
-                            'F': { bg: '#FACC15', text: '#111827' }
-                          };
-                          const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
-
+                        const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                        if (groupsListLocal.length === 0) return <div className="text-xs text-gray-400">(none)</div>;
+                        return groupsListLocal.map(g => {
+                          const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
+                          const timeStr = convertToSeconds(storedGap);
+                          const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
+                          const namesStr = riders.join(', ');
                           return (
-                            <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 8, marginRight: 3, display: 'inline-flex' }}>
-                              <div style={{ fontSize: isSmall ? '10px' : '12px', marginBottom: 4, lineHeight: 1 }}>{t.idx}</div>
-                              <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
-                                <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
-                                {groups.length > 0 && (() => {
-                                  const moved = (groupsMovedThisRound || []).map(Number);
-                                  const movedHere = groups.filter(g => moved.includes(g));
-                                  const notMovedHere = groups.filter(g => !moved.includes(g));
-                                  if (notMovedHere.length > 0) {
-                                    const centerLabel = notMovedHere.map(g => `G${g}`).join(',');
-                                    return (
-                                      <>
-                                        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', textAlign: 'center', fontSize: '1.05rem', fontWeight: 800 }}>
-                                          {centerLabel}
-                                        </div>
-                                        {movedHere.length > 0 && (
-                                          <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
-                                            {movedHere.map(g => `G${g}`).join(',')}
-                                          </div>
-                                        )}
-                                      </>
-                                    );
-                                  }
-                                  if (movedHere.length > 0) {
-                                    return (
-                                      <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>
-                                        {movedHere.map(g => `G${g}`).join(',')}
-                                      </div>
-                                    );
-                                  }
-                                  return null;
-                                })()}
-                              </div>
+                            <div key={g} className="truncate mb-1">
+                              <div><span className="font-medium">G{g}</span> <span className="text-gray-500">{timeStr}</span></div>
+                              <div className="text-xs text-gray-600 truncate">{namesStr}</div>
                             </div>
                           );
                         });
                       })()}
                     </div>
-                  </div>
-                </div>
-
-                <div className="flex-shrink-0 w-64">
-                  {sprintGroupsPending.length > 0 && (() => {
-                    const minG = Math.min(...sprintGroupsPending);
-                    return (
-                      <div className="mb-1">
-                        <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
-                          Sprint with group {minG}
-                        </button>
-                      </div>
-                    );
-                  })()}
-
-                  {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
-                    <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
-                      {sprintAnimMsgs.map((m, idx) => (
-                        <div key={idx} className="text-xs text-gray-800">{m}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Compact group overview (small) moved to the right so the track is visible on small screens */}
-                <div className="flex-shrink-0 w-40 px-2">
-                  <div className="text-[11px] text-gray-700 font-semibold mb-1">Groups</div>
-                  <div className="text-[11px] text-gray-600 space-y-1 max-h-20 overflow-y-auto">
-                    {(() => {
-                      const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                      if (groupsListLocal.length === 0) return <div className="text-xs text-gray-400">(none)</div>;
-                      return groupsListLocal.map(g => {
-                        const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
-                        const timeStr = convertToSeconds(storedGap);
-                        const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
-                        const namesStr = riders.join(', ');
-                        return (
-                          <div key={g} className="truncate">
-                            <div><span className="font-medium">G{g}</span> <span className="text-gray-500">{timeStr}</span></div>
-                            <div className="text-[11px] text-gray-600 truncate">{namesStr}</div>
-                          </div>
-                        );
-                      });
-                    })()}
                   </div>
                 </div>
               </div>
