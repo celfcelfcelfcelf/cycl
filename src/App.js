@@ -89,14 +89,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
-  // Abbreviate a full name to "F. Last" for compact footer display
+  // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
   const abbrevFirstName = (fullName) => {
     if (!fullName || typeof fullName !== 'string') return fullName || '';
     const parts = fullName.trim().split(/\s+/);
-    if (parts.length === 1) return fullName;
-    const first = parts[0][0] || '';
-    const rest = parts.slice(1).join(' ');
-    return `${first}. ${rest}`;
+    if (parts.length === 1) return parts[0];
+    const last = parts[parts.length - 1];
+    const initials = parts.slice(0, -1).map(p => (p && p[0] ? p[0].toUpperCase() : '')).filter(Boolean).join('.');
+    return `${initials}.${last}`;
   };
   // Touch helpers to avoid accidental taps while scrolling the draft pool on mobile
   const touchInfoRef = useRef({});
@@ -2988,7 +2988,11 @@ if (potentialLeaders.length > 0) {
                                   <div style={{ position: 'absolute', top: 4, left: 6, fontSize: isSmall ? '8px' : '10px', fontWeight: 300, lineHeight: 1, opacity: 0.95 }}>{t.idx}</div>
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {groupsHere.length > 0 && (
-                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.65rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
+                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
+                                      {groupsHere.map((g, idx) => (
+                                        <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (g === 1 || g === 2) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
+                                      ))}
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -3036,17 +3040,17 @@ if (potentialLeaders.length > 0) {
                                 <div className="font-medium text-sm">G{g} <span className="text-gray-500 text-xs">{timeStr}</span></div>
                                 <div className="flex-1 overflow-x-auto">
                                   <div className="flex gap-2 items-center text-xs">
-                                    {riders.map(name => {
-                                      const team = (cards[name] && cards[name].team) || '';
-                                      const bg = (teamColors && teamColors[team]) || 'transparent';
-                                      const txt = (teamTextColors && teamTextColors[team]) || '#111827';
-                                      return (
-                                        <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
-                                          {abbrevFirstName(name)}
-                                          <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
-                                        </div>
-                                      );
-                                    })}
+                                      {riders.map(name => {
+                                        const team = (cards[name] && cards[name].team) || '';
+                                        const bg = (teamColors && teamColors[team]) || 'transparent';
+                                        const txt = (teamTextColors && teamTextColors[team]) || '#111827';
+                                        return (
+                                          <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
+                                            {abbrevFirstName(name)}
+                                            <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
+                                          </div>
+                                        );
+                                      })}
                                   </div>
                                 </div>
                               </div>
