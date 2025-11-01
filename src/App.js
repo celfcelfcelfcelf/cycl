@@ -3042,6 +3042,53 @@ if (potentialLeaders.length > 0) {
                   </button>
 
                   <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
+                    {/* Track row (restored) */}
+                    <div className="overflow-x-auto bg-gray-50 rounded p-2 mb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', height: '6rem', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
+                          const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                          const groupPosMap = {};
+                          groupsList.forEach(g => {
+                            const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
+                            groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
+                          });
+                          const posToGroups = {};
+                          Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                          const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
+                          const base = isSmall ? 24 : 40;
+                          const w = Math.round(base * 0.8);
+                          const h = Math.round(w * 2 * (isSmall ? 1.0 : 1.1));
+
+                          return tokens.map((t) => {
+                            const groupsHere = posToGroups[t.idx] || [];
+                            const char = t.char;
+                            const map = {
+                              '3': { bg: '#D1D5DB', text: '#111827' },
+                              '2': { bg: '#8B3A3A', text: '#FFFFFF' },
+                              '1': { bg: '#DC2626', text: '#FFFFFF' },
+                              '0': { bg: '#F9A8D4', text: '#111827' },
+                              '_': { bg: '#60A5FA', text: '#03133E' },
+                              'F': { bg: '#FACC15', text: '#111827' }
+                            };
+                            const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
+
+                            return (
+                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 8, marginRight: 3, display: 'inline-flex' }}>
+                                <div style={{ fontSize: isSmall ? '10px' : '12px', marginBottom: 4, lineHeight: 1 }}>{t.idx}</div>
+                                <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
+                                  <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
+                                  {groupsHere.length > 0 && (
+                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
                     {/* Controls + groups below the track */}
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
                   <div className="md:col-span-1">
