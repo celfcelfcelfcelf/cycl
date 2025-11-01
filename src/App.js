@@ -3043,8 +3043,8 @@ if (potentialLeaders.length > 0) {
 
                   <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
                     {/* Track row (restored) */}
-                    <div className="overflow-x-auto bg-gray-50 rounded p-2 mb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', height: '6rem', whiteSpace: 'nowrap' }}>
+                    <div className="overflow-x-auto bg-gray-50 rounded p-1 mb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'stretch', height: '4rem', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
                           const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
@@ -3057,9 +3057,9 @@ if (potentialLeaders.length > 0) {
                           Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
 
                           const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
-                          const base = isSmall ? 24 : 40;
+                          const base = isSmall ? 20 : 32;
                           const w = Math.round(base * 0.8);
-                          const h = Math.round(w * 2 * (isSmall ? 1.0 : 1.1));
+                          const h = Math.round(w * 1.6);
 
                           return tokens.map((t) => {
                             const groupsHere = posToGroups[t.idx] || [];
@@ -3075,12 +3075,12 @@ if (potentialLeaders.length > 0) {
                             const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
 
                             return (
-                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 8, marginRight: 3, display: 'inline-flex' }}>
-                                <div style={{ fontSize: isSmall ? '10px' : '12px', marginBottom: 4, lineHeight: 1 }}>{t.idx}</div>
+                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 6, marginRight: 2, display: 'inline-flex' }}>
+                                <div style={{ fontSize: isSmall ? '9px' : '11px', marginBottom: 2, lineHeight: 1 }}>{t.idx}</div>
                                 <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
-                                  <div style={{ position: 'absolute', top: 4, right: 6 }} className="text-sm font-semibold" aria-hidden>{char}</div>
+                                  <div style={{ position: 'absolute', top: 3, right: 4 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {groupsHere.length > 0 && (
-                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.7rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
+                                    <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center', fontSize: '0.65rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
                                   )}
                                 </div>
                               </div>
@@ -3089,8 +3089,8 @@ if (potentialLeaders.length > 0) {
                         })()}
                       </div>
                     </div>
-                    {/* Controls + groups below the track */}
-                    <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                    {/* Controls + groups below the track (condensed) */}
+                    <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
                   <div className="md:col-span-1">
                     {sprintGroupsPending.length > 0 && (() => {
                       const minG = Math.min(...sprintGroupsPending);
@@ -3113,7 +3113,6 @@ if (potentialLeaders.length > 0) {
                   </div>
 
                   <div className="md:col-span-2">
-                    <div className="text-sm font-semibold mb-1">Groups</div>
                     <div className="text-sm text-gray-600 max-h-28 overflow-y-auto">
                       {(() => {
                         const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
@@ -3124,20 +3123,24 @@ if (potentialLeaders.length > 0) {
                           const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
                           const namesStr = riders.join(', ');
                           return (
-                            <div key={g} className="mb-1">
-                              <div><span className="font-medium">G{g}</span> <span className="text-gray-500">{timeStr}</span></div>
-                              <div className="flex gap-2 overflow-x-auto text-xs text-gray-600 py-1">
-                                {riders.map(name => {
-                                  const team = (cards[name] && cards[name].team) || '';
-                                  const bg = (teamColors && teamColors[team]) || 'transparent';
-                                  const txt = (teamTextColors && teamTextColors[team]) || '#111827';
-                                  return (
-                                    <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
-                                      {name}
-                                      <span className="ml-2 text-[10px] text-gray-200" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
-                                    </div>
-                                  );
-                                })}
+                            <div key={g} className="mb-0.5">
+                              <div className="flex items-center gap-3">
+                                <div className="font-medium text-sm">G{g} <span className="text-gray-500 text-xs">{timeStr}</span></div>
+                                <div className="flex-1 overflow-x-auto">
+                                  <div className="flex gap-2 items-center text-xs">
+                                    {riders.map(name => {
+                                      const team = (cards[name] && cards[name].team) || '';
+                                      const bg = (teamColors && teamColors[team]) || 'transparent';
+                                      const txt = (teamTextColors && teamTextColors[team]) || '#111827';
+                                      return (
+                                        <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
+                                          {name}
+                                          <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           );
