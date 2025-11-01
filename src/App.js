@@ -89,6 +89,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
+  // Abbreviate a full name to "F. Last" for compact footer display
+  const abbrevFirstName = (fullName) => {
+    if (!fullName || typeof fullName !== 'string') return fullName || '';
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length === 1) return fullName;
+    const first = parts[0][0] || '';
+    const rest = parts.slice(1).join(' ');
+    return `${first}. ${rest}`;
+  };
   // Touch helpers to avoid accidental taps while scrolling the draft pool on mobile
   const touchInfoRef = useRef({});
   const lastTouchHandledRef = useRef({});
@@ -2565,109 +2574,6 @@ if (potentialLeaders.length > 0) {
           // Render main game area first, and place the Status section below
           <div className="grid grid-cols-1 gap-4">
             <div>
-              <div className="bg-white rounded-lg shadow p-3 mb-3">
-                <h2 className="text-lg font-bold mb-2">{trackName}</h2>
-                {/* Top tiles: coloured square fields with values and group markers. Scrollable and taller. */}
-                {(() => {
-                  // Compute tokens and group positions once so they are available
-                  // both for the top-tiles renderer and the group roster below.
-                  const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
-                  const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                  const groupPosMap = {};
-                  groupsList.forEach(g => {
-                    const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
-                    groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
-                  });
-                  const posToGroups = {};
-                  Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
-
-                  return (
-                    <div className="overflow-x-auto p-2 bg-gray-50 rounded font-mono mb-2">
-                      <div className="text-sm text-gray-600">Track preview pinned to the bottom — see the sticky track player.</div>
-                    </div>
-                  );
-                })()}
-                <div className="mt-1 text-xs text-gray-600">Length: {getLength(track)} km</div>
-
-                {/* Sprint button and final standings placed immediately under the field display */}
-                <div className="mt-2">
-                      {sprintGroupsPending.length > 0 && (() => {
-                    const minG = Math.min(...sprintGroupsPending);
-                    return (
-                      <div className="mb-2">
-                        <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
-                          Sprint with group {minG}
-                        </button>
-                        {/* Animated sprint messages shown directly below the button */}
-                        { /* kept here for immediate visibility while button is present */ }
-                      </div>
-                    );
-                  })()}
-
-                    {/* Also render animation messages persistently below the sprint area
-                        so they remain visible even if the sprint pending list changes */}
-                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
-                      <div className="mt-2 p-2 bg-purple-50 border rounded">
-                        {sprintAnimMsgs.map((m, idx) => (
-                          <div key={idx} className="text-sm text-gray-800">{m}</div>
-                        ))}
-                      </div>
-                    )}
-
-                  {/* Final standings: position, name, time */}
-                  {(() => {
-                    const finished = Object.entries(cards)
-                      .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
-                      .sort((a, b) => (a[1].result || 9999) - (b[1].result || 9999));
-                    if (finished.length === 0) return null; // hide final standings until someone finishes
-                    return (
-                      <div className="bg-white rounded p-2 border mt-1">
-                        <div className="text-sm font-semibold mb-1">Final Standings</div>
-                        <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
-                        <div className="text-sm">
-                          {finished.map(([name, r]) => (
-                            <div key={name} className="flex justify-between text-xs py-0.5">
-                              <div>{r.result}. {r.team === 'Me' ? (<strong>{name}</strong>) : name}</div>
-                              <div className="text-gray-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Compact group overview beneath the track */}
-                <div className="mt-2 space-y-1">
-                  {(() => {
-                    const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                    if (groupsListLocal.length === 0) return null;
-                    const allPositions = Object.values(cards).filter(r => !r.finished && typeof r.position === 'number').map(r => r.position);
-                    const overallMax = allPositions.length ? Math.max(...allPositions) : 0;
-                    return groupsListLocal.map(g => {
-                      const ridersInGroup = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n, r]) => ({ name: n, team: r.team, position: r.position }));
-                      const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
-                      const timeStr = convertToSeconds(storedGap);
-                      const kmLeft = typeof track === 'string' ? getLength(track.slice(overallMax)) : 0;
-                      return (
-                          <div key={g} className="text-sm">
-                            {g === groupsListLocal[0] && (
-                              <div className="text-xs text-gray-600 mb-1">{kmLeft} km left</div>
-                            )}
-                            <span className="font-semibold">Group {g} ({timeStr}):</span>{' '}
-                          {ridersInGroup.map((rt, idx) => (
-                            <span key={rt.name} className="mr-2">
-                              <span style={{ color: teamColors[rt.team] || '#000', fontWeight: 600 }}>{rt.name}</span>{' '}
-                              <span className="text-xs text-gray-600">({rt.team})</span>
-                              {idx < ridersInGroup.length - 1 && <span className="text-gray-500">, </span>}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
 
               {/* Group chooser summary section (under the track) */}
               <div className="bg-white rounded-lg shadow p-3 mb-3">
@@ -3136,7 +3042,7 @@ if (potentialLeaders.length > 0) {
                                       const txt = (teamTextColors && teamTextColors[team]) || '#111827';
                                       return (
                                         <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
-                                          {name}
+                                          {abbrevFirstName(name)}
                                           <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
                                         </div>
                                       );
