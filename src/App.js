@@ -3044,7 +3044,7 @@ if (potentialLeaders.length > 0) {
                   <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
                     {/* Track row (restored) */}
                     <div className="overflow-x-auto bg-gray-50 rounded p-1 mb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'stretch', height: '4rem', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', gap: 1, alignItems: 'stretch', height: 'auto', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
                           const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
@@ -3057,7 +3057,8 @@ if (potentialLeaders.length > 0) {
                           Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
 
                           const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
-                          const base = isSmall ? 20 : 32;
+                          // make tiles roughly twice as big
+                          const base = (isSmall ? 20 : 32) * 2;
                           const w = Math.round(base * 0.8);
                           const h = Math.round(w * 1.6);
 
@@ -3075,12 +3076,13 @@ if (potentialLeaders.length > 0) {
                             const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
 
                             return (
-                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 6, marginRight: 2, display: 'inline-flex' }}>
-                                <div style={{ fontSize: isSmall ? '9px' : '11px', marginBottom: 2, lineHeight: 1 }}>{t.idx}</div>
+                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 4, marginRight: 1, display: 'inline-flex' }}>
                                 <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
-                                  <div style={{ position: 'absolute', top: 3, right: 4 }} className="text-xs font-semibold" aria-hidden>{char}</div>
+                                  {/* tile number: smaller, thin, positioned at the top */}
+                                  <div style={{ position: 'absolute', top: 4, left: 6, fontSize: isSmall ? '8px' : '10px', fontWeight: 300, lineHeight: 1, opacity: 0.95 }}>{t.idx}</div>
+                                  <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {groupsHere.length > 0 && (
-                                    <div style={{ position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center', fontSize: '0.65rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
+                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center', fontSize: '0.65rem', fontWeight: 700 }}>{groupsHere.map(g => `G${g}`).join(',')}</div>
                                   )}
                                 </div>
                               </div>
