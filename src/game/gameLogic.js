@@ -619,7 +619,8 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     ideal_move = ideal_move - len_left / 20;
 
     if (trackStr[rider.position] === '_') {
-      if (ideal_move < 7.2) ideal_move = -10;
+      // On downhill start fields ideal move should be treated as 0 (user rule change)
+      ideal_move = 0;
     }
   }
 
@@ -833,22 +834,19 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       }
     }
 
-    const cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
-    const effectiveValue = Math.max(cardValue - penalty, 0);
+  // If starting on a downhill '_' field, movement uses at least 5 before penalties
+  let cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
+  if (track[rider.position] === '_') cardValue = Math.max(cardValue, 5);
+  const effectiveValue = Math.max(cardValue - penalty, 0);
 
     const minRequiredToFollow = Math.max(0, groupSpeed - slipstream);
     let eligibleForSlip = effectiveValue >= minRequiredToFollow;
     let moveBy = eligibleForSlip ? Math.min(effectiveValue + slipstream, groupSpeed) : effectiveValue;
     let newPos = (rider.position || 0) + moveBy;
 
-    // downhill bonus
-    const trackSegment = track.slice(rider.position, newPos + 1);
-    let nedk = (trackSegment.match(/_/g) || []).length;
-    newPos += nedk;
-
     // adjust based on groupsNewPositions to avoid overlapping
     if (groupsNewPositions.length > 0) {
-      const potPosition = (rider.position || 0) + effectiveValue + slipstream + nedk;
+      const potPosition = (rider.position || 0) + effectiveValue + slipstream;
       for (const [targetPos] of groupsNewPositions) {
         if (potPosition >= targetPos) newPos = Math.max(newPos, targetPos);
       }
@@ -881,19 +879,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       }
     }
 
-    // downhill discard removal
-    let nedk2 = nedk;
-    const recentDiscarded = [...updatedDiscarded].reverse();
-    for (const card of recentDiscarded) {
-      if (nedk2 <= 0) break;
-      const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '0');
-      if (cardNum > 12) {
-        const idx = updatedDiscarded.lastIndexOf(card);
-        updatedDiscarded.splice(idx, 1);
-        nedk2--;
-        logs.push(`${name}: kort fjernet (downhill) - ${card.id}`);
-      }
-    }
+    // (Previously there was downhill pass-through extra and related discard removal here.)
+    // That pass-through bonus has been removed per new downhill rules.
 
     // reshuffle if under 6
     if (updatedHandCards.length < 6) {
@@ -1206,8 +1193,10 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (!chosenCard) { logs.push(`${name} (${rider.team}) attacker: No valid card found!`); continue; }
 
-    const cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
-    const effectiveValue = Math.max(cardValue - penalty, 0);
+  // If starting on a downhill '_' field, movement uses at least 5 before penalties
+  let cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
+  if (track[rider.position] === '_') cardValue = Math.max(cardValue, 5);
+  const effectiveValue = Math.max(cardValue - penalty, 0);
 
     attackerMoves.push({ name, rider, chosenCard, managed, oldPosition, cardValue, effectiveValue });
   }
@@ -1246,12 +1235,8 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     let moveBy = effectiveValue + extra;
     let newPos = rider.position + moveBy;
 
-    const trackSegment = track.slice(rider.position, newPos + 1);
-    let nedk = (trackSegment.match(/_/g) || []).length;
-    newPos += nedk;
-
     if (maxAttackerPos !== -Infinity) {
-      const baseReach = rider.position + effectiveValue + nedk;
+      const baseReach = rider.position + effectiveValue;
       if (maxAttackerPos - slipstream <= baseReach) {
         newPos = Math.max(newPos, maxAttackerPos);
       }
@@ -1282,18 +1267,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       logs.push(`${name} (attacker): spillede ${chosenCard.id}`);
     }
 
-    let nedk2 = nedk;
-    const recentDiscarded = [...updatedDiscarded].reverse();
-    for (const card of recentDiscarded) {
-      if (nedk2 <= 0) break;
-      const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '0');
-      if (cardNum > 12) {
-        const idx = updatedDiscarded.lastIndexOf(card);
-        updatedDiscarded.splice(idx, 1);
-        nedk2--;
-        logs.push(`${name} (attacker): kort fjernet (downhill) - ${card.id}`);
-      }
-    }
+    // Removed downhill pass-through extra and related discard removal per new rules.
 
     updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
     updatedDiscarded = [...updatedDiscarded, { id: 'TK-1: 99', flat: -1, uphill: -1 }];
