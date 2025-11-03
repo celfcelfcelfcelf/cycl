@@ -98,6 +98,81 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const initials = parts.slice(0, -1).map(p => (p && p[0] ? p[0].toUpperCase() : '')).filter(Boolean).join('.');
     return `${initials}.${last}`;
   };
+
+  // Compute the longest climb/hill stretch in the track string.
+  // Ported behavior: start longest at 1, accumulate current hill length by
+  // +1 for tokens '0' or '1', +0.5 for '2', and reset current to 0 on '3' or '_'.
+  // Return the maximum encountered (minimum 1).
+  const getLongestHill = (trackStr) => {
+    if (!trackStr || typeof trackStr !== 'string') return 1;
+    let longest = 1;
+    let cur = 0;
+    for (let i = 0; i < trackStr.length; i++) {
+      const ch = trackStr[i];
+      if (ch === '0' || ch === '1') {
+        cur += 1;
+      } else if (ch === '2') {
+        cur += 0.5;
+      } else if (ch === '3' || ch === '_') {
+        cur = 0;
+      }
+      if (cur > longest) longest = cur;
+    }
+    return Math.max(1, longest);
+  };
+
+  // Compute modified BJERG and label for display given a rider and the current track.
+  // Returns { modifiedBJERG, label, puncheur_factor }
+  const computeModifiedBJERG = (riderObj, trackStr) => {
+    try {
+      // Accept either the tokenized track string or (when unavailable)
+      // fall back to the selected trackName key mapped in `tracks`.
+      // This handles the draft preview case where `track` state may be
+      // empty but `trackName` (e.g. "BrostensTest") is selected.
+      const selectedTrackStr = (typeof trackStr === 'string' && trackStr.trim().length > 0)
+        ? trackStr
+        : (tracks[trackName] || '');
+      const longest = getLongestHill(selectedTrackStr);
+      const isBrosten = typeof selectedTrackStr === 'string' && /[B\*]$/.test(selectedTrackStr);
+      // puncheur multiplier per-track (not multiplied by rider.PUNCHEUR)
+  const puncheur_factor = Math.min(1, 3 / Math.max(longest, 3));
+      const puncheurField = Number(riderObj.PUNCHEUR) || 0;
+      const puncheur_param = 1; // global control placeholder
+      const rpf = Math.trunc(puncheurField * puncheur_factor * puncheur_param);
+
+      // build l[] per same logic used for card generation
+      let l = [];
+      if (rpf !== 0) {
+        const absr = Math.abs(rpf);
+        const step = 16 / (absr + 1);
+        for (let k = 1; k <= 15; k++) {
+          if ((k % step) < 1) l.push(Math.trunc(rpf / absr)); else l.push(0);
+        }
+      } else {
+        l = Array(15).fill(0);
+      }
+
+      let sumL = 0;
+      for (let k = 0; k < 15; k++) sumL += l[k] || 0;
+      const brostenField = Number(riderObj.BROSTEN) || 0;
+      // If track ends with '*' we show Brosten = FLAD + BROSTEN
+      let modifiedBJERG;
+      if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) {
+        modifiedBJERG = Math.round((Number(riderObj.FLAD) || 0) + brostenField);
+      } else {
+        // otherwise include puncheur sum and plain BROSTEN (for 'B' behaviour)
+        const sumTotal = sumL + (isBrosten ? brostenField : 0);
+        modifiedBJERG = Math.round((Number(riderObj.BJERG) || 0) + sumTotal);
+      }
+
+      let label = 'BJERG';
+  if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Brostensbakke';
+  else if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) label = 'Brosten';
+      else if (puncheur_factor > 0.3) label = 'BAKKE';
+
+      return { modifiedBJERG, label, puncheur_factor };
+    } catch (e) { return { modifiedBJERG: Number(riderObj.BJERG) || 0, label: 'BJERG', puncheur_factor: 0 }; }
+  };
   // Touch helpers to avoid accidental taps while scrolling the draft pool on mobile
   const touchInfoRef = useRef({});
   const lastTouchHandledRef = useRef({});
@@ -472,9 +547,98 @@ return { pace, updatedCards };
 
   selectedRidersWithTeam.forEach(({ rider, originalIdx, idx, team }) => {
     const isBreakaway = breakawayAssignedIdxs.has(idx);
+    // Create a modified shallow copy of the rider and apply light per-track
+    // adjustments before generating cards. This mirrors the Streamlit logic
+    // intent: boost climbing (BJERG) on tracks with longer hill sequences
+    // and apply a smaller cobble/pave (brosten) boost when the track ends
+    // with 'B' or '*'. The exact numeric mapping is intentionally small and
+    // conservative so it doesn't destabilize existing behaviour.
+    const modifiedRider = { ...rider };
+    try {
+      const longest = getLongestHill(selectedTrack);
+      const isBrosten = typeof selectedTrack === 'string' && /[B\*]$/.test(selectedTrack);
+
+  // Compute puncheur factor multiplier per your formula:
+  // multiplier = min(1, 3 / max(longest_hill, 3))
+  // rpf = int(rider.PUNCHEUR * multiplier * puncheur_param)
+  // NOTE: `puncheur_param` is a global/track parameter (not the rider's PUNCHEUR).
+  // If you don't have a UI control for a global puncheur, we default it to 1.
+  const puncheurField = Number(rider.PUNCHEUR) || 0;
+  const puncheur_param = 1; // TODO: replace with UI value if you want control over overall puncheur strength
+  const multiplier = Math.min(1, 3 / Math.max(longest, 3));
+  const rpf = Math.trunc(puncheurField * multiplier * puncheur_param);
+
+      // Build l[] per your snippet: 15 entries corresponding to BJERG1..BJERG15
+      let l = [];
+      if (rpf !== 0) {
+        const absr = Math.abs(rpf);
+        const step = 16 / (absr + 1);
+        for (let k = 1; k <= 15; k++) {
+          if ((k % step) < 1) {
+            l.push(Math.trunc(rpf / absr));
+          } else {
+            l.push(0);
+          }
+        }
+      } else {
+        l = Array(15).fill(0);
+      }
+
+      // Apply l[] to per-card BJERGk values.
+      // If this is a "Brosten" track (ends with '*'), per the requested
+      // behaviour we derive per-card uphill values from the FLAD values and
+      // then apply the puncheur l[] adjustments on top. The aggregate
+      // displayed Brosten stat will be FLAD + BROSTEN (CSV) and is handled
+      // below.
+      let sumL = 0;
+      if (//.test('')) {} // noop to keep patch context stable
+      if (typeof selectedTrack === 'string' && /\*$/.test(selectedTrack)) {
+        // Brosten-star behaviour: uphill per-card = FLADk + l[k]
+        for (let k = 1; k <= 15; k++) {
+          const fbase = Number(rider[`FLAD${k}`]) || Number(rider.FLAD) || 0;
+          const delta = l[k - 1] || 0;
+          modifiedRider[`BJERG${k}`] = Math.round(fbase + delta);
+          sumL += delta;
+        }
+        // Aggregate Brosten stat is FLAD + BROSTEN (CSV) — do not include puncheur sum here
+        modifiedRider.BJERG = Math.round((Number(rider.FLAD) || 0) + (Number(rider.BROSTEN) || 0));
+      } else {
+        // Default behaviour (normal BJERG): base on rider.BJERG and apply l[]
+        for (let k = 1; k <= 15; k++) {
+          const base = Number(rider[`BJERG${k}`]) || Number(rider.BJERG) || 0;
+          const delta = l[k - 1] || 0;
+          modifiedRider[`BJERG${k}`] = Math.round(base + delta);
+          sumL += delta;
+        }
+        // If the track ends with plain 'B' (brostensbakke) we additionally
+        // distribute the CSV BROSTEN value across per-card BJERG slots so the
+        // number of lowered cards matches BROSTEN; otherwise include BROSTEN in total.
+        const brostenField = Number(rider.BROSTEN) || 0;
+        if (isBrosten && brostenField !== 0) {
+          const sign = brostenField > 0 ? 1 : -1;
+          let need = Math.abs(brostenField);
+          for (let k = 1; k <= 15 && need > 0; k++) {
+            if ((l[k - 1] || 0) === 0) {
+              modifiedRider[`BJERG${k}`] = Math.round((Number(modifiedRider[`BJERG${k}`]) || 0) + sign);
+              need -= 1;
+            }
+          }
+          for (let k = 1; k <= 15 && need > 0; k++) {
+            if (need <= 0) break;
+            modifiedRider[`BJERG${k}`] = Math.round((Number(modifiedRider[`BJERG${k}`]) || 0) + sign);
+            need -= 1;
+          }
+          sumL += brostenField;
+        }
+        modifiedRider.BJERG = Math.round((Number(rider.BJERG) || 0) + sumL);
+      }
+    } catch (e) {
+      // On any error fall back to original rider
+    }
+
     cardsObj[rider.NAVN] = {
       position: isBreakaway ? 5 : 0,
-      cards: generateCards(rider, isBreakaway),
+      cards: generateCards(modifiedRider, isBreakaway),
       discarded: [],
       group: isBreakaway ? 1 : 2,
       prel_time: 10000,
@@ -2521,7 +2685,10 @@ if (potentialLeaders.length > 0) {
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
                       <div className="font-semibold">{r.NAVN}{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}</div>
-                      <div className="text-xs text-gray-500">FLAD: {r.FLAD} BJERG: {r.BJERG} SPRINT: {r.SPRINT}</div>
+                      {(() => {
+                        const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
+                        return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
+                      })()}
                     </button>
                   );
                 })}
