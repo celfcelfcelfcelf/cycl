@@ -3080,53 +3080,7 @@ if (potentialLeaders.length > 0) {
                 </div>
               )}
 
-              {/* Mobile debug toggle button */}
-              <div className="lg:hidden mt-3 px-3">
-                <button onClick={() => setShowDebugMobile(s => !s)} className="w-full py-2 bg-yellow-500 text-black rounded">
-                  {showDebugMobile ? 'Hide Debug' : 'Show Debug'}
-                </button>
-              </div>
-
-              <div className={`${showDebugMobile ? '' : 'hidden lg:block'} bg-gray-900 text-green-400 rounded-lg shadow p-4 mt-6 font-mono text-xs max-h-96 overflow-y-auto`}>
-                <h3 className="text-lg font-bold mb-3 text-white">🐛 DEBUG: All Rider Dictionaries</h3>
-                <div className="space-y-4">
-                  {Object.entries(cards).map(([name, rider]) => (
-                    <div key={name} className="border border-green-600 rounded p-3 bg-gray-800">
-                      <h4 className="text-yellow-400 font-bold mb-2">{name}</h4>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        {Object.entries(rider).filter(([k]) => k !== 'cards' && k !== 'discarded').map(([key, value]) => (
-                          <div key={key} className="flex">
-                            <span className="text-blue-400 w-32">{key}:</span>
-                            <span className="text-green-300">
-                              {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(3)) : String(value)}
-                            </span>
-                          </div>
-                        ))}
-                        <div className="flex col-span-2">
-                          <span className="text-blue-400 w-32">cards:</span>
-                          <span className="text-green-300">{rider.cards.length} cards</span>
-                        </div>
-                        <div className="col-span-2 ml-32 text-green-300 text-xs">
-                          {rider.cards.map((c, i) => {
-                            const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
-                            return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
-                          })}
-                        </div>
-                        <div className="flex col-span-2">
-                          <span className="text-blue-400 w-32">discarded:</span>
-                          <span className="text-green-300">{rider.discarded.length} cards</span>
-                        </div>
-                        <div className="col-span-2 ml-32 text-green-300 text-xs">
-                          {rider.discarded.map((c, i) => {
-                            const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
-                            return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              
             </div>
 
             {/* Sticky footer: minimizable */}
@@ -3321,6 +3275,54 @@ if (potentialLeaders.length > 0) {
                 <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-1 rounded text-sm">
                   Back to Setup
                 </button>
+                
+                {/* Mobile debug toggle button */}
+                <div className="lg:hidden mt-3 px-3">
+                  <button onClick={() => setShowDebugMobile(s => !s)} className="w-full py-2 bg-yellow-500 text-black rounded">
+                    {showDebugMobile ? 'Hide Debug' : 'Show Debug'}
+                  </button>
+                </div>
+
+                <div className={`${showDebugMobile ? '' : 'hidden lg:block'} bg-gray-900 text-green-400 rounded-lg shadow p-4 mt-6 font-mono text-xs max-h-96 overflow-y-auto`}>
+                  <h3 className="text-lg font-bold mb-3 text-white">🐛 DEBUG: All Rider Dictionaries</h3>
+                  <div className="space-y-4">
+                    {Object.entries(cards).map(([name, rider]) => (
+                      <div key={name} className="border border-green-600 rounded p-3 bg-gray-800">
+                        <h4 className="text-yellow-400 font-bold mb-2">{name}</h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          {Object.entries(rider).filter(([k]) => k !== 'cards' && k !== 'discarded').map(([key, value]) => (
+                            <div key={key} className="flex">
+                              <span className="text-blue-400 w-32">{key}:</span>
+                              <span className="text-green-300">
+                                {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(3)) : String(value)}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex col-span-2">
+                            <span className="text-blue-400 w-32">cards:</span>
+                            <span className="text-green-300">{rider.cards.length} cards</span>
+                          </div>
+                          <div className="col-span-2 ml-32 text-green-300 text-xs">
+                            {rider.cards.map((c, i) => {
+                              const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
+                              return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
+                            })}
+                          </div>
+                          <div className="flex col-span-2">
+                            <span className="text-blue-400 w-32">discarded:</span>
+                            <span className="text-green-300">{rider.discarded.length} cards</span>
+                          </div>
+                          <div className="col-span-2 ml-32 text-green-300 text-xs">
+                            {rider.discarded.map((c, i) => {
+                              const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
+                              return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               
                 {/* Final standings */}
                 <div className="bg-white rounded-lg shadow p-3 mt-3">
