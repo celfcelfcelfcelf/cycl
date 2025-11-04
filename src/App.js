@@ -683,7 +683,10 @@ return { pace, updatedCards };
   setTeams(shuffled);
   // store base order (who is team 1,2,3,...) so we can compute per-round turn rotation
   setTeamBaseOrder(shuffled);
-  setCurrentTeam(shuffled[0]);
+  // pick first team that has riders in the starting group (group 2) to avoid landing on an empty team
+  const firstTeamAtStart = findNextTeamWithRiders(0, 2);
+  if (firstTeamAtStart) setCurrentTeam(firstTeamAtStart);
+  else setCurrentTeam(shuffled[0]);
   setGameState('playing');
   
   setLogs([`Game started! Length: ${getLength(selectedTrack)} km`]);
@@ -1106,6 +1109,19 @@ return { pace, updatedCards };
   };
   
   
+  // Find next team index that has at least one non-attacker rider in the group
+  const findNextTeamWithRiders = (startIdx, groupNum) => {
+    if (!Array.isArray(teams) || teams.length === 0) return null;
+    for (let i = 0; i < teams.length; i++) {
+      const idx = (startIdx + i) % teams.length;
+      const t = teams[idx];
+      const has = Object.entries(cards).some(([, r]) => r.group === groupNum && r.team === t && !r.finished && r.attacking_status !== 'attacker');
+      if (has) return t;
+    }
+    // fallback: return the original start team
+    return teams[startIdx % teams.length];
+  };
+
   const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null) => {
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
@@ -1131,8 +1147,9 @@ return { pace, updatedCards };
     } else {
       addLog(`${submittingTeam} chose ${pace}`);
     }
-    const nextIdx = (teams.indexOf(submittingTeam) + 1) % teams.length;
-    setCurrentTeam(teams[nextIdx]);
+  const nextIdx = (teams.indexOf(submittingTeam) + 1) % teams.length;
+  const nextTeam = findNextTeamWithRiders(nextIdx, groupNum);
+  if (nextTeam) setCurrentTeam(nextTeam);
 
     // Determine which teams actually have riders in this group
   const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
@@ -1694,7 +1711,10 @@ const confirmMove = () => {
   setTeamPaceMeta({});
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
-      setCurrentTeam(shuffled[0]);
+      // choose first team that actually has non-attacker riders in the next group
+      const firstTeam = findNextTeamWithRiders(0, nextGroup);
+      if (firstTeam) setCurrentTeam(firstTeam);
+      else setCurrentTeam(shuffled[0]);
       setMovePhase('input');
     } else {
       // No remaining non-finished groups: reassign groups and detect sprints
@@ -1804,7 +1824,10 @@ const moveToNextGroup = () => {
     order = [...prev].reverse();
   }
   setTeams(order);
-  setCurrentTeam(order[0]);
+  // pick first team that has riders in the leading group to avoid starting with an empty team
+  const firstTeamForRound = findNextTeamWithRiders(0, maxGroup);
+  if (firstTeamForRound) setCurrentTeam(firstTeamForRound);
+  else setCurrentTeam(order[0]);
   setMovePhase('input');
   // Clear groups moved tracker for the new round
   setGroupsMovedThisRound([]);
