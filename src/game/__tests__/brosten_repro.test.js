@@ -30,8 +30,10 @@ describe('Brosten enforcement reproduction', () => {
   // eslint-disable-next-line no-console
   console.log('\n--- ENFORCEMENT LOGS ---\n' + logs + '\n--- END LOGS ---\n');
 
-    // Allowed should be Math.max(1, ceil(9 * 0.33)) => ceil(2.97)=3
-    expect(at6.length).toBe(3);
+  // With new token mapping '1' -> 33% and '0' -> 25% we expect the
+  // minimal allowed to use the smallest passed-token fraction. Here
+  // token '1' is present so allowed = Math.max(1, floor(9 * 0.33)) => floor(2.97)=2
+  expect(at6.length).toBe(2);
 
     // Print logs for debugging if assertion fails (Jest shows on failure)
     // Also assert that there is a Brosten capacity check log

@@ -28,8 +28,8 @@ describe('Brosten capacity enforcement', () => {
 
   const positions = Object.fromEntries(Object.entries(newState.cards).map(([n, r]) => [n, r.position]));
 
-  // Peloton size = 6 -> allowed on '0' token = ceil(6 * 0.33) = ceil(1.98) = 2
-  const allowed = 2;
+  // Peloton size = 6 -> with token '0' mapping to 25% we use floor: floor(6 * 0.25) = 1
+  const allowed = 1;
 
   // In this fixture riders moved from pos 5 -> pos 7; enforcement happened on pos 7
   const atPos7 = Object.entries(positions).filter(([, p]) => p === 7).map(([n]) => n);
@@ -38,7 +38,7 @@ describe('Brosten capacity enforcement', () => {
   // Expect exactly `allowed` riders left at pos 7
   expect(atPos7.length).toBe(allowed);
 
-  // The overflow (4 - allowed = 2) riders should have been pushed back to pos 6
+  // The overflow (4 - allowed = 3) riders should have been pushed back to pos 6
   expect(atPos6.length).toBe(4 - allowed);
 
   // Ensure leader A remained at the Brosten spot (leader preference)

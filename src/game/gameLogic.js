@@ -575,7 +575,10 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     }
   }
 
-  try { logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} -> RETURNS 0`); } catch(e) {}
+  try {
+    const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
+    logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 0`);
+  } catch(e) {}
   return 0;
 };
 
@@ -864,17 +867,19 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       updatedDiscarded = [...updatedDiscarded, ...converted];
       logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard`);
     } else {
-      const globalIndex = updatedHandCards.findIndex(c => c.id === chosenCard.id);
+      // Remove exactly the chosen card instance from hand (match by reference)
+      const globalIndex = updatedHandCards.findIndex(c => c === chosenCard);
       if (globalIndex !== -1) updatedHandCards.splice(globalIndex, 1);
 
+      // For the top-four, discard the other cards (match by reference to avoid
+      // removing all duplicates that share the same id string).
       for (const c of topFour) {
-        if (c.id !== chosenCard.id) {
-          const idx = updatedHandCards.findIndex(hc => hc.id === c.id);
-          if (idx !== -1) {
-            const [removed] = updatedHandCards.splice(idx, 1);
-            const disc = (removed && removed.id && removed.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : removed;
-            updatedDiscarded.push(disc);
-          }
+        if (c === chosenCard) continue;
+        const idx = updatedHandCards.findIndex(hc => hc === c);
+        if (idx !== -1) {
+          const [removed] = updatedHandCards.splice(idx, 1);
+          const disc = (removed && removed.id && removed.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : removed;
+          updatedDiscarded.push(disc);
         }
       }
     }
@@ -1264,16 +1269,16 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       updatedDiscarded = [...updatedDiscarded, ...converted];
       logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard`);
     } else {
-      const globalIndex = updatedHandCards.findIndex(c => c.id === chosenCard.id);
+      // Remove exactly the chosen card instance (match by reference)
+      const globalIndex = updatedHandCards.findIndex(c => c === chosenCard);
       if (globalIndex !== -1) updatedHandCards.splice(globalIndex, 1);
       for (const c of topFour) {
-        if (c.id !== chosenCard.id) {
-          const idx = updatedHandCards.findIndex(hc => hc.id === c.id);
-          if (idx !== -1) {
-            const [removed] = updatedHandCards.splice(idx, 1);
-            const disc = (removed && removed.id && removed.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : removed;
-            updatedDiscarded.push(disc);
-          }
+        if (c === chosenCard) continue;
+        const idx = updatedHandCards.findIndex(hc => hc === c);
+        if (idx !== -1) {
+          const [removed] = updatedHandCards.splice(idx, 1);
+          const disc = (removed && removed.id && removed.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : removed;
+          updatedDiscarded.push(disc);
         }
       }
       logs.push(`${name} (attacker): spillede ${chosenCard.id}`);

@@ -422,10 +422,25 @@ function parseCSV(text) {
 
 function toNumber(v) {
   if (v === undefined || v === null) return 0;
+  const original = v;
   const cleaned = ('' + v).trim().replace(/[^0-9\-\.]/g, '');
-  if (cleaned === '') return 0;
+  if (cleaned === '') {
+    // if empty after cleaning, log the original value at debug level so we
+    // can inspect what was present before it became 0
+    console.debug && console.debug('ridersCsv.toNumber -> converted to 0 (empty after cleaning). original=', JSON.stringify(original));
+    return 0;
+  }
   const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+  if (Number.isFinite(n)) {
+    // If the numeric conversion yields 0 or 1, log the original value so
+    // the caller can see what text produced the boolean-y values.
+    if (n === 0 || n === 1) {
+      console.debug && console.debug('ridersCsv.toNumber ->', n, 'original=', JSON.stringify(original), 'cleaned=', cleaned);
+    }
+    return n;
+  }
+  console.debug && console.debug('ridersCsv.toNumber -> non-finite conversion, original=', JSON.stringify(original), 'cleaned=', cleaned);
+  return 0;
 }
 
 const rawRows = parseCSV(csvText);

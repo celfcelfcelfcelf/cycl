@@ -51,7 +51,7 @@ const tracks = {
   'Parma-Genova': '33222222222___3333333333111111111__333333333333333333333333FFFFFFFFFFFF',
   'FlandernRundt': '3333330033333311332233333333333330033333333331113333330033333333333FFFFFFFFFFFFFFB',
   'BrostensTest': '3333330033333311332233333333333330033333333331113333330033333333333FFFFFFFFFFFFFF*',
-  'Paris-Roubaix': '333333113333333333223333333333333033333333333111333333333333333333333FFFFFFFFFFFFFF*',
+  'Paris-Roubaix': '2333223331113330003333323333333333333232333311003233333233333333FFFFFFFFFF*',
   'random': 'random'
 };
 
@@ -327,8 +327,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Evaluate each rider individually
   const teamAttackDeclared = {};
   for (const [name] of teamRiders) {
-    updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false);
-    try { addLog(`TRACE takesLeadFC called for ${name} -> ${updatedCards[name].takes_lead}`); } catch(e) {}
+  // Pass the app logger into takesLeadFC so its internal debug/probability
+  // messages are routed to the game log (previously the logger param was
+  // omitted and so no TLFC logs were emitted).
+  updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, false, [], addLog);
+  try { addLog(`TRACE takesLeadFC called for ${name} -> ${updatedCards[name].takes_lead}`); } catch(e) {}
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.
@@ -659,8 +662,11 @@ return { pace, updatedCards };
       time_after_winner: 10000,
       result: 1000,
       sprint: rider.SPRINT,
-      bjerg: rider.BJERG,
-      flad: rider.FLAD,
+      // Use the per-track adjusted BJERG value (which may be derived from
+      // FLAD, BROSTEN and puncheur adjustments) so the draft UI reflects the
+      // aggregated stat that was used when generating cards.
+      bjerg: (modifiedRider && typeof modifiedRider.BJERG !== 'undefined') ? Number(modifiedRider.BJERG) : Number(rider.BJERG),
+      flad: (modifiedRider && typeof modifiedRider.FLAD !== 'undefined') ? Number(modifiedRider.FLAD || rider.FLAD) : Number(rider.FLAD),
       mentalitet: rider.MENTALITET || 4,
       team,
       fatigue: 0,
@@ -1144,6 +1150,12 @@ return { pace, updatedCards };
       addLog(`${submittingTeam} already chose for group ${groupNum}`);
       return;
     }
+
+  // Hide any lingering post-move summary when a new choice is being made.
+  // This removes the yellow played-cards panel until the next group moves.
+  try {
+    if (postMoveInfo) setPostMoveInfo(null);
+  } catch (e) {}
 
   // Build a local copy including this submission so we can synchronously
   // decide whether all teams have submitted for the group. Keep numeric
@@ -1830,6 +1842,9 @@ const moveToNextGroup = () => {
   const startNewRound = () => {
   console.log('=== START NEW ROUND ===');
   console.log('Current cards:', cards);
+  // Clear the post-move yellow panel when the user starts a new round
+  // so the played-cards summary is not left visible between rounds.
+  setPostMoveInfo(null);
   
   const maxGroup = Math.max(...Object.values(cards).filter(r => !r.finished).map(r => r.group));
   const newRound = round + 1;
@@ -2051,7 +2066,8 @@ const checkCrash = () => {
       setCards(updatedCards);
     } else {
       setDiceEvent({ who: null, kind: 'none', roll });
-      setDiceMsg('No riders crashed');
+      // Show exact text requested by user when there is no crash
+      setDiceMsg('no crash');
     }
   } catch (e) {}
 };
@@ -2862,10 +2878,21 @@ const checkCrash = () => {
 
               {/* Group chooser summary section (under the track) */}
               <div className="bg-white rounded-lg shadow p-3 mb-3">
-                <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between">
                   <div>
                     <div className="text-2xl font-extrabold">Group {currentGroup} moves.</div>
                     <div className="text-sm text-gray-700 mt-1">{currentTeam}'s turn to choose</div>
+                    {/* Small, normal-font list of riders in the current group */}
+                    <div className="text-sm text-gray-700 mt-1">
+                      {(() => {
+                        try {
+                          const names = Object.entries(cards)
+                            .filter(([, r]) => r.group === currentGroup && !r.finished)
+                            .map(([n]) => n);
+                          return names.length > 0 ? names.join(', ') : <span className="text-gray-400">(no riders)</span>;
+                        } catch (e) { return null; }
+                      })()}
+                    </div>
                   </div>
                   <div className="text-sm text-gray-500">Phase: {movePhase}</div>
                 </div>
@@ -3024,8 +3051,10 @@ const checkCrash = () => {
 
                   {postMoveInfo && (
                     <div className="mt-3 p-3 border rounded bg-yellow-50">
-                      <div className="mb-2 text-sm font-medium">
-                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
+                                      <div className="mb-2 text-sm font-medium">
+                                        {/* Show the group number at the top in bold */}
+                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved}</div>
+                                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
                           <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : ''}`}>
                             {m.isLead ? (
                               <strong className={`${m.failed ? 'text-red-600' : ''}`}>{m.name} ({m.team})</strong>
@@ -3260,7 +3289,10 @@ const checkCrash = () => {
                                       if (!isBrosten) return null;
                                       const ch = t.char;
                                       if (ch !== '0' && ch !== '1' && ch !== '2') return null;
-                                      const label = ch === '2' ? '50%' : '33%';
+                                      // For Brosten tracks we show a small capacity hint under
+                                      // tokens 0/1/2. Adjust distribution: make '2' 50%, '1' 33%
+                                      // and '0' 25% (user-requested change).
+                                      const label = (ch === '2') ? '50%' : (ch === '0' ? '25%' : '33%');
                                       return (
                                         <div style={{ position: 'absolute', top: isSmall ? 14 : 16, left: 6, fontSize: isSmall ? '7px' : '9px', lineHeight: 1, opacity: 0.9, color: styleColors.text }} className="pointer-events-none">{label}</div>
                                       );
