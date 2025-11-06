@@ -933,20 +933,32 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       fatigue,
       penalty,
       played_card: chosenCard.id,
+      // store the computed effective played value so other systems (Brosten enforcement)
+      // can order riders by the actual speed they played (after penalties/slipstream).
+      played_effective: effectiveValue,
       moved_fields: newPos - oldPosition,
       move_distance_for_prel: newPos - oldPosition,
       last_group_speed: groupSpeed
     };
-
-    const managedStr = managed ? '✓' : '✗';
+    // Detailed debugging log for card play and movement decisions
     const takesLeadStr = chosenValue > 0 ? ' (lead)' : '';
     const cardFlat = chosenCard.flat ?? 0;
     const cardUphill = chosenCard.uphill ?? 0;
-    logs.push(`Group ${groupNum}: ${name} (${rider.team}) spiller ${chosenCard.id} (${cardFlat}-${cardUphill}) ${oldPosition}→${newPos}${takesLeadStr} ${managedStr}`);
+    const followChar = eligibleForSlip ? '✓' : '✗';
+    const managedInfo = managed ? '' : ' (auto)';
+    logs.push(`Group ${groupNum}: ${name} (${rider.team}) spiller ${chosenCard.id} (${cardFlat}-${cardUphill}) ${oldPosition}→${newPos}${takesLeadStr} ${followChar}${managedInfo}`);
+    logs.push(`${name} DEBUG: sv=${slipstream} penalty=${penalty} cardVal=${cardValue} effective=${effectiveValue} minReq=${minRequiredToFollow} eligible=${eligibleForSlip} moveBy=${moveBy} finalPos=${newPos} groupsNewPositionsTop=${groupsNewPositions.map(g=>g[0]).slice(0,5).join(',')}`);
 
     groupsNewPositions.push([newPos, slipstream]);
     groupsNewPositions.sort((a, b) => b[0] - a[0]);
   }
+
+  // NOTE: Brosten capacity enforcement is intentionally performed by the
+  // engine wrapper (`stepGroup`) as the final step after post-adjust
+  // slipstream catches. Doing it there ensures the final persisted
+  // positions cannot violate capacity even if slipstream moves riders
+  // onto Brosten tiles. The enforcement here was removed so that the
+  // capacity rule appears last in the log and only runs once.
 
   return { updatedCards, groupsNewPositions, logs };
 };
@@ -1295,6 +1307,8 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       fatigue: rider.fatigue,
       penalty: getPenalty(name, cardsObj),
       played_card: chosenCard.id,
+      // store the attacker's effective played value for consistent ordering
+      played_effective: effectiveValue,
       moved_fields: newPos - oldPosition,
       move_distance_for_prel: newPos - oldPosition,
       last_group_speed: groupSpeed,

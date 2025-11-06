@@ -23,6 +23,7 @@ import {
   runSprintsPure,
   computeAttackerMoves
 } from './game/gameLogic';
+import { enforceBrosten } from './game/engine';
 import EngineUI from './EngineUI';
  
 import ridersFromCsv from './data/ridersCsv';
@@ -197,6 +198,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [showEngineUI, setShowEngineUI] = useState(false);
   const [footerCollapsed, setFooterCollapsed] = useState(false);
   const [postMoveInfo, setPostMoveInfo] = useState(null);
+  const [diceMsg, setDiceMsg] = useState(null);
+  const [diceEvent, setDiceEvent] = useState(null); // { who, kind, oldPos, newPos }
 
   const addLog = (msg) => {
     setLogs(p => {
@@ -494,44 +497,51 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 return { pace, updatedCards };
 };
 
-  const initializeGame = (draftedRiders = null) => {
-  const selectedTrack = trackName === 'random' ? getRandomTrack() : tracks[trackName];
+  // For Brosten tracks the UI offers an explicit "Check if crash" button
+  // that the user must press. See `checkCrash()` which performs the roll.
+
+  // initializeGame: set up teams, assign riders and breakaways
+  // Accept an optional `drafted` argument which can be either:
+  // - an array of { rider, team } objects (from an interactive draft), or
+  // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
+  const initializeGame = (drafted = null) => {
+  // Prepare selectedTrack and track state
+  const selectedTrack = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
   setTrack(selectedTrack);
+
+  // build team list
   const teamList = ['Me'];
   for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
-  // Generate readable random colours for each team and store in state
-  try {
-    const { colors, textCols } = generateTeamColors(teamList);
-    setTeamColors(colors);
-    setTeamTextColors(textCols);
-  } catch (e) {}
-  
+
   const total = numberOfTeams * ridersPerTeam;
   const breakawayCount = total > 9 ? 2 : 1;
-  const breakawayIndices = [];
-  while (breakawayIndices.length < breakawayCount) {
-    const idx = Math.floor(Math.random() * total);
-    if (!breakawayIndices.includes(idx)) breakawayIndices.push(idx);
-  }
-  
-  const cardsObj = {};
-  // To randomize teams, shuffle the riders slice and then assign teams
-  // If a draft selection was provided, use it; otherwise pick the first N
-  // Support two modes for draftedRiders:
-  // 1) null -> take first `total` from ridersData and shuffle/assign teams randomly
-  // 2) an array of { rider, team } or an array of rider objects -> honor the provided team mapping
+
+  // Build selectedRidersWithTeam depending on drafted argument
   let selectedRidersWithTeam = [];
-  if (draftedRiders && Array.isArray(draftedRiders) && draftedRiders.length >= total && draftedRiders[0] && draftedRiders[0].team) {
-    // draftedRiders already contains explicit team assignment in pick order
-    selectedRidersWithTeam = draftedRiders.slice(0, total).map((s, idx) => ({ rider: s.rider || s, originalIdx: idx, idx, team: s.team }));
-  } else {
-    const base = (draftedRiders && Array.isArray(draftedRiders) ? draftedRiders.slice(0, total) : ridersData.slice(0, total)).map((r, i) => ({ r, i }));
-    // simple Fisher-Yates shuffle
-    for (let i = base.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [base[i], base[j]] = [base[j], base[i]];
+  if (Array.isArray(drafted) && drafted.length > 0) {
+    // Case 1: drafted is explicit mapping [{ rider, team }, ...]
+    if (drafted[0] && drafted[0].rider) {
+      const clipped = drafted.slice(0, total);
+      selectedRidersWithTeam = clipped.map((d, idx) => ({ rider: d.rider, originalIdx: d.rider && d.rider._origIdx ? d.rider._origIdx : idx, idx, team: d.team || teamList[Math.floor(idx / ridersPerTeam)] }));
+    } else if (drafted[0] && drafted[0].NAVN) {
+      // Case 2: drafted is an array of rider objects
+      const selectedRiders = drafted.slice(0, total).map((r, i) => ({ r, i }));
+      for (let i = selectedRiders.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [selectedRiders[i], selectedRiders[j]] = [selectedRiders[j], selectedRiders[i]];
+      }
+      selectedRidersWithTeam = selectedRiders.map(({ r: rider, i: originalIdx }, idx) => ({ rider, originalIdx, idx, team: teamList[Math.floor(idx / ridersPerTeam)] }));
     }
-    selectedRidersWithTeam = base.map(({ r: rider, i: originalIdx }, idx) => ({ rider, originalIdx, idx, team: teamList[Math.floor(idx / ridersPerTeam)] }));
+  }
+
+  // Fallback: no drafted arg -> take from global ridersData and shuffle
+  if (selectedRidersWithTeam.length === 0) {
+    const selectedRiders = ridersData.slice(0, total).map((r, i) => ({ r, i }));
+    for (let i = selectedRiders.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [selectedRiders[i], selectedRiders[j]] = [selectedRiders[j], selectedRiders[i]];
+    }
+    selectedRidersWithTeam = selectedRiders.map(({ r: rider, i: originalIdx }, idx) => ({ rider, originalIdx, idx, team: teamList[Math.floor(idx / ridersPerTeam)] }));
   }
 
   // Pick breakaway teams randomly (no duplicate teams)
@@ -545,6 +555,9 @@ return { pace, updatedCards };
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     breakawayAssignedIdxs.add(pick.idx);
   }
+
+  // Prepare container for generated card/state objects
+  const cardsObj = {};
 
   selectedRidersWithTeam.forEach(({ rider, originalIdx, idx, team }) => {
     const isBreakaway = breakawayAssignedIdxs.has(idx);
@@ -1596,6 +1609,25 @@ const confirmMove = () => {
     }
   } catch (e) {}
 
+  // Enforce Brosten capacity on final positions after post-adjust so the
+  // UI confirmMove path mirrors the engine wrapper behaviour. This ensures
+  // riders pushed back due to limited capacity remain pushed when the
+  // UI updates state and that the user-facing log lines appear last.
+  try {
+    if (typeof track === 'string' && /\*$/.test(track)) {
+      // Delegate to the shared enforcement helper so UI and engine behaviour match
+      try {
+        const res = enforceBrosten(updatedCards, track, currentGroup, Math.random);
+        // updatedCards is mutated in-place by enforceBrosten; append returned logs
+        for (const l of (res.logs || [])) addLog(l);
+      } catch (e) {
+        try { addLog('Brosten enforcement error (UI): ' + (e && e.message)); } catch (err) {}
+      }
+    }
+  } catch (e) {
+    try { addLog('Brosten enforcement error: ' + (e && e.message)); } catch (err) {}
+  }
+
   setCards(updatedCards);
   // mark this group as moved this round
   setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
@@ -1944,6 +1976,16 @@ if (potentialLeaders.length > 0) {
   setCards(updatedCards);
   
   addLog(`Round ${newRound} - Statistics updated`);
+  // Brosten special: roll a 1-6 die on new round and possibly cause a puncture
+  try {
+    // Do not auto-roll here. For Brosten tracks the UI provides an explicit
+    // "Check if crash" button which the user must press. Clear any
+    // previous dice state so the new round starts clean.
+    setDiceEvent(null);
+    setDiceMsg(null);
+  } catch (e) {
+    // ignore dice errors
+  }
   console.log('=== END NEW ROUND ===');
   // Compute and store time gaps per group so they only update once per new round
   const gaps = {};
@@ -1962,6 +2004,56 @@ if (potentialLeaders.length > 0) {
   // reset sprint results/time for the new round
   setSprintResults([]);
   setLatestPrelTime(0);
+};
+
+// Check crash handler: called by the UI when user presses "Check if crash"
+const checkCrash = () => {
+  try {
+    const selectedTrackStr = (typeof track === 'string' && track && track.length > 0)
+      ? track
+      : (tracks && tracks[trackName] ? tracks[trackName] : '');
+    const isBrostenTrack = typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr);
+    if (!isBrostenTrack) return;
+    const roll = Math.floor(Math.random() * 6) + 1;
+    addLog(`Brosten die roll: ${roll}`);
+    setDiceMsg(`Rolled: ${roll}`);
+    if (roll === 1 || roll === 2) {
+      // move a random non-finished rider back 3 fields
+      const updatedCards = { ...cards };
+      const candidates = Object.entries(updatedCards).filter(([, r]) => !r.finished).map(([n]) => n);
+      if (candidates.length > 0) {
+        const idx = Math.floor(Math.random() * candidates.length);
+        const who = candidates[idx];
+        const oldPos = Number(updatedCards[who].position || 0);
+        const newPos = Math.max(0, oldPos - 3);
+        updatedCards[who] = { ...updatedCards[who], position: newPos };
+        updatedCards[who].moved_fields = newPos - (updatedCards[who].old_position || oldPos);
+        const kind = roll === 1 ? 'puncture' : 'crash';
+        const capital = roll === 1 ? 'Puncture' : 'Crash';
+        const msg = `${who} gets a ${kind} and moves from field ${oldPos} to ${newPos}`;
+        addLog(msg);
+        setDiceMsg(`${capital}: ${who} ${oldPos}→${newPos}`);
+        setDiceEvent({ who, kind, oldPos, newPos });
+        // Reassign groups immediately
+        try {
+          const sorted = Object.entries(updatedCards).sort((a, b) => b[1].position - a[1].position);
+          let gNum = 1;
+          let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
+          for (const [n, r] of sorted) {
+            if (r.position < curPos) {
+              gNum++;
+              curPos = r.position;
+            }
+            updatedCards[n] = { ...updatedCards[n], group: gNum };
+          }
+        } catch (e) {}
+      }
+      setCards(updatedCards);
+    } else {
+      setDiceEvent({ who: null, kind: 'none', roll });
+      setDiceMsg('No riders crashed');
+    }
+  } catch (e) {}
 };
 
   const runSprints = async (trackStr, sprintGroup = null) => {
@@ -2463,6 +2555,8 @@ if (potentialLeaders.length > 0) {
     setFallBackOpen(false);
     setFallRider(null);
     setFallTargetGroup(null);
+    // clear any dice event once the user has applied the fall-back choice
+    try { setDiceEvent(null); setDiceMsg(null); } catch (e) {}
   };
 
   // Group UI removed per user request.
@@ -2891,12 +2985,40 @@ if (potentialLeaders.length > 0) {
                   )}
                   {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
                     <div className="mt-3 flex justify-end">
-                        <div className="flex gap-2">
-                          <button onClick={() => setFallBackOpen(true)} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Let rider fall back</button>
-                          <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
-                            <SkipForward size={14}/> Next Round
-                          </button>
+                      {(() => {
+                        const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                        // If this is a Brosten track, require the user to press "Check if crash"
+                        // before offering the fallback/next round actions. If diceEvent exists
+                        // (user already checked), reveal the normal controls.
+                        if (isBrosten && !diceEvent) {
+                          return (
+                            <div className="flex items-center gap-3">
+                              <button onClick={checkCrash} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Check if crash</button>
+                              {diceMsg && (
+                                <div className="ml-2 text-sm text-gray-700">{diceMsg}</div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Default behaviour: show fallback + next round controls
+                        return (
+                          <div className="flex gap-2">
+                            <button onClick={() => setFallBackOpen(true)} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Let rider fall back</button>
+                            <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
+                              <SkipForward size={14}/> Next Round
+                            </button>
+                          </div>
+                        );
+                      })()}
+
+                      {/* If a recent Brosten dice event happened show it here in a yellow panel */}
+                      {diceEvent && (
+                        <div className="mt-2 p-2 bg-yellow-50 border rounded text-sm ml-3">
+                          <div className="font-medium">{diceEvent.kind === 'puncture' ? 'Puncture' : 'Crash'}: {diceEvent.who} {diceEvent.oldPos}→{diceEvent.newPos}</div>
+                          <div className="text-xs text-gray-600">You may move riders back — press "Let rider fall back" to choose.</div>
                         </div>
+                      )}
                     </div>
                   )}
 
@@ -3131,6 +3253,19 @@ if (potentialLeaders.length > 0) {
                                 <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
                                   {/* tile number: smaller, thin, positioned at the top */}
                                   <div style={{ position: 'absolute', top: 4, left: 6, fontSize: isSmall ? '8px' : '10px', fontWeight: 300, lineHeight: 1, opacity: 0.95 }}>{t.idx}</div>
+                                  {/* If this is a Brosten track (trailing '*') show the small capacity % under the tile number for 0/1/2 tokens */}
+                                  {(() => {
+                                    try {
+                                      const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                                      if (!isBrosten) return null;
+                                      const ch = t.char;
+                                      if (ch !== '0' && ch !== '1' && ch !== '2') return null;
+                                      const label = ch === '2' ? '50%' : '33%';
+                                      return (
+                                        <div style={{ position: 'absolute', top: isSmall ? 14 : 16, left: 6, fontSize: isSmall ? '7px' : '9px', lineHeight: 1, opacity: 0.9, color: styleColors.text }} className="pointer-events-none">{label}</div>
+                                      );
+                                    } catch (e) { return null; }
+                                  })()}
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {groupsHere.length > 0 && (
                                     <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
@@ -3248,16 +3383,33 @@ if (potentialLeaders.length > 0) {
                     })()}
                   </div>
                 </div>
-                {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
-                  <button onClick={startNewRound} className="w-full mt-3 bg-green-600 text-white py-2 rounded flex items-center justify-center gap-2">
-                    <SkipForward size={14}/>Round {round + 1}
-                  </button>
-                )}
-                {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
-                  <button onClick={() => setFallBackOpen(true)} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">
-                    Let rider fall back
-                  </button>
-                )}
+                {((movePhase === 'roundComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
+                  const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                  if (isBrosten && !diceEvent) {
+                    return (
+                      <div>
+                        <button onClick={checkCrash} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">Check if crash</button>
+                        {diceMsg && <div className="mt-2 text-sm text-gray-700">{diceMsg}</div>}
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      <button onClick={startNewRound} className="w-full mt-3 bg-green-600 text-white py-2 rounded flex items-center justify-center gap-2">
+                        <SkipForward size={14}/>Round {round + 1}
+                      </button>
+                      <button onClick={() => setFallBackOpen(true)} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">
+                        Let rider fall back
+                      </button>
+                      {diceEvent && (
+                        <div className="mt-2 p-2 bg-yellow-50 border rounded text-sm">
+                          <div className="font-medium">{diceEvent.kind === 'puncture' ? 'Puncture' : 'Crash'}: {diceEvent.who} {diceEvent.oldPos}→{diceEvent.newPos}</div>
+                          <div className="text-xs text-gray-600">Use "Let rider fall back" to move riders back until you confirm.</div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* Sprint controls: show per-group sprint buttons when pending */}
                 {sprintGroupsPending.length > 0 && (
