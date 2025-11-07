@@ -213,12 +213,7 @@ World Championships - Road Race  ('70)
 
 6th
 GC Tour de France  ('71)",7,7,7,6,6,5,5,5,4,4,4,3,3,3,2,8,7,6,6,6,6,5,5,4,4,4,4,3,3,3
-Mads Pedersen,72,64,14,19,34,3,49,+6,4,7,8,72,7,1.6,1.5,6,"World Championships - Road Race  ('19)
-
-Gent-Wevelgem in Flanders Fields ME  ('20)
-
-
-GC PostNord Danmark Rundt - Tour of Denmark  ('17)",7,7,7,6,6,5,5,5,4,4,4,4,3,3,2,7,7,5,5,5,5,4,4,4,4,4,3,3,2,2
+Mads Pedersen,25,74,65,14,20,34,4,50,6,4,6,9,74,7,1.6,1.4,7,"XXX",7,7,7,6,6,6,5,5,5,4,4,4,3,3,2,7,7,6,5,5,4,4,4,4,4,4,3,3,3,2
 Magnus Bäckstedt,79,60,12,17,32,3,51,+7,5,6,0,60,3,1.3,1.3,3,"Paris - Roubaix  ('04)
 
 stage Tour de France  ('98)

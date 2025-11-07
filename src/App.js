@@ -811,31 +811,36 @@ return { pace, updatedCards };
       // no breakaway handling here — just default false
       for (let idx = 0; idx < assigned.length; idx++) {
         const { rider, team } = assigned[idx];
+        // Use per-track modified BJERG when computing candidate win chances
+        // so the draft AI evaluates riders using the same adjusted stat used
+        // when starting a game. computeModifiedBJERG returns { modifiedBJERG, label, puncheur_factor }.
+        const modified = computeModifiedBJERG(rider, selectedTrack);
         cardsObj[rider.NAVN] = {
-          position: 0,
-          cards: generateCards(rider, false),
-          discarded: [],
-          group: 2,
-          prel_time: 10000,
-          time_after_winner: 10000,
-          result: 1000,
-          sprint: rider.SPRINT,
-          bjerg: rider.BJERG,
-          flad: rider.FLAD,
-          mentalitet: rider.MENTALITET || 4,
-          team,
-          fatigue: 0,
-          penalty: 0,
-          favorit: idx + 1,
-          e_moves_left: 12,
-          favorit_points: 1,
-          win_chance: 10,
-          win_chance_wo_sprint: 10,
-          sprint_chance: 10,
-          takes_lead: 0,
-          attacking_status: 'no',
-          selected_value: -1
-        };
+            position: 0,
+            cards: generateCards(rider, false),
+            discarded: [],
+            group: 2,
+            prel_time: 10000,
+            time_after_winner: 10000,
+            result: 1000,
+            sprint: rider.SPRINT,
+            // prefer per-track adjusted BJERG when available
+            bjerg: (modified && typeof modified.modifiedBJERG !== 'undefined') ? Number(modified.modifiedBJERG) : Number(rider.BJERG),
+            flad: rider.FLAD,
+            mentalitet: rider.MENTALITET || 4,
+            team,
+            fatigue: 0,
+            penalty: 0,
+            favorit: idx + 1,
+            e_moves_left: 12,
+            favorit_points: 1,
+            win_chance: 10,
+            win_chance_wo_sprint: 10,
+            sprint_chance: 10,
+            takes_lead: 0,
+            attacking_status: 'no',
+            selected_value: -1
+          };
       }
 
       const selectedTrack = trackName === 'random' ? getRandomTrack() : tracks[trackName];
