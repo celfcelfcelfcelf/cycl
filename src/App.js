@@ -752,8 +752,13 @@ return { pace, updatedCards };
   const computeWinScore = (rider) => {
     if (!rider) return 0;
     let score = 0;
+    // Use per-track adjusted BJERG when available so the simple heuristic
+    // better matches the per-track modified stat used by computeInitialStats.
+    const selectedTrackLocal = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
+    const modified = computeModifiedBJERG(rider, selectedTrackLocal) || {};
+    const bjergVal = (typeof modified.modifiedBJERG !== 'undefined') ? Number(modified.modifiedBJERG) : Number(rider.BJERG);
     score += (Number(rider.FLAD) || 0) * 1.0;
-    score += (Number(rider.BJERG) || 0) * 1.0;
+    score += (bjergVal || 0) * 1.0;
     score += (Number(rider.SPRINT) || 0) * 1.0;
     score += (Number(rider.MENTALITET) || 0) * 0.5;
     for (let i = 1; i <= 15; i++) {
