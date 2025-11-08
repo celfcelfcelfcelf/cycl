@@ -108,7 +108,7 @@ export function enforceBrosten(cardsObj, track, groupNum, rng = Math.random) {
     const totalPeloton = Object.values(cardsObj).filter(r => !r.finished).length || 1;
     // Determine passed tokens for this moved group
     const passedTokens = new Set();
-    for (const [n, r] of Object.entries(cardsObj)) {
+    for (const r of Object.values(cardsObj)) {
       try {
         if (!r || r.finished) continue;
         if (r.group !== groupNum) continue;

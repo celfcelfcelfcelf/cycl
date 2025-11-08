@@ -6,15 +6,9 @@ export default function GroupDisplay({ groupNum, cards = {}, onSubmitMove, teamC
   const entries = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished).sort((a,b) => b[1].position - a[1].position);
   const hasHuman = entries.some(([, r]) => r.team === 'Me');
 
-  // map a team name to a deterministic readable HSL color for text
-  const teamColorFromName = (team) => {
-    if (!team) return '#111';
-    // simple hash
-    let h = 0;
-    for (let i = 0; i < team.length; i++) h = (h * 31 + team.charCodeAt(i)) >>> 0;
-    const hue = h % 360;
-    return `hsl(${hue} 70% 40%)`;
-  };
+  // (removed unused teamColorFromName helper) kept compact and focused for the
+  // Group display; if a team color mapping is needed later we can reintroduce
+  // a small helper or use the passed-in `teamColors` prop.
 
   // build a compact map of riders in this group for the human UI
   const groupRiders = entries.reduce((acc, [name, r]) => { acc[name] = r; return acc; }, {});

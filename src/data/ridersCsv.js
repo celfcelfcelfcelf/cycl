@@ -378,7 +378,6 @@ Anton Charmig,62,61,13,18,32,3,40,1,-1,2,3,64,3,1.3,1.4,5,"xxx",6.0,6.0,6.0,5.0,
 function parseCSV(text) {
   const s = text.replace(/\r\n/g, '\n');
   const rows = [];
-  let cur = '';
   let field = '';
   let row = [];
   let inQuotes = false;
@@ -418,7 +417,7 @@ function parseCSV(text) {
 function toNumber(v) {
   if (v === undefined || v === null) return 0;
   const original = v;
-  const cleaned = ('' + v).trim().replace(/[^0-9\-\.]/g, '');
+  const cleaned = ('' + v).trim().replace(/[^0-9.-]/g, '');
   if (cleaned === '') {
     // if empty after cleaning, log the original value at debug level so we
     // can inspect what was present before it became 0
