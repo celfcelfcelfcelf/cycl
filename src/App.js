@@ -289,8 +289,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // All helper implementations (getPenalty, takesLeadFC, humanResponsibility,
   // getTeamMatesInGroup, pickValue, takesLeadFCFloating) were moved to
   // `src/game/gameLogic.js`. App now imports and uses the shared versions.
-  const autoPlayTeam = (groupNum) => {
-  const teamRiders = Object.entries(cards).filter(([,r]) => r.group === groupNum && r.team === currentTeam && !r.finished);
+  const autoPlayTeam = (groupNum, teamName = currentTeam) => {
+  const teamRiders = Object.entries(cards).filter(([,r]) => r.group === groupNum && r.team === teamName && !r.finished);
   
   let pace = 0;
   if (teamRiders.length === 0) {
@@ -474,7 +474,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         pace = Math.max(pace, updatedCards[name].selected_value);
         // Only include this as a team pace if the rider is not attacking
         if (updatedCards[name].attacking_status !== 'attacker') {
-          const tname = updatedCards[name].team;
+    const tname = updatedCards[name].team;
           teamPaceMap[tname] = Math.max(teamPaceMap[tname] || 0, Math.round(updatedCards[name].selected_value));
           
         }
@@ -744,6 +744,47 @@ return { pace, updatedCards };
     setDraftPool(pick);
     startInteractiveDraft(pick);
     setGameState('draft');
+  };
+  
+  // Run AI resubmissions for choice-2 for the given group. This will iterate
+  // AI teams that have non-attacker riders in the group and invoke their
+  // decision logic, then submit via handlePaceSubmit. Human ('Me') is skipped.
+  const runChoice2AI = async (groupNum) => {
+    try {
+      // If round changed or was cleared, abort.
+      const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+      if (currentRound !== 2) return;
+  
+      const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+      const teamsWithRiders = teams.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+  
+      for (const t of teamsWithRiders) {
+        if (t === 'Me') continue; // human decides manually
+        // abort if round changed while looping
+        const roundNow = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+        if (roundNow !== 2) return;
+  
+        // Run AI decision for this team (reuse autoPlayTeam helper)
+        const res = autoPlayTeam(groupNum, t);
+        let aiTeamPace = 0;
+        let aiIsAttack = false;
+        let aiAttackerName = null;
+        if (res && res.updatedCards) {
+          const teamRidersRes = Object.entries(res.updatedCards).filter(([, r]) => r.group === groupNum && r.team === t && !r.finished);
+          const nonAttackerPaces = teamRidersRes.filter(([, r]) => r.attacking_status !== 'attacker').map(([, r]) => Math.round(r.selected_value || 0));
+          aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+          aiIsAttack = teamRidersRes.some(([, r]) => r.attacking_status === 'attacker');
+          aiAttackerName = (teamRidersRes.find(([, r]) => r.attacking_status === 'attacker') || [null, null])[0] || null;
+        }
+  
+        addLog(`${t} (AI) resubmits for choice-2: pace=${aiTeamPace}${aiIsAttack ? ' attack' : ''}`);
+        handlePaceSubmit(groupNum, aiTeamPace, t, aiIsAttack, aiAttackerName);
+        // small delay so logs and UI update smoothly
+        await new Promise(r => setTimeout(r, 90));
+      }
+    } catch (e) {
+      // ignore errors in AI resubmission
+    }
   };
 
   // Simple heuristic win score for ranking riders during draft picks.
