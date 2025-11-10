@@ -891,6 +891,27 @@ return { pace, updatedCards };
       list_.push(first);
       list_.push(second);
       list_.push(third);
+      } else if (riders_per_team === 4) {
+        // Implemented from the provided formula for 4 riders per team
+        const minimum = 1 + (4 - 1) * 0.5; // 1 + 3*0.5
+        const maximum = teams_count * 4 - (4 - 1) * 0.5; // teams*4 - 1.5
+        const forskel = maximum - minimum;
+        const average = minimum + forskel * (level / 100);
+
+        let afstand = 50 - Math.abs(level - 50);
+        afstand = 1 + afstand * ((teams_count - 1) / 50);
+
+        let first = Math.round(average - 1.5 * afstand);
+        let rest = first - (average - 1.5 * afstand);
+        let second = Math.round(average - 0.5 * afstand + rest);
+        rest = second - (average - 0.5 * afstand + rest);
+        let third = Math.round(average + 0.5 * afstand + rest);
+        let fourth = Math.round(average * 4 - (first + second + third));
+
+        list_.push(first);
+        list_.push(second);
+        list_.push(third);
+        list_.push(fourth);
     } else if (riders_per_team === 2) {
       // Ported from provided Python logic for riders_per_team == 2
       const average = level * (maximum - minimum) / 100 + minimum;
