@@ -906,12 +906,16 @@ return { pace, updatedCards };
         let second = Math.round(average - 0.5 * afstand + rest);
         rest = second - (average - 0.5 * afstand + rest);
         let third = Math.round(average + 0.5 * afstand + rest);
-        let fourth = Math.round(average * 4 - (first + second + third));
+  let fourth = Math.round(average * 4 - (first + second + third));
 
-        list_.push(first);
-        list_.push(second);
-        list_.push(third);
-        list_.push(fourth);
+  // If third and fourth resolve to the same pick index, nudge the
+  // fourth one up by one to avoid duplicate pick positions.
+  if (third === fourth) fourth = fourth + 1;
+
+  list_.push(first);
+  list_.push(second);
+  list_.push(third);
+  list_.push(fourth);
     } else if (riders_per_team === 2) {
       // Ported from provided Python logic for riders_per_team == 2
       const average = level * (maximum - minimum) / 100 + minimum;
