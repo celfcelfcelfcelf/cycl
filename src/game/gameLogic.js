@@ -578,6 +578,17 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     const human = humanResponsibility(group, ['Me'], groupSize, teamsInGroup, numberOfTeams, lenLeft, cardsState);
     chance_tl = chance_tl / Math.max(1, Math.pow(human, 0.5));
 
+    // Reduce take-lead chance when the group already has high chosen speeds.
+    // Find the highest chosen speed (selected_value) among non-attacker riders
+    // in the same group and divide chance_tl by at least 2 or that value.
+    try {
+      const chosenSpeeds = (groupRiders || []).map(r => Math.round(r.selected_value || 0)).filter(v => v > 0);
+      const maxChosen = chosenSpeeds.length > 0 ? Math.max(...chosenSpeeds) : 0;
+      const denom = Math.max(2, maxChosen);
+      chance_tl = chance_tl / denom;
+      logger && logger(`TLFC ADJUST ${riderName}: maxChosen=${maxChosen} denom=${denom} -> chance_tl=${chance_tl.toFixed(6)}`);
+    } catch (e) {}
+
     if (!floating) {
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
       if (rng() < prob) {
