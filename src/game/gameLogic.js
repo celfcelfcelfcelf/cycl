@@ -502,6 +502,20 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
   for (const r of Object.values(cardsState)) {
     if (r.finished) continue;
+    // Treat explicit attackers as being "in front" of the group for the
+    // purpose of these prob_* tallies. This makes take-lead decisions aware
+    // of attackers even if callers don't pass an attackersInTurn array.
+    if (r.attacking_status === 'attacker') {
+      if (r.team === team) {
+        prob_team_front += (r.win_chance || 0) / 100;
+        prob_front += (r.win_chance || 0) / 100;
+      } else {
+        prob_front += (r.win_chance || 0) / 100;
+      }
+      // attackers are considered front for these tallies, skip normal group handling
+      continue;
+    }
+
     if (r.group === group) {
       if (r.team === team) {
         prob_team_group += (r.win_chance || 0) / 100;
