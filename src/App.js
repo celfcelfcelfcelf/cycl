@@ -181,6 +181,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamPaces, setTeamPaces] = useState({});
   // Meta information about team submissions for a given group: key -> { isAttack, attacker }
   const [teamPaceMeta, setTeamPaceMeta] = useState({});
+  // Per-group submission round tracker: 1 (initial) or 2 (choice-2)
+  const [teamPaceRound, setTeamPaceRound] = useState({});
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
   const [slipstream, setSlipstream] = useState(0);
@@ -1180,8 +1182,12 @@ return { pace, updatedCards };
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
-    // Prevent double-submission by same team
-    if (teamPaces[paceKey] !== undefined) {
+    // Prevent double-submission by same team for the same round.
+    // If the group is in round 2 we allow replacing a round-1 submission.
+    const existingMeta = teamPaceMeta[paceKey];
+    const existingRound = existingMeta && existingMeta.round ? existingMeta.round : 1;
+    const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+    if (existingMeta && existingRound >= currentRound) {
       addLog(`${submittingTeam} already chose for group ${groupNum}`);
       return;
     }
@@ -1199,8 +1205,42 @@ return { pace, updatedCards };
   // and distinguish "no submission" from an explicit 0 choice.
   const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
   setTeamPaces(newTeamPaces);
-  const newMeta = { ...teamPaceMeta, [paceKey]: { isAttack: !!isAttack, attacker: attackerName || null } };
+  // If this is a round-2 resubmission and the team previously declared an
+  // attack in round-1, enforce that the attacker remains attacker.
+  let effectiveIsAttack = !!isAttack;
+  let effectiveAttacker = attackerName || null;
+  if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+    if (!effectiveIsAttack) {
+      // Force attacker to remain attacker on revise
+      effectiveIsAttack = true;
+      effectiveAttacker = existingMeta.attacker || effectiveAttacker;
+      addLog(`${submittingTeam} revised choice but attacker ${effectiveAttacker} remains attacker`);
+    }
+  }
+  // record which round this submission belongs to so we can distinguish
+  // round-1 vs round-2 submissions when finalizing the group.
+  const newMeta = { ...teamPaceMeta, [paceKey]: { isAttack: effectiveIsAttack, attacker: effectiveAttacker, round: currentRound } };
   setTeamPaceMeta(newMeta);
+  // If we're enforcing attacker persistence on revise, also ensure the
+  // rider's card state marks them as attacker so movement helpers use it.
+  if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+    const attackerToEnforce = existingMeta.attacker || effectiveAttacker;
+    if (attackerToEnforce) {
+      setCards(prev => {
+        try {
+          const updated = { ...prev };
+          if (updated[attackerToEnforce]) {
+            updated[attackerToEnforce] = {
+              ...updated[attackerToEnforce],
+              attacking_status: 'attacker',
+              takes_lead: 2,
+            };
+          }
+          return updated;
+        } catch (e) { return prev; }
+      });
+    }
+  }
 
     if (isAttack) {
       addLog(`${submittingTeam}: attack`);
@@ -1220,23 +1260,36 @@ return { pace, updatedCards };
   const teamsWithRiders = teams.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
 
     // Collect submitted paces per team for this group, but only include
-    // submissions from teams that actually have non-attacker riders in the group.
+    // submissions that belong to the current round and from teams that
+    // actually have non-attacker riders in the group.
     const submittedPaces = {};
     Object.entries(newTeamPaces).forEach(([k, v]) => {
       if (!k.startsWith(`${groupNum}-`)) return;
       const t = k.split('-')[1];
       if (!teamsWithRiders.includes(t)) return; // ignore teams without non-attacker riders
-      submittedPaces[t] = Math.max(submittedPaces[t] || 0, parseInt(v));
+      const meta = newMeta[k] || {};
+      const metaRound = meta && meta.round ? meta.round : 1;
+      if (metaRound === currentRound) submittedPaces[t] = Math.max(submittedPaces[t] || 0, parseInt(v));
     });
 
   // If the player's team ('Me') has riders in this group, require that
-  // the player submits before finalizing — even if all AI teams (which
-  // may have no riders) have submitted. This prevents AI from auto-
-  // finalizing a group that contains human riders.
+  // the player submits in the current round before finalizing.
   if (teamsWithRiders.includes('Me') && (submittedPaces['Me'] === undefined)) return;
 
-  // Wait until all teams that have non-attacker riders have submitted for this group
+  // Wait until all teams that have non-attacker riders have submitted for this ROUND
   if (Object.keys(submittedPaces).length < teamsWithRiders.length) return;
+
+  // If we're finishing round 1 and any team declared an attack in this group,
+  // open a second round (choice-2) allowing all teams to resubmit. Do not
+  // finalize movement during this transition.
+  if (currentRound === 1) {
+    const anyAttack = Object.entries(newMeta).some(([k, m]) => k.startsWith(`${groupNum}-`) && m && m.isAttack);
+    if (anyAttack) {
+      setTeamPaceRound(prev => ({ ...(prev || {}), [groupNum]: 2 }));
+      addLog(`Choice-2 opened for group ${groupNum} due to attack — teams may revise their choices`);
+      return;
+    }
+  }
 
     // If any teams submitted explicit paces for this group, use the highest
     // submitted pace to determine group movement. Non-submitting teams are
@@ -1496,6 +1549,15 @@ return { pace, updatedCards };
       }
     }
 
+    // Clear any per-group round state now that we've finalized movement for this group
+    try {
+      setTeamPaceRound(prev => {
+        if (!prev) return prev;
+        const copy = { ...prev };
+        if (copy.hasOwnProperty(groupNum)) delete copy[groupNum];
+        return copy;
+      });
+    } catch (e) {}
     setMovePhase('cardSelection');
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
   };
@@ -2293,6 +2355,26 @@ const checkCrash = () => {
   return (
     <div className="bg-blue-50 p-3 rounded border-2 border-blue-500">
       <h4 className="font-bold mb-3">Your Team's Turn</h4>
+      {/* Choice-2 banner: show when the group is in round 2 (choice-2 open) */}
+      {(() => {
+        try {
+          const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+          if (currentRound === 2) {
+            const paceKey = `${groupNum}-Me`;
+            const meta = teamPaceMeta && teamPaceMeta[paceKey];
+            return (
+              <div className="mb-3 p-2 rounded bg-yellow-100 border border-yellow-300">
+                <div className="font-medium text-yellow-800">Choice-2 open for this group</div>
+                <div className="text-xs text-yellow-700">An attack was declared — all teams may revise their choice. Your previous choice will be replaced when you submit.</div>
+                {meta && meta.round === 1 && (
+                  <div className="text-xs text-gray-700 mt-1">You previously submitted in round 1: {teamPaces[paceKey] || 0} {meta.isAttack ? "(attack)" : ''}</div>
+                )}
+              </div>
+            );
+          }
+        } catch (e) {}
+        return null;
+      })()}
       
       {/* Team choice buttons */}
       <div className="mb-4 p-3 bg-white rounded border">
