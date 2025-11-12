@@ -183,6 +183,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamPaceMeta, setTeamPaceMeta] = useState({});
   // Per-group submission round tracker: 1 (initial) or 2 (choice-2)
   const [teamPaceRound, setTeamPaceRound] = useState({});
+  // When the user selects the sentinel 'random' track we pick one random
+  // concrete track and keep it for the preview and the actual game start so
+  // the preview matches the runtime track. This stores that single choice.
+  const [chosenRandomTrack, setChosenRandomTrack] = useState(null);
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
   const [slipstream, setSlipstream] = useState(0);
@@ -210,6 +214,28 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       return [...p, newEntry];
     });
   };
+
+  // Resolve the effective selected track token string. When trackName is
+  // 'random' this returns the single chosenRandomTrack (picking one if
+  // necessary). For named tracks it returns the mapping from `tracks`.
+  const getResolvedTrack = (overrideTrackName) => {
+    const tn = typeof overrideTrackName === 'string' ? overrideTrackName : trackName;
+    if (tn === 'random') {
+      if (chosenRandomTrack) return chosenRandomTrack;
+      // Lazily pick and persist a random track so previews and game start
+      // remain consistent even if the user opens/closes the draft.
+      const r = getRandomTrack();
+      setChosenRandomTrack(r);
+      return r;
+    }
+    return tracks[tn] || '';
+  };
+
+  // If the user selects a named track (not 'random'), clear any previously
+  // chosen random track so re-selecting 'random' later picks a fresh one.
+  useEffect(() => {
+    if (trackName !== 'random' && chosenRandomTrack) setChosenRandomTrack(null);
+  }, [trackName]);
 
   // Colour helpers: generate random team background colour (HSL) and pick
   // readable text colour (black/white) with a contrast check. If neither
@@ -511,7 +537,7 @@ return { pace, updatedCards };
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
   const initializeGame = (drafted = null) => {
   // Prepare selectedTrack and track state
-  const selectedTrack = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
+  const selectedTrack = getResolvedTrack();
   setTrack(selectedTrack);
 
   // build team list
@@ -730,9 +756,9 @@ return { pace, updatedCards };
     setDraftRoundNum(1);
     setIsDrafting(false);
     setDraftDebugMsg(null);
-    // Ensure the track preview matches the currently selected trackName
-    const selectedTrack = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
-    setTrack(selectedTrack);
+  // Ensure the track preview matches the currently selected trackName
+  const selectedTrack = getResolvedTrack();
+  setTrack(selectedTrack);
     const total = numberOfTeams * ridersPerTeam;
     const pool = [...ridersData];
     for (let i = pool.length - 1; i > 0; i--) {
@@ -797,7 +823,7 @@ return { pace, updatedCards };
     let score = 0;
     // Use per-track adjusted BJERG when available so the simple heuristic
     // better matches the per-track modified stat used by computeInitialStats.
-    const selectedTrackLocal = trackName === 'random' ? getRandomTrack() : (tracks[trackName] || '');
+    const selectedTrackLocal = getResolvedTrack();
     const modified = computeModifiedBJERG(rider, selectedTrackLocal) || {};
     const bjergVal = (typeof modified.modifiedBJERG !== 'undefined') ? Number(modified.modifiedBJERG) : Number(rider.BJERG);
     score += (Number(rider.FLAD) || 0) * 1.0;
@@ -891,7 +917,7 @@ return { pace, updatedCards };
           };
       }
 
-      const selectedTrack = trackName === 'random' ? getRandomTrack() : tracks[trackName];
+  const selectedTrack = getResolvedTrack();
       // computeInitialStats mutates cardsObj and sets win_chance fields
       computeInitialStats(cardsObj, selectedTrack, 0, numberOfTeams);
       const entry = cardsObj[candidate.NAVN];
@@ -1244,6 +1270,9 @@ return { pace, updatedCards };
   // pace values in `teamPaces` (backwards compatible) and store a
   // per-team metadata entry in `teamPaceMeta` so the UI can show attacks
   // and distinguish "no submission" from an explicit 0 choice.
+  // Capture previous pace (from round 1) before overwriting so we can
+  // later decide whether choice-2 actually changed the announced speed.
+  const prevPaceForThisTeam = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
   const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
   setTeamPaces(newTeamPaces);
   // If this is a round-2 resubmission and the team previously declared an
@@ -1260,7 +1289,12 @@ return { pace, updatedCards };
   }
   // record which round this submission belongs to so we can distinguish
   // round-1 vs round-2 submissions when finalizing the group.
-  const newMeta = { ...teamPaceMeta, [paceKey]: { isAttack: effectiveIsAttack, attacker: effectiveAttacker, round: currentRound } };
+  // If this is a round-2 revise and we have a previous pace from round-1,
+  // record it so downstream logic can determine whether the team's pace
+  // actually changed during choice-2 (we only apply EC penalty when it did).
+  const metaEntry = { isAttack: effectiveIsAttack, attacker: effectiveAttacker, round: currentRound };
+  if (currentRound === 2 && typeof prevPaceForThisTeam !== 'undefined') metaEntry.prevPace = prevPaceForThisTeam;
+  const newMeta = { ...teamPaceMeta, [paceKey]: metaEntry };
   setTeamPaceMeta(newMeta);
   // If we're enforcing attacker persistence on revise, also ensure the
   // rider's card state marks them as attacker so movement helpers use it.
@@ -1781,6 +1815,39 @@ const confirmMove = () => {
   setCards(updatedCards);
   // mark this group as moved this round
   setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
+  // Apply choice-2 penalty: if a team's submission for THIS GROUP was in
+  // round 2 and that team's rider ends up leading the group, give that
+  // rider an extra penalty card 'kort: 16'. This happens only for choice-2
+  // submissions (round === 2).
+  try {
+    for (const n of names) {
+      try {
+        const r = updatedCards[n];
+        if (!r) continue;
+        // leader detection post-move (takes_lead === 1)
+        const isLeadNow = Number(r.takes_lead) === 1;
+        if (!isLeadNow) continue;
+        const teamKey = `${currentGroup}-${r.team}`;
+  const meta = (teamPaceMeta && teamPaceMeta[teamKey]) ? teamPaceMeta[teamKey] : null;
+  // Only apply the choice-2 lead penalty when the team's round-2
+  // submission actually changed the announced speed compared to
+  // the stored previous round-1 pace (meta.prevPace). If prevPace
+  // is undefined we conservatively do not apply the extra EC.
+  const newPace = (teamPaces && typeof teamPaces[teamKey] !== 'undefined') ? teamPaces[teamKey] : undefined;
+  const paceChangedInChoice2 = meta && typeof meta.prevPace !== 'undefined' && typeof newPace !== 'undefined' && meta.prevPace !== newPace;
+  if (meta && meta.round === 2 && paceChangedInChoice2) {
+          // Add the penalty card to discarded so existing post-move diff
+          // logic picks it up (confirmMove compares pre/post discarded/cards)
+          if (!Array.isArray(updatedCards[n].discarded)) updatedCards[n].discarded = [];
+          updatedCards[n].discarded = [...updatedCards[n].discarded, { id: 'kort: 16' }];
+          try { addLog(`Penalty applied: ${n} receives kort: 16 for leading after choice-2`); } catch (e) {}
+        }
+      } catch (e) {}
+    }
+    // persist any penalty changes
+    setCards(updatedCards);
+  } catch (e) {}
+
   addLog(`Group ${currentGroup} moved`);
 
 
@@ -2764,8 +2831,8 @@ const checkCrash = () => {
               {/* Track preview: show color-coded fields for the selected track (up to the first F). */}
               <div className="mt-3 bg-white p-3 rounded border">
                 <div className="text-sm font-semibold mb-2">Track preview</div>
-                {(() => {
-                  const raw = trackName === 'random' ? getRandomTrack() : tracks[trackName] || '';
+                  {(() => {
+                  const raw = getResolvedTrack() || '';
                   const selected = raw ? raw.slice(0, (raw.indexOf('F') === -1 ? raw.length : raw.indexOf('F') + 1)) : '';
                   const chars = (selected || '').split('');
                   return (
