@@ -2806,7 +2806,23 @@ const checkCrash = () => {
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold">CYCL.v1.0</h1>
+          <div>
+            {gameState === 'playing' ? (
+              <>
+                <h1 className="text-3xl font-bold">{trackName}</h1>
+                <div className="text-[11px] text-gray-600 mt-1">Level {level}</div>
+              </>
+            ) : (
+              <>
+                <h1 className="text-3xl font-bold">CYCL v.1.1</h1>
+                <div className="text-[11px] text-gray-600 mt-1 leading-tight">
+                  <div>Tobias Lund og Mads P er rettet.</div>
+                  <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
+                  <div>Up next Alle de ting du rapporterede.</div>
+                </div>
+              </>
+            )}
+          </div>
           <div>
             <button onClick={() => setShowEngineUI(s => !s)} className="py-2 px-3 bg-indigo-600 text-white rounded">
               {showEngineUI ? 'Hide Engine UI' : 'Show Engine UI'}
