@@ -2917,7 +2917,7 @@ const checkCrash = () => {
                   />
                   <div className="w-12 text-right font-bold">{level}</div>
                 </div>
-                <div className="text-xs text-gray-500 mt-2">Works for 2 and 3 riders per team</div>
+                
               </div>
               {/* Spacer so mobile users can scroll the level slider above the fixed footer */}
               <div className="h-28 sm:h-32" />
