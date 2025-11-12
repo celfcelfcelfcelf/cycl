@@ -1265,6 +1265,33 @@ return { pace, updatedCards };
     if (postMoveInfo) setPostMoveInfo(null);
   } catch (e) {}
 
+  // Ensure attacks are only allowed when the group has at least 3 riders.
+  // If the UI (human) or AI requested an attack but the group is too small,
+  // ignore the attack and clear any attacker flags that may have been set
+  // earlier by UI code (handleHumanChoices sets attacker state before
+  // calling handlePaceSubmit).
+  try {
+    const groupRidersAllCheck = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+    if (isAttack && groupRidersAllCheck.length < 3) {
+      addLog(`${submittingTeam} attempted an attack but group has fewer than 3 riders — attack ignored`);
+      // Clear any attacker flags that UI may have set for this team in this group
+      setCards(prev => {
+        try {
+          const updated = { ...prev };
+          for (const [nm, r] of Object.entries(updated)) {
+            if (r && r.group === groupNum && r.team === submittingTeam && r.attacking_status === 'attacker') {
+              updated[nm] = { ...r, attacking_status: 'no', takes_lead: 0, selected_value: 0, planned_card_id: null, attack_card: null };
+            }
+          }
+          return updated;
+        } catch (e) { return prev; }
+      });
+      // ignore the attack for the remainder of this submission
+      isAttack = false;
+      attackerName = null;
+    }
+  } catch (e) {}
+
   // Build a local copy including this submission so we can synchronously
   // decide whether all teams have submitted for the group. Keep numeric
   // pace values in `teamPaces` (backwards compatible) and store a
