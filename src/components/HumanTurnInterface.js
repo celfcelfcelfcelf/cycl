@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import CardHand from './CardHand';
 import RiderCard from './RiderCard';
 
@@ -6,6 +6,14 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
   const names = Object.keys(groupRiders);
   const riderCount = names.length;
   const canAttack = riderCount >= 3;
+  const [showTooltip, setShowTooltip] = useState(false);
+  const tooltipTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+    };
+  }, []);
   const [mode, setMode] = useState('pace'); // 'pace' or 'attack'
   const [attacker, setAttacker] = useState(names[0] || null);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -46,7 +54,32 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
           />
           Attack
         </label>
-        {!canAttack && <span className="text-xs text-gray-500 ml-2">(angreb kræver mindst 3 ryttere i gruppen)</span>}
+        {!canAttack && (
+          <span className="relative inline-block ml-2">
+            <button
+              type="button"
+              aria-label="info: attack requires at least 3 riders"
+              className="text-xs text-gray-500 underline"
+              onMouseEnter={() => setShowTooltip(true)}
+              onMouseLeave={() => setShowTooltip(false)}
+              onFocus={() => setShowTooltip(true)}
+              onBlur={() => setShowTooltip(false)}
+              onTouchStart={() => {
+                setShowTooltip(true);
+                if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+                tooltipTimeoutRef.current = setTimeout(() => setShowTooltip(false), 2200);
+              }}
+              onClick={() => setShowTooltip(s => !s)}
+            >
+              (angreb kræver mindst 3 ryttere i gruppen)
+            </button>
+            {showTooltip && (
+              <div className="absolute left-0 top-full mt-1 w-64 bg-gray-800 text-white text-xs p-2 rounded shadow-lg z-50">
+                Angrib kun når gruppen har mindst 3 ryttere — ellers ignoreres angrebet automatisk.
+              </div>
+            )}
+          </span>
+        )}
       </div>
 
       {mode === 'pace' ? (
