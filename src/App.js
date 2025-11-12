@@ -1675,6 +1675,28 @@ const handleHumanChoices = (groupNum, choice) => {
     .map(([name]) => name);
   
   if (choice.type === 'attack') {
+    // Defensive: disallow human-initiated attacks when the TOTAL group size
+    // is fewer than 3 riders. This mirrors the server-side guard and avoids
+    // races where the UI could set attacker flags before the guard takes effect.
+    const groupRidersAllCheck = Object.entries(updatedCards).filter(([, r]) => r.group === groupNum && !r.finished);
+    if (groupRidersAllCheck.length < 3) {
+      // clear any attacker flags the UI may have set
+      humanRiders.forEach(name => {
+        if (updatedCards[name]) {
+          updatedCards[name].attacking_status = 'no';
+          updatedCards[name].takes_lead = 0;
+          updatedCards[name].selected_value = 0;
+          updatedCards[name].planned_card_id = null;
+          updatedCards[name].attack_card = null;
+        }
+      });
+      setCards(updatedCards);
+      addLog(`${(submittingTeam || 'Me')} attempted an attack but group has fewer than 3 riders — attack ignored`);
+      // Submit as follow (no attack)
+      const teamPaceFallback = 0;
+      handlePaceSubmit(groupNum, teamPaceFallback, 'Me', false, null);
+      return;
+    }
     // Attacking rider gets the card value
     const attacker = choice.attacker;
     const card = choice.card;
@@ -2406,6 +2428,8 @@ const checkCrash = () => {
   };
 
   const HumanTurnInterface = ({ groupNum, riders, onSubmit }) => {
+  const ridersCount = Array.isArray(riders) ? riders.length : 0;
+  const canAttack = ridersCount >= 3;
   const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow'
   const [paceValue, setPaceValue] = useState(null); // 2-8
   const [attackingRider, setAttackingRider] = useState(null); // rider name
@@ -2516,11 +2540,13 @@ const checkCrash = () => {
         <p className="text-sm font-semibold mb-2">Choose team action:</p>
         <div className="flex gap-1 flex-wrap">
           <button
-            onClick={() => handleTeamChoice('attack')}
+            onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
+            disabled={!canAttack}
+            title={!canAttack ? 'Angreb kræver mindst 3 ryttere i gruppen' : ''}
             className={`px-3 py-2 text-sm rounded ${
               teamChoice === 'attack'
                 ? 'bg-red-600 text-white font-bold'
-                : 'bg-red-200 hover:bg-red-300'
+                : (!canAttack ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-red-200 hover:bg-red-300')
             }`}
           >
             Angreb
@@ -2842,6 +2868,7 @@ const checkCrash = () => {
             ) : (
               <>
                 <h1 className="text-3xl font-bold">CYCL v.1.1</h1>
+                <div className="text-[11px] text-gray-800 mt-1 font-medium">Ingen angreb med under 3 i gruppen.</div>
                 <div className="text-[11px] text-gray-600 mt-1 leading-tight">
                   <div>Tobias Lund og Mads P er rettet.</div>
                   <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
