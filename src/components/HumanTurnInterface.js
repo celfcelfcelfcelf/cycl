@@ -4,6 +4,8 @@ import RiderCard from './RiderCard';
 
 export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmit }) {
   const names = Object.keys(groupRiders);
+  const riderCount = names.length;
+  const canAttack = riderCount >= 3;
   const [mode, setMode] = useState('pace'); // 'pace' or 'attack'
   const [attacker, setAttacker] = useState(names[0] || null);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -34,7 +36,17 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
     <div className="border-dashed border-gray-300 p-3 rounded mt-2 bg-gray-50">
       <div className="mb-2">
         <label className="mr-3"><input className="mr-1" type="radio" checked={mode==='pace'} onChange={() => { setMode('pace'); setTouched(false); }} /> Pace</label>
-        <label><input className="mr-1" type="radio" checked={mode==='attack'} onChange={() => { setMode('attack'); setTouched(false); }} /> Attack</label>
+        <label>
+          <input
+            className="mr-1"
+            type="radio"
+            checked={mode==='attack'}
+            onChange={() => { if (canAttack) { setMode('attack'); setTouched(false); } }}
+            disabled={!canAttack}
+          />
+          Attack
+        </label>
+        {!canAttack && <span className="text-xs text-gray-500 ml-2">(angreb kræver mindst 3 ryttere i gruppen)</span>}
       </div>
 
       {mode === 'pace' ? (
