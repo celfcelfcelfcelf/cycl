@@ -1734,8 +1734,9 @@ const handleHumanChoices = (groupNum, choice) => {
     try {
       const paceKey = `${groupNum}-Me`;
       const meta = teamPaceMeta && teamPaceMeta[paceKey];
-      if (meta && typeof meta.prevPace !== 'undefined') {
-        handlePaceSubmit(groupNum, meta.prevPace, 'Me', !!meta.isAttack, meta.attacker || null);
+      const prev = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+      if (typeof prev !== 'undefined') {
+        handlePaceSubmit(groupNum, prev, 'Me', !!(meta && meta.isAttack), (meta && meta.attacker) || null);
         return;
       }
     } catch (e) {}
@@ -2521,11 +2522,15 @@ const checkCrash = () => {
       const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
       const paceKey = `${groupNum}-Me`;
       const meta = teamPaceMeta && teamPaceMeta[paceKey];
-      if (currentRound === 2 && meta && meta.round === 1 && typeof meta.prevPace !== 'undefined') {
+      // Use the recorded teamPaces entry (round-1 submission) to decide
+      // whether we should default to 'nochange' when choice-2 opens. The
+      // `meta.prevPace` is only populated later when a round-2 submission
+      // happens, so checking teamPaces is the reliable indicator here.
+      if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
         setTeamChoice(prev => prev === null ? 'nochange' : prev);
       }
     } catch (e) {}
-  }, [teamPaceRound, teamPaceMeta, groupNum]);
+  }, [teamPaceRound, teamPaceMeta, teamPaces, groupNum]);
   
   // Compute playable pace values for a given rider name and rider object.
   // Returns an array of integers (descending) from highest playable down to 2.
@@ -2636,7 +2641,7 @@ const checkCrash = () => {
               const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
               const paceKey = `${groupNum}-Me`;
               const meta = teamPaceMeta && teamPaceMeta[paceKey];
-              if (currentRound === 2 && meta && meta.round === 1 && typeof meta.prevPace !== 'undefined') {
+              if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
                 return (
                   <button
                     onClick={() => handleTeamChoice('nochange')}
