@@ -2,14 +2,19 @@ import React, { useState, useRef, useEffect } from 'react';
 import CardHand from './CardHand';
 import RiderCard from './RiderCard';
 
-export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit }) {
+export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit, totalGroupCount = null }) {
   // Accept either `groupRiders` (object map) or `riders` (array of [name, rider])
   const groupRidersObj = (groupRiders && Object.keys(groupRiders).length > 0)
     ? groupRiders
     : (Array.isArray(riders) ? riders.reduce((acc, [n, r]) => { acc[n] = r; return acc; }, {}) : {});
   const names = Object.keys(groupRidersObj);
   const riderCount = names.length;
-  const canAttack = riderCount >= 3;
+  // Prefer an explicit totalGroupCount prop when provided (caller can pass
+  // the full group size). Otherwise fall back to the number of entries in
+  // the provided groupRiders (which may be only human riders in some call
+  // sites). Attack is allowed when the total group has at least 3 riders.
+  const effectiveTotalCount = (typeof totalGroupCount === 'number') ? totalGroupCount : riderCount;
+  const canAttack = effectiveTotalCount >= 3;
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipTimeoutRef = useRef(null);
 

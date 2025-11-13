@@ -2575,12 +2575,13 @@ if (potentialLeaders.length > 0) {
           <div className="border-t pt-2">
             {aiMessage && <div className="mb-2 p-2 bg-yellow-100 border border-yellow-300 rounded text-sm font-semibold">{aiMessage}</div>}
             {currentTeam === 'Me' && mr.length > 0 ? (
-  <HumanTurnInterface 
-    groupNum={groupNum}
-    riders={mr}
-    onSubmit={(choices) => handleHumanChoices(groupNum, choices)}
-  />
-	) : (
+        <HumanTurnInterface 
+          groupNum={groupNum}
+          riders={mr}
+          totalGroupCount={gr.length}
+          onSubmit={(choices) => handleHumanChoices(groupNum, choices)}
+        />
+        ) : (
               <div className="bg-gray-50 p-2 rounded flex justify-between">
                 <span className="text-sm">{currentTeam}'s turn</span>
                 <button onClick={() => {
