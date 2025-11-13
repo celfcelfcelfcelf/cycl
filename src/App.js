@@ -1815,30 +1815,37 @@ const handleHumanChoices = (groupNum, choice) => {
   handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName);
 };
 
-const confirmMove = () => {
-  const names = Object.entries(cards)
+const confirmMove = (cardsSnapshot) => {
+  // Allow callers to pass a snapshot of cards (e.g. immediately after the
+  // human submitted planned cards) so we avoid a race with React state
+  // updates. If not provided, fall back to the current `cards` state.
+  const preCards = cardsSnapshot || cards;
+
+  const names = Object.entries(preCards)
     .filter(([,r]) => r.group === currentGroup)
     .map(([n]) => n);
-  
+
   const groupsNewPositions = [];
-  
+
   addLog(`=== Moving group ${currentGroup} ===`);
-  
+
   // Opret en kopi af hele cards-objektet som vi opdaterer
-  const updatedCards = {...cards};
+  const updatedCards = { ...preCards };
 
   // Capture old positions and planned cards for all riders in this group
   const oldPositions = {};
   const plannedCards = {};
   names.forEach(n => {
-    oldPositions[n] = Number(cards[n] && cards[n].position ? cards[n].position : 0);
+    oldPositions[n] = Number(preCards[n] && preCards[n].position ? preCards[n].position : 0);
     // prefer planned_card_id, fallback to attack_card (object) or undefined
-    plannedCards[n] = (cards[n] && (cards[n].planned_card_id || (cards[n].attack_card && cards[n].attack_card.id))) || null;
+    plannedCards[n] = (preCards[n] && (preCards[n].planned_card_id || (preCards[n].attack_card && preCards[n].attack_card.id))) || null;
   });
   
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
-    const nonAttRes = computeNonAttackerMoves(cards, currentGroup, groupSpeed, slipstream, track);
+  // Pass the pre-move snapshot into the engine helper so it sees any
+  // planned_card_id/human_planned flags that were just set by the UI.
+  const nonAttRes = computeNonAttackerMoves(preCards, currentGroup, groupSpeed, slipstream, track);
     // replace updated cards and collect logs
     for (const [n, r] of Object.entries(nonAttRes.updatedCards)) updatedCards[n] = r;
     for (const entry of nonAttRes.logs || []) addLog(entry);
@@ -2876,7 +2883,9 @@ const checkCrash = () => {
     // Close modal and set cards; then call confirmMove after a short delay so state is in sync
     setCardSelectionOpen(false);
     setCards(updated);
-    setTimeout(() => confirmMove(), 60);
+    // Call confirmMove with the updated snapshot to avoid a race where
+    // React hasn't yet flushed `cards` to state when the engine reads it.
+    confirmMove(updated);
   };
 
   const confirmFallBack = () => {
@@ -2924,10 +2933,9 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold">CYCL v.1.1</h1>
-                <div className="text-[11px] text-gray-800 mt-1 font-medium">Ingen angreb med under 3 i gruppen.</div>
+                <h1 className="text-3xl font-bold">CYCL 1.1.</h1>
+                <div className="text-[11px] text-gray-800 mt-1 font-medium">Nu kan man selv vælge hvilket kort man spiller</div>
                 <div className="text-[11px] text-gray-600 mt-1 leading-tight">
-                  <div>Har nok fixet det med forkerte kort</div>
                   <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
                   <div>Up next Alle de ting du rapporterede.</div>
                 </div>
