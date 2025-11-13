@@ -2319,16 +2319,24 @@ if (potentialLeaders.length > 0) {
       <div className="mb-4 p-3 bg-white rounded border">
         <p className="text-sm font-semibold mb-2">Choose team action:</p>
         <div className="flex gap-1 flex-wrap">
-          <button
-            onClick={() => handleTeamChoice('attack')}
-            className={`px-3 py-2 text-sm rounded ${
-              teamChoice === 'attack'
-                ? 'bg-red-600 text-white font-bold'
-                : 'bg-red-200 hover:bg-red-300'
-            }`}
-          >
-            Angreb
-          </button>
+          {(() => {
+            const ridersCount = Array.isArray(riders) ? riders.length : 0;
+            const canAttack = ridersCount >= 3;
+            return (
+              <button
+                onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
+                disabled={!canAttack}
+                title={!canAttack ? 'Angreb kræver mindst 3 ryttere i gruppen' : ''}
+                className={`px-3 py-2 text-sm rounded ${
+                  teamChoice === 'attack'
+                    ? 'bg-red-600 text-white font-bold'
+                    : (!canAttack ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-red-200 hover:bg-red-300')
+                }`}
+              >
+                Angreb
+              </button>
+            );
+          })()}
           
           {[8,7,6,5,4,3,2].map(pace => {
             // If a leader is chosen, compute playable set for that leader; otherwise

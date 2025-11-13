@@ -122,6 +122,51 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
     return Math.max(1, longest);
   };
+  // Compute approximate kilometers left from the current furthest-forward
+  // (maximum) rider position until the finish by scanning the resolved
+  // track tokens. This mirrors the Python helper provided by the user:
+  // - Map tokens '0'..'3' to numeric values, '_' -> 0
+  // - '^' or '*' copy the last numeric token seen
+  // - For the last up-to-13 tokens subtract a small ramping value
+  // - Sum the tokens and divide by 6, returning the floored integer
+  const computeKmLeft = (trackStr, cardsObj) => {
+    try {
+      if (!trackStr || typeof trackStr !== 'string') return 0;
+      // find the furthest-forward (max) position among riders who are not finished
+      let maxPos = 0;
+      Object.values(cardsObj).forEach(r => {
+        if (r && !r.finished && typeof r.position === 'number') {
+          if (r.position > maxPos) maxPos = r.position;
+        }
+      });
+
+      const slice = trackStr.slice(maxPos);
+      const vals = [];
+      let lastNum = 0;
+      for (let i = 0; i < slice.length; i++) {
+        const ch = slice[i];
+        let v = 0;
+        if (ch >= '0' && ch <= '3') v = parseInt(ch, 10);
+        else if (ch === '_') v = 0;
+        else if (ch === '^' || ch === '*') v = lastNum || 0;
+        else v = 0;
+        vals.push(v);
+        if (v) lastNum = v;
+      }
+
+      // Subtract a small ramping penalty from the last up-to-13 tokens.
+      const n = vals.length;
+      const tail = Math.min(13, n);
+      for (let i = 0; i < tail; i++) {
+        const idx = n - 1 - i;
+        const sub = Math.floor(i / 2); // 0,0,1,1,2,2,...
+        vals[idx] = Math.max(0, (vals[idx] || 0) - sub);
+      }
+
+      const total = vals.reduce((a, b) => a + (Number(b) || 0), 0);
+      return Math.floor(total / 6);
+    } catch (e) { return 0; }
+  };
 
   // Compute modified BJERG and label for display given a rider and the current track.
   // Returns { modifiedBJERG, label, puncheur_factor }
@@ -391,36 +436,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       let selected = 0;
       // If this rider is an AI attacker (takes_lead === 2), pick the lowest-numbered
       // card among the top-4 (highest effort) and use its flat/uphill as the selected value.
-      if (updatedCards[name].takes_lead === 2) {
-        const top4 = (updatedCards[name].cards || []).slice(0,4).filter(c => c && c.id);
-        // prefer non-TK lowest-numbered, otherwise lowest-numbered including TK
-        let chosenCard = null;
-        let bestNum = Infinity;
-        for (const c of top4) {
-          if (!c || !c.id) continue;
-          if (c.id.startsWith('TK-1')) continue;
-          const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '99');
-          if (cardNum < bestNum) { bestNum = cardNum; chosenCard = c; }
-        }
-        if (!chosenCard) {
-          for (const c of top4) {
-            if (!c || !c.id) continue;
-            const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '99');
-            if (cardNum < bestNum) { bestNum = cardNum; chosenCard = c; }
-          }
-        }
-        if (chosenCard) {
-          // Determine slipstream for this card and set selected accordingly
-          const sv = getSlipstreamValue(updatedCards[name].position, updatedCards[name].position + chosenCard.flat, track);
-          selected = sv === 3 ? chosenCard.flat : chosenCard.uphill;
-          updatedCards[name].planned_card_id = chosenCard.id;
-        } else {
-          // Fallback to pickValue if no top-4 cards
-          selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
-        }
-      } else {
-        selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
-      }
+      // Use the shared pickValue for both attacker and non-attacker selection so
+      // local penalties (TK-1 / kort:16) and slipstream are always considered.
+      // This prevents AI choosing a selected_value that cannot actually be played
+      // when penalties are present.
+      selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
 
       updatedCards[name].selected_value = updatedCards[name].takes_lead * selected;
 
@@ -496,28 +516,35 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
       }
       
-      if (updatedCards[name].selected_value > 0) {
+      if (updatedCards[name].selected_value > 0 && updatedCards[name].attacking_status !== 'attacker') {
+        // Only non-attacker selected_values contribute to the team's announced pace
         pace = Math.max(pace, updatedCards[name].selected_value);
-        // Only include this as a team pace if the rider is not attacking
-        if (updatedCards[name].attacking_status !== 'attacker') {
-    const tname = updatedCards[name].team;
-          teamPaceMap[tname] = Math.max(teamPaceMap[tname] || 0, Math.round(updatedCards[name].selected_value));
-          
-        }
+        const tname = updatedCards[name].team;
+        teamPaceMap[tname] = Math.max(teamPaceMap[tname] || 0, Math.round(updatedCards[name].selected_value));
       }
     } else {
       updatedCards[name].selected_value = 0;
     }
   }
   
-  // Ensure pace is an integer and within sensible bounds
-  pace = Math.round(pace || 0);
-  if (pace > 0 && pace <= maxPaceSoFar) pace = 0;
-  if (pace === 0) pace = Math.floor(Math.random() * 3) + 2;
-  if (pace <= maxPaceSoFar) pace = 0;
+  // Determine the team's announced pace from the non-attacker selected_values
+  // we recorded in teamPaceMap during the loop. This ensures the returned
+  // `pace` matches an actual non-attacker selected_value when possible.
+  const teamDeclaredPace = Math.round(teamPaceMap[teamName] || 0);
+  // Determine max pace already present from OTHER teams (exclude this team)
+  const otherPaces = Object.entries(teamPaceMap).filter(([k]) => k !== teamName).map(([, v]) => Number(v) || 0);
+  const otherMax = otherPaces.length > 0 ? Math.max(...otherPaces) : 0;
 
-  // Clamp to integers >= 2
-  pace = Math.max(2, Math.round(pace));
+  let finalPace = teamDeclaredPace;
+  // If our declared pace is non-positive or would not affect the group (<= otherMax)
+  // fall back to the random minimal choice (2-4) to mirror original AI unpredictability.
+  if (!finalPace || finalPace <= otherMax) {
+    finalPace = 0;
+  }
+  if (finalPace === 0) finalPace = Math.floor(Math.random() * 3) + 2;
+  if (finalPace <= otherMax) finalPace = 0;
+  // Ensure integer >= 2
+  pace = Math.max(2, Math.round(finalPace || 0));
 
   const msg = pace === 0 ? `${currentTeam}: 0` : `${currentTeam}: ${pace}`;
   // Show a short-lived AI message for UX, but avoid adding a log here because
@@ -795,12 +822,22 @@ return { pace, updatedCards };
         let aiTeamPace = 0;
         let aiIsAttack = false;
         let aiAttackerName = null;
-        if (res && res.updatedCards) {
-          const teamRidersRes = Object.entries(res.updatedCards).filter(([, r]) => r.group === groupNum && r.team === t && !r.finished);
-          const nonAttackerPaces = teamRidersRes.filter(([, r]) => r.attacking_status !== 'attacker').map(([, r]) => Math.round(r.selected_value || 0));
-          aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
-          aiIsAttack = teamRidersRes.some(([, r]) => r.attacking_status === 'attacker');
-          aiAttackerName = (teamRidersRes.find(([, r]) => r.attacking_status === 'attacker') || [null, null])[0] || null;
+        if (res) {
+          // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
+          // fall back to inferring from the per-rider selected_value in updatedCards.
+          if (typeof res.pace === 'number') aiTeamPace = Math.round(res.pace || 0);
+          if ((!aiTeamPace || aiTeamPace === 0) && res.updatedCards) {
+            const teamRidersRes = Object.entries(res.updatedCards).filter(([, r]) => r.group === groupNum && r.team === t && !r.finished);
+            const nonAttackerPaces = teamRidersRes.filter(([, r]) => r.attacking_status !== 'attacker').map(([, r]) => Math.round(r.selected_value || 0));
+            aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+            aiIsAttack = teamRidersRes.some(([, r]) => r.attacking_status === 'attacker');
+            aiAttackerName = (teamRidersRes.find(([, r]) => r.attacking_status === 'attacker') || [null, null])[0] || null;
+          } else if (res.updatedCards) {
+            // Still extract attack info from updatedCards even if we used res.pace
+            const teamRidersRes = Object.entries(res.updatedCards).filter(([, r]) => r.group === groupNum && r.team === t && !r.finished);
+            aiIsAttack = teamRidersRes.some(([, r]) => r.attacking_status === 'attacker');
+            aiAttackerName = (teamRidersRes.find(([, r]) => r.attacking_status === 'attacker') || [null, null])[0] || null;
+          }
         }
   
         addLog(`${t} (AI) resubmits for choice-2: pace=${aiTeamPace}${aiIsAttack ? ' attack' : ''}`);
@@ -2870,7 +2907,7 @@ const checkCrash = () => {
                 <h1 className="text-3xl font-bold">CYCL v.1.1</h1>
                 <div className="text-[11px] text-gray-800 mt-1 font-medium">Ingen angreb med under 3 i gruppen.</div>
                 <div className="text-[11px] text-gray-600 mt-1 leading-tight">
-                  <div>Tobias Lund og Mads P er rettet.</div>
+                  <div>Har nok fixet det med forkerte kort</div>
                   <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
                   <div>Up next Alle de ting du rapporterede.</div>
                 </div>
@@ -3609,6 +3646,13 @@ const checkCrash = () => {
                       </div>
                     </div>
                     {/* Controls + groups below the track (condensed) */}
+                    {(() => {
+                      // Compute kilometers left from the furthest-forward rider
+                      const kmLeft = computeKmLeft(getResolvedTrack(), cards);
+                      return (
+                        <div className="mb-1 text-sm font-semibold"><strong>{`Km's left: ${kmLeft}`}</strong></div>
+                      );
+                    })()}
                     <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
                   <div className="md:col-span-1">
                     {sprintGroupsPending.length > 0 && (() => {

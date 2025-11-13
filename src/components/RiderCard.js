@@ -6,7 +6,7 @@ export default function RiderCard({ name, rider, onPickCard, teamColor = null, t
     color: textColor || 'black'
   };
 
-  const cardBtnStyle = {
+  const cardBtnBase = {
     backgroundColor: 'rgba(255,255,255,0.85)',
     color: '#111'
   };
@@ -24,12 +24,31 @@ export default function RiderCard({ name, rider, onPickCard, teamColor = null, t
         <div className="text-xs mt-1" style={{ color: textColor || 'black' }}>win_chance: {Number(rider.win_chance).toFixed(1)}</div>
       )}
       <div className="flex gap-2 mt-2">
-        {(rider.cards || []).slice(0,4).map((c,i) => (
-          <button key={i} onClick={() => onPickCard && onPickCard(name, c)} style={cardBtnStyle} className="p-1 text-xs rounded border" title={`${c.flat}|${c.uphill}`}>
-            <div className="font-semibold">{c.id}</div>
-            <div className="text-[10px]">{c.flat}|{c.uphill}</div>
-          </button>
-        ))}
+        {(() => {
+          const cards = (rider.cards || []).slice(0,4);
+          const isSpecialId = (id) => {
+            if (!id) return false;
+            try { return id === '99' || id.startsWith('99') || id.startsWith('TK-1'); } catch (e) { return false; }
+          };
+          const hasTK1 = cards.some(c => c && c.id && isSpecialId(c.id));
+          return cards.map((c, i) => {
+            const isTK = c && c.id && isSpecialId(c.id);
+            const cardStyle = {
+              ...cardBtnBase,
+              borderColor: isTK ? 'red' : undefined,
+              backgroundColor: isTK ? 'rgba(255,230,230,0.95)' : cardBtnBase.backgroundColor,
+              color: isTK ? 'darkred' : cardBtnBase.color,
+            };
+            const numbersStyle = { color: hasTK1 ? 'red' : undefined };
+
+            return (
+              <button key={i} onClick={() => onPickCard && onPickCard(name, c)} style={cardStyle} className="p-1 text-xs rounded border" title={`${c.flat}|${c.uphill}`}>
+                <div className="font-semibold">{c.id}</div>
+                <div className="text-[10px]" style={numbersStyle}>{c.flat}|{c.uphill}</div>
+              </button>
+            );
+          });
+        })()}
       </div>
     </div>
   );

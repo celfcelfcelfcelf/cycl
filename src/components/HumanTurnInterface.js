@@ -2,8 +2,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import CardHand from './CardHand';
 import RiderCard from './RiderCard';
 
-export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmit }) {
-  const names = Object.keys(groupRiders);
+export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit }) {
+  // Accept either `groupRiders` (object map) or `riders` (array of [name, rider])
+  const groupRidersObj = (groupRiders && Object.keys(groupRiders).length > 0)
+    ? groupRiders
+    : (Array.isArray(riders) ? riders.reduce((acc, [n, r]) => { acc[n] = r; return acc; }, {}) : {});
+  const names = Object.keys(groupRidersObj);
   const riderCount = names.length;
   const canAttack = riderCount >= 3;
   const [showTooltip, setShowTooltip] = useState(false);
@@ -23,7 +27,7 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
 
   function valid() {
     if (mode === 'attack') {
-      return Boolean(attacker && selectedCard);
+      return Boolean(canAttack && attacker && selectedCard);
     }
     return Boolean(leader && paceValue !== null && paceValue !== undefined && paceValue !== '');
   }
@@ -33,10 +37,14 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
     if (!valid()) return;
     if (mode === 'attack') {
       const choice = { type: 'attack', attacker, card: selectedCard };
-      onSubmit && onSubmit(groupNum, choice);
+      if (onSubmit) {
+        if (onSubmit.length >= 2) onSubmit(groupNum, choice); else onSubmit(choice);
+      }
     } else {
       const choice = { type: 'pace', leader, paceValue: Number(paceValue) || 1 };
-      onSubmit && onSubmit(groupNum, choice);
+      if (onSubmit) {
+        if (onSubmit.length >= 2) onSubmit(groupNum, choice); else onSubmit(choice);
+      }
     }
   }
 
@@ -59,6 +67,7 @@ export default function HumanTurnInterface({ groupRiders = {}, groupNum, onSubmi
             <button
               type="button"
               aria-label="info: attack requires at least 3 riders"
+              title="Angreb kræver mindst 3 ryttere i gruppen"
               className="text-xs text-gray-500 underline"
               onMouseEnter={() => setShowTooltip(true)}
               onMouseLeave={() => setShowTooltip(false)}
