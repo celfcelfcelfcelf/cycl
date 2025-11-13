@@ -2872,7 +2872,9 @@ const checkCrash = () => {
       if (cardId === 'tk_extra 15') {
         // inject a special tk_extra card at the front so the engine can find it
         const existing = updated[riderName].cards || [];
-        const synthetic = { id: 'tk_extra 15', flat: 15, uphill: 15 };
+  // tk_extra should behave as the low-value special card (2|2) for movement
+  // while still keeping the descriptive id 'tk_extra 15' used in UI logs.
+  const synthetic = { id: 'tk_extra 15', flat: 2, uphill: 2 };
         updated[riderName].cards = [synthetic, ...existing];
         updated[riderName].planned_card_id = 'tk_extra 15';
       } else if (typeof cardId === 'string') {
@@ -2938,6 +2940,7 @@ const checkCrash = () => {
               <>
                 <h1 className="text-3xl font-bold">CYCL 1.1.</h1>
                 <div className="text-[11px] text-gray-800 mt-1 font-medium">Nu kan man selv vælge hvilket kort man spiller</div>
+                <div className="text-[11px] text-green-700 mt-1">du kan angribe igen</div>
                 <div className="text-[11px] text-gray-600 mt-1 leading-tight">
                   <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
                   <div>Up next Alle de ting du rapporterede.</div>
