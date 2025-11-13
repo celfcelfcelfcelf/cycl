@@ -91,6 +91,7 @@ const tracks = {
   'Parma-Genova': '33222222222___3333333333111111111__333333333333333333333333FFFFFFFFFFFF',
   'FlandernRundt': '3333330033333311332233333333333330033333333331113333330033333333333FFFFFFFFFFFFFFB',
   'BrostensTest': '3333330033333311332233333333333330033333333331113333330033333333333FFFFFFFFFFFFFF*',
+  'nedkørselstest': '_______000___3___33333FFF',
   'random': 'random'
 };
 
@@ -1318,12 +1319,14 @@ const confirmMove = () => {
       }
 
       if (!chosenCard) {
+        const isDown = track[rider.position] === '_';
         const res = chooseCardToPlay(
           rider.cards,
           slipstream,
           penalty,
           groupSpeed,
-          chosenValue
+          chosenValue,
+          isDown
         );
         chosenCard = res.chosenCard;
         managed = res.managed;
@@ -1576,7 +1579,8 @@ const confirmMove = () => {
 
     // 4) Fallback to chooseCardToPlay
     if (!chosenCard) {
-      const res = chooseCardToPlay(rider.cards, slipstream, penalty, groupSpeed, chosenValue);
+      const isDown = track[rider.position] === '_';
+      const res = chooseCardToPlay(rider.cards, slipstream, penalty, groupSpeed, chosenValue, isDown);
       chosenCard = res.chosenCard; managed = res.managed;
     }
 

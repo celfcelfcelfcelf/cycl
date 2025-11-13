@@ -1,0 +1,18 @@
+{
+  "meta": { "name": "nedkørselstest", "desc": "Test track: _______000___3___33333FFF" },
+  "track": "_______000___3___33333FFF",
+  "round": 1,
+  "cards": {
+    "TestRider": {
+      "position": 0,
+      "group": 1,
+      "finished": false,
+      "move_distance_for_prel": 0,
+      "cards": [],
+      "discarded": [],
+      "prel_time": 10000,
+      "result": 1000,
+      "team": "Test"
+    }
+  }
+}

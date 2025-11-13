@@ -250,7 +250,7 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
 };
 
 // AI helper: choose a card to play from a rider's hand (pure function)
-export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue) => {
+export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false) => {
   // (function body preserved from App.js)
   let chosenCard = null;
   let bestCardNumber = 999;
@@ -287,7 +287,12 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue) =>
       }
     }
   } else {
-    const minimumRequired = speed - sv;
+  let minimumRequired = speed - sv;
+  // If we are on a downhill '_' tile and the required minimum is modest
+  // (<= 5), treat it as easier to satisfy (lower the minimum to 2) so
+  // tk_extra (2|2) becomes a considered candidate. This follows the
+  // suggested rule: if minimumRequired <= 5 && groupPosition === '_' -> 2
+  if (isDownhill && minimumRequired <= 5) minimumRequired = 2;
     bestCardNumber = 0;
 
     if (minimumRequired <= 2 && !hasECOnHand) {
@@ -841,7 +846,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     }
 
     if (!chosenCard) {
-      const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue);
+  const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown);
       chosenCard = res.chosenCard;
       managed = res.managed;
     }
@@ -1206,7 +1212,8 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     }
 
     if (!chosenCard) {
-      const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue);
+  const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown);
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
