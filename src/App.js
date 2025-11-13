@@ -2489,8 +2489,11 @@ const checkCrash = () => {
   };
 
   const HumanTurnInterface = ({ groupNum, riders, onSubmit }) => {
+  // Count how many riders are in the whole group (not only the human's riders)
+  // Attack is allowed as long as there are at least 3 riders in the group.
   const ridersCount = Array.isArray(riders) ? riders.length : 0;
-  const canAttack = ridersCount >= 3;
+  const totalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
+  const canAttack = totalGroupCount >= 3;
   const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow'
   const [paceValue, setPaceValue] = useState(null); // 2-8
   const [attackingRider, setAttackingRider] = useState(null); // rider name
