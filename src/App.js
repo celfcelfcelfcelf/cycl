@@ -124,11 +124,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   };
   // Compute approximate kilometers left from the current furthest-forward
   // (maximum) rider position until the finish by scanning the resolved
-  // track tokens. This mirrors the Python helper provided by the user:
-  // - Map tokens '0'..'3' to numeric values, '_' -> 0
-  // - '^' or '*' copy the last numeric token seen
-  // - For the last up-to-13 tokens subtract a small ramping value
-  // - Sum the tokens and divide by 6, returning the floored integer
+  // track tokens. This implementation follows the Python `get_length` you
+  // provided: apply the converter mapping first, copy previous numeric
+  // values into '^'/'*' tokens, sum the digits (with a small subtraction
+  // for the last 13 tokens), divide by 6 and return the integer part.
   const computeKmLeft = (trackStr, cardsObj) => {
     try {
       if (!trackStr || typeof trackStr !== 'string') return 0;
@@ -140,31 +139,49 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
       });
 
-      const slice = trackStr.slice(maxPos);
-      const vals = [];
-      let lastNum = 0;
-      for (let i = 0; i < slice.length; i++) {
-        const ch = slice[i];
-        let v = 0;
-        if (ch >= '0' && ch <= '3') v = parseInt(ch, 10);
-        else if (ch === '_') v = 0;
-        else if (ch === '^' || ch === '*') v = lastNum || 0;
-        else v = 0;
-        vals.push(v);
-        if (v) lastNum = v;
+      const finishIdx = trackStr.indexOf('F');
+      if (finishIdx === -1) return 0;
+      const startIdx = Math.min(maxPos, finishIdx);
+      // slice from the furthest-forward rider to the finish (inclusive of 'F')
+      let tr = trackStr.slice(startIdx, finishIdx + 1);
+
+      // Apply the converter mapping exactly as in your Python snippet.
+      tr = tr.replace(/3/g, '6').replace(/_/g, '9').replace(/2/g, '4').replace(/1/g, '3').replace(/0/g, '2');
+
+      // Convert to array for in-place edits and copy last numeric into '^'/'*'
+      const arr = tr.split('');
+      let last = null;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const ch = arr[i];
+        // treat any digit or 'F' as a numeric anchor to copy
+        if ((/^[0-9]$/.test(ch)) || ch === 'F') {
+          last = ch;
+        }
+        if (ch === '^' || ch === '*') {
+          arr[i] = last || '0';
+        }
       }
 
-      // Subtract a small ramping penalty from the last up-to-13 tokens.
-      const n = vals.length;
-      const tail = Math.min(13, n);
-      for (let i = 0; i < tail; i++) {
-        const idx = n - 1 - i;
-        const sub = Math.floor(i / 2); // 0,0,1,1,2,2,...
-        vals[idx] = Math.max(0, (vals[idx] || 0) - sub);
+      // Take everything up to (but not including) 'F'
+      const fIdx = arr.indexOf('F');
+      const seq = fIdx !== -1 ? arr.slice(0, fIdx) : arr.slice();
+
+      // Sum numeric values
+      let sum = 0;
+      for (const ch of seq) {
+        if (ch === 'F') break;
+        sum += parseInt(ch, 10) || 0;
       }
 
-      const total = vals.reduce((a, b) => a + (Number(b) || 0), 0);
-      return Math.floor(total / 6);
+      // Subtract 0.23 * value for the last up-to-13 tokens
+      const tail = seq.slice(-13);
+      for (const ch of tail) {
+        const n = parseInt(ch, 10) || 0;
+        sum = sum - n * 0.23;
+      }
+
+      const km = Math.floor(sum / 6);
+      return km >= 0 ? km : 0;
     } catch (e) { return 0; }
   };
 
@@ -2851,6 +2868,9 @@ const checkCrash = () => {
       } else if (typeof cardId === 'string') {
         // set planned_card_id to the chosen id (should exist in hand)
         updated[riderName].planned_card_id = cardId;
+        // Mark that this was a human-chosen card so the engine should honor it
+        // even if it doesn't exactly match the group's computed speed.
+        updated[riderName].human_planned = true;
       }
     }
     // Close modal and set cards; then call confirmMove after a short delay so state is in sync

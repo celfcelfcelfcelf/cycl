@@ -796,17 +796,20 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       if (idx !== -1) {
         const plannedCandidate = (rider.cards || [])[idx];
         let acceptPlanned = true;
-        if (isLeadRider) {
+        // If this rider explicitly chose the card in the UI, honor it even if
+        // it would not strictly meet the leader target. This lets human-picked
+        // cards be played regardless of the group's computed pace.
+        if (isLeadRider && !rider.human_planned) {
           const targetVal = Math.round(chosenValue);
-    const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
-    const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
-    const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
-    const plannedCardVal = svForLead > 2 ? plannedCandidate.flat : plannedCandidate.uphill;
-    // Accept planned if it exactly matches target, or if it's greater-or-equal (lenient acceptance)
-    const plannedEffective = plannedCardVal - localPenalty;
-    if (plannedEffective < targetVal) acceptPlanned = false;
+          const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
+          const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
+          const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+          const plannedCardVal = svForLead > 2 ? plannedCandidate.flat : plannedCandidate.uphill;
+          // Accept planned if it exactly matches target, or if it's greater-or-equal (lenient acceptance)
+          const plannedEffective = plannedCardVal - localPenalty;
+          if (plannedEffective < targetVal) acceptPlanned = false;
         }
-        if (acceptPlanned) { chosenCard = plannedCandidate; managed = true; delete updatedCards[name].planned_card_id; }
+        if (acceptPlanned) { chosenCard = plannedCandidate; managed = true; delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; }
       }
     }
 
@@ -1175,7 +1178,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (!chosenCard && rider.planned_card_id) {
       const idx = (rider.cards || []).findIndex(c => c.id === rider.planned_card_id);
-      if (idx !== -1) { chosenCard = rider.cards[idx]; managed = true; delete updatedCards[name].planned_card_id; }
+      if (idx !== -1) { chosenCard = rider.cards[idx]; managed = true; delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; }
     }
 
     if (!chosenCard && typeof targetNumeric === 'number' && targetNumeric > 0) {
