@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import CardHand from './CardHand';
 import RiderCard from './RiderCard';
+import { getPenalty } from '../game/gameLogic';
 
 export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit }) {
   // Accept either `groupRiders` (object map) or `riders` (array of [name, rider])
@@ -119,6 +120,23 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
             <div className="mb-2">Selected card: {selectedCard ? selectedCard.id : 'none'}</div>
             <div>
               <CardHand cards={groupRiders[attacker]?.cards || []} onSelect={(c) => { setSelectedCard(c); setTouched(false); }} />
+              <div className="mt-2">
+                <div className="text-xs text-gray-600 mb-1">Or pick a card from the chosen leader to set pace:</div>
+                <CardHand cards={groupRidersObj[leader]?.cards || []} onSelect={(c) => {
+                  // Use the card flat value as the chosen pace and subtract any local penalty
+                  try {
+                    const raw = (c.flat || 0);
+                    const penalty = getPenalty(leader, groupRidersObj) || 0;
+                    const effective = Math.max(0, Math.round(raw - penalty));
+                    setLeader(leader);
+                    setPaceValue(effective);
+                    setTouched(false);
+                  } catch (e) {
+                    setPaceValue(c.flat || 0);
+                    setTouched(false);
+                  }
+                }} />
+              </div>
             </div>
             {touched && !valid() && <div className="text-red-600 mt-2">Pick an attacker and a card to attack.</div>}
           </div>
