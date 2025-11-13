@@ -1727,6 +1727,22 @@ const handleHumanChoices = (groupNum, choice) => {
   const humanRiders = Object.entries(updatedCards)
     .filter(([, r]) => r.group === groupNum && r.team === 'Me')
     .map(([name]) => name);
+  // Support 'nochange' choice during choice-2: submit the previous round-1
+  // selection unchanged (if available). This avoids forcing the player to
+  // re-select their previous choice when choice-2 is open.
+  if (choice.type === 'nochange') {
+    try {
+      const paceKey = `${groupNum}-Me`;
+      const meta = teamPaceMeta && teamPaceMeta[paceKey];
+      if (meta && typeof meta.prevPace !== 'undefined') {
+        handlePaceSubmit(groupNum, meta.prevPace, 'Me', !!meta.isAttack, meta.attacker || null);
+        return;
+      }
+    } catch (e) {}
+    // fallback to follow if no previous data
+    handlePaceSubmit(groupNum, 0, 'Me', false, null);
+    return;
+  }
   
   if (choice.type === 'attack') {
     // Defensive: disallow human-initiated attacks when the TOTAL group size
@@ -2499,6 +2515,17 @@ const checkCrash = () => {
   const [attackingRider, setAttackingRider] = useState(null); // rider name
   const [attackCard, setAttackCard] = useState(null); // card object
   const [paceLeader, setPaceLeader] = useState(null); // chosen leader when pacing
+  // Default to 'nochange' in choice-2 when a previous round-1 submission exists
+  useEffect(() => {
+    try {
+      const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+      const paceKey = `${groupNum}-Me`;
+      const meta = teamPaceMeta && teamPaceMeta[paceKey];
+      if (currentRound === 2 && meta && meta.round === 1 && typeof meta.prevPace !== 'undefined') {
+        setTeamChoice(prev => prev === null ? 'nochange' : prev);
+      }
+    } catch (e) {}
+  }, [teamPaceRound, teamPaceMeta, groupNum]);
   
   // Compute playable pace values for a given rider name and rider object.
   // Returns an array of integers (descending) from highest playable down to 2.
@@ -2551,6 +2578,7 @@ const checkCrash = () => {
 
   const canSubmit = () => {
     if (!teamChoice) return false;
+    if (teamChoice === 'nochange') return true;
     if (teamChoice === 'attack') {
       return attackingRider !== null && attackCard !== null;
     }
@@ -2603,6 +2631,24 @@ const checkCrash = () => {
       <div className="mb-4 p-3 bg-white rounded border">
         <p className="text-sm font-semibold mb-2">Choose team action:</p>
         <div className="flex gap-1 flex-wrap">
+          {(() => {
+            try {
+              const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+              const paceKey = `${groupNum}-Me`;
+              const meta = teamPaceMeta && teamPaceMeta[paceKey];
+              if (currentRound === 2 && meta && meta.round === 1 && typeof meta.prevPace !== 'undefined') {
+                return (
+                  <button
+                    onClick={() => handleTeamChoice('nochange')}
+                    className={`px-3 py-2 text-sm rounded ${teamChoice === 'nochange' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-200 hover:bg-blue-300'}`}
+                  >
+                    No change
+                  </button>
+                );
+              }
+            } catch (e) {}
+            return null;
+          })()}
           <button
             onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
             disabled={!canAttack}
