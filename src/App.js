@@ -3769,7 +3769,17 @@ const checkCrash = () => {
                                   {groupsHere.length > 0 && (
                                     <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
                                       {groupsHere.map((g, idx) => (
-                                        <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (g === 1 || g === 2) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
+                                        <span
+                                          key={g}
+                                          style={{
+                                            display: 'inline-block',
+                                            marginRight: idx < groupsHere.length - 1 ? 6 : 0,
+                                            // Default: all groups same (large). If the group
+                                            // has already moved this round, show it smaller.
+                                            fontSize: (groupsMovedThisRound && groupsMovedThisRound.includes(g)) ? '0.65rem' : '0.975rem',
+                                            fontWeight: 700
+                                          }}
+                                        >{`G${g}`}</span>
                                       ))}
                                     </div>
                                   )}
