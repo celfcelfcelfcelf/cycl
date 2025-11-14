@@ -1402,11 +1402,14 @@ const confirmMove = () => {
     const topFour = updatedHandCards.slice(0, topN);
 
     if (chosenCard.id === 'tk_extra 15') {
-      const cardsToDiscard = updatedHandCards.splice(0, topN);
-      // convert any TK-1 into kort: 16 when moved to discard
+      // Remove synthetic tk_extra from hand and discard the top 4 REAL cards
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      const discardCount = Math.min(4, updatedHandCards.length);
+      const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
       addLog(`${name}: tk_extra brugt - ${converted.length} kort til discard`);
+      try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       const globalIndex = updatedHandCards.findIndex(c => c.id === chosenCard.id);
       if (globalIndex !== -1) updatedHandCards.splice(globalIndex, 1);
@@ -1680,10 +1683,14 @@ const confirmMove = () => {
     const topN = Math.min(4, updatedHandCards.length);
     const topFour = updatedHandCards.slice(0, topN);
     if (chosenCard.id === 'tk_extra 15') {
-      const cardsToDiscard = updatedHandCards.splice(0, topN);
+      // Remove synthetic tk_extra from hand and discard the top 4 REAL cards
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      const discardCount = Math.min(4, updatedHandCards.length);
+      const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
       addLog(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard`);
+      try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       const globalIndex = updatedHandCards.findIndex(c => c.id === chosenCard.id);
       if (globalIndex !== -1) updatedHandCards.splice(globalIndex, 1);

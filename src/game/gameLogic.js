@@ -896,10 +896,16 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const topFour = updatedHandCards.slice(0, topN);
 
     if (chosenCard.id === 'tk_extra 15') {
-      const cardsToDiscard = updatedHandCards.splice(0, topN);
+      // Remove any synthetic tk_extra cards from hand (they should not be discarded)
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      // Discard the top 4 REAL cards (cards 1-4). If fewer than 4 remain, discard what's available.
+      const discardCount = Math.min(4, updatedHandCards.length);
+      const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
       logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard`);
+      // Ensure any planned tk_extra marker is cleared
+      try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       // Remove exactly the chosen card instance from hand (match by reference)
       const globalIndex = updatedHandCards.findIndex(c => c === chosenCard);
@@ -1299,10 +1305,15 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     const topN = Math.min(4, updatedHandCards.length);
     const topFour = updatedHandCards.slice(0, topN);
     if (chosenCard.id === 'tk_extra 15') {
-      const cardsToDiscard = updatedHandCards.splice(0, topN);
+      // Remove any synthetic tk_extra cards from hand (they should not be discarded)
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      // Discard the top 4 REAL cards (cards 1-4). If fewer than 4 remain, discard what's available.
+      const discardCount = Math.min(4, updatedHandCards.length);
+      const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
       logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard`);
+      try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       // Remove exactly the chosen card instance (match by reference)
       const globalIndex = updatedHandCards.findIndex(c => c === chosenCard);
