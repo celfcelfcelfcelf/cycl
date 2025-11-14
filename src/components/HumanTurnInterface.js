@@ -54,7 +54,7 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
   }
 
   return (
-  <div className="border-dashed border-gray-300 p-3 pb-24 md:pb-3 rounded mt-2 bg-gray-50">
+  <div className="border-dashed border-gray-300 p-3 pb-40 md:pb-3 rounded mt-2 bg-gray-50">
       <div className="mb-2">
         <label className="mr-3"><input className="mr-1" type="radio" checked={mode==='pace'} onChange={() => { setMode('pace'); setTouched(false); }} /> Pace</label>
         <label>
