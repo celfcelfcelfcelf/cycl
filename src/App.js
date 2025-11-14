@@ -3340,7 +3340,31 @@ const checkCrash = () => {
                           const hasChosen = typeof meta !== 'undefined';
                           const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === t && !r.finished);
                           const value = hasChosen ? (teamPaces[paceKey] !== undefined ? teamPaces[paceKey] : 0) : null;
-                          const attackText = hasChosen && meta && meta.isAttack ? (meta.attacker ? `${meta.attacker} attacks` : 'attacks') : null;
+                          // If a team declared an attack, try to include the attacker's chosen card
+                          const attackText = (() => {
+                            if (!(hasChosen && meta && meta.isAttack)) return null;
+                            if (!meta.attacker) return 'attacks';
+                            try {
+                              const attackerName = meta.attacker;
+                              const riderObj = cards[attackerName];
+                              let cardObj = null;
+                              if (riderObj) {
+                                // Prefer explicit attack_card (human attack) then planned_card_id
+                                if (riderObj.attack_card && typeof riderObj.attack_card === 'object') cardObj = riderObj.attack_card;
+                                else if (riderObj.planned_card_id && Array.isArray(riderObj.cards)) {
+                                  cardObj = riderObj.cards.find(c => c && c.id === riderObj.planned_card_id) || null;
+                                }
+                              }
+                              if (cardObj && typeof cardObj.flat !== 'undefined' && typeof cardObj.uphill !== 'undefined') {
+                                return `${attackerName} attacks with ${cardObj.flat}|${cardObj.uphill}`;
+                              }
+                              // fallback: if we only have an id string somewhere, try to display it
+                              if (riderObj && riderObj.planned_card_id) return `${attackerName} attacks with ${riderObj.planned_card_id}`;
+                              return `${attackerName} attacks`;
+                            } catch (e) {
+                              return `${meta.attacker} attacks`;
+                            }
+                          })();
 
                           return (
                             <div key={t} className="p-2 rounded border">
