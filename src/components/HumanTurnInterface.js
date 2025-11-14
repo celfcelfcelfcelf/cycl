@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import CardHand from './CardHand';
 import RiderCard from './RiderCard';
 
-export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit, totalGroupCount = null }) {
+export default function HumanTurnInterface({ groupRiders = {}, riders = null, groupNum, onSubmit, totalGroupCount = null, disableAttackUnlessChoice1 = false, forcedAttacker = null }) {
   // Accept either `groupRiders` (object map) or `riders` (array of [name, rider])
   const groupRidersObj = (groupRiders && Object.keys(groupRiders).length > 0)
     ? groupRiders
@@ -14,7 +14,11 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
   // the provided groupRiders (which may be only human riders in some call
   // sites). Attack is allowed when the total group has at least 3 riders.
   const effectiveTotalCount = (typeof totalGroupCount === 'number') ? totalGroupCount : riderCount;
-  const canAttack = effectiveTotalCount >= 3;
+  // Attack is allowed when group >= 3. Additionally, when `disableAttackUnlessChoice1`
+  // is true (choice-2 open) we only allow attack if `forcedAttacker` is provided
+  // (meaning the team attacked in choice-1). This greys-out attack for choice-2
+  // when the team did not attack in choice-1.
+  const canAttack = effectiveTotalCount >= 3 && (!disableAttackUnlessChoice1 || !!forcedAttacker);
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipTimeoutRef = useRef(null);
 
@@ -23,6 +27,15 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
       if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
     };
   }, []);
+
+  // If the UI is forced to keep an attacker (choice-2 persistence), set
+  // attack mode and fix the attacker on mount / when forcedAttacker changes.
+  useEffect(() => {
+    if (forcedAttacker) {
+      setMode('attack');
+      setAttacker(forcedAttacker);
+    }
+  }, [forcedAttacker]);
   const [mode, setMode] = useState('pace'); // 'pace' or 'attack'
   const [attacker, setAttacker] = useState(names[0] || null);
   const [selectedCard, setSelectedCard] = useState(null);
@@ -56,13 +69,22 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
   return (
   <div className="border-dashed border-gray-300 p-3 pb-40 md:pb-3 rounded mt-2 bg-gray-50">
       <div className="mb-2">
-        <label className="mr-3"><input className="mr-1" type="radio" checked={mode==='pace'} onChange={() => { setMode('pace'); setTouched(false); }} /> Pace</label>
+        <label className="mr-3">
+          <input
+            className="mr-1"
+            type="radio"
+            checked={mode==='pace'}
+            onChange={() => { if (!forcedAttacker) { setMode('pace'); setTouched(false); } }}
+            disabled={!!forcedAttacker}
+          />
+          Pace
+        </label>
         <label>
           <input
             className="mr-1"
             type="radio"
             checked={mode==='attack'}
-            onChange={() => { if (canAttack) { setMode('attack'); setTouched(false); } }}
+            onChange={() => { if (canAttack && !forcedAttacker) { setMode('attack'); setTouched(false); } }}
             disabled={!canAttack}
           />
           Attack
@@ -94,6 +116,9 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
             )}
           </span>
         )}
+        {disableAttackUnlessChoice1 && !forcedAttacker && (
+          <span className="relative inline-block ml-2 text-xs text-gray-500">(attacks disabled in Choice-2 unless team attacked in Choice-1)</span>
+        )}
       </div>
 
       {mode === 'pace' ? (
@@ -113,11 +138,23 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
       ) : (
         <div>
           <div className="flex gap-2 flex-wrap">
-            {names.map(n => (
-              <div key={n} onClick={() => { setAttacker(n); setTouched(false); }} className={`${attacker===n ? 'border-2 border-blue-500' : 'border'} p-2 rounded cursor-pointer w-56`}>
-                <RiderCard name={n} rider={groupRiders[n]} onPickCard={(name, card) => { setAttacker(name); setSelectedCard(card); setTouched(false); }} />
-              </div>
-            ))}
+            {names.map(n => {
+              const isForced = !!forcedAttacker;
+              const lockedOther = isForced && n !== forcedAttacker;
+              const cls = `${attacker===n ? 'border-2 border-blue-500' : 'border'} p-2 rounded ${lockedOther ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} w-56`;
+              return (
+                <div key={n} onClick={() => { if (!lockedOther) { setAttacker(n); setTouched(false); } }} className={cls}>
+                  <RiderCard
+                    name={n}
+                    rider={groupRiders[n]}
+                    onPickCard={(name, card) => {
+                      if (lockedOther) return;
+                      setAttacker(name); setSelectedCard(card); setTouched(false);
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
 
           <div className="mt-2">

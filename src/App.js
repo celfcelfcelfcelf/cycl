@@ -3395,11 +3395,23 @@ const checkCrash = () => {
                       // If it's the human's turn and human has riders in this group, show human interface
                       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
                       if (currentTeam === 'Me' && humanRiders.length > 0) {
+                        // Determine if choice-2 is open for this group and whether
+                        // the team previously attacked in round 1. If so, force
+                        // attack mode in the UI and prevent cancelling the attack.
+                        const isChoice2 = teamPaceRound && teamPaceRound[currentGroup] === 2;
+                        const paceKeyMe = `${currentGroup}-Me`;
+                        const metaMe = (teamPaceMeta && teamPaceMeta[paceKeyMe]) ? teamPaceMeta[paceKeyMe] : null;
+                        const attackedInChoice1 = !!(metaMe && metaMe.isAttack && metaMe.round === 1);
+                        const forcedAttacker = attackedInChoice1 ? (metaMe && metaMe.attacker) : null;
+
                         return (
                           <HumanTurnInterface
                             groupNum={currentGroup}
                             riders={humanRiders}
                             onSubmit={(choices) => handleHumanChoices(currentGroup, choices)}
+                            disableAttackUnlessChoice1={isChoice2}
+                            forcedAttacker={forcedAttacker}
+                            totalGroupCount={Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished).length}
                           />
                         );
                       }
