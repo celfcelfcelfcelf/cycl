@@ -3768,19 +3768,29 @@ const checkCrash = () => {
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {groupsHere.length > 0 && (
                                     <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                      {groupsHere.map((g, idx) => (
-                                        <span
-                                          key={g}
-                                          style={{
-                                            display: 'inline-block',
-                                            marginRight: idx < groupsHere.length - 1 ? 6 : 0,
-                                            // Default: all groups same (large). If the group
-                                            // has already moved this round, show it smaller.
-                                            fontSize: (groupsMovedThisRound && groupsMovedThisRound.includes(g)) ? '0.65rem' : '0.975rem',
-                                            fontWeight: 700
-                                          }}
-                                        >{`G${g}`}</span>
-                                      ))}
+                                      {groupsHere.map((g, idx) => {
+                                        const ridersHere = Object.entries(cards)
+                                          .filter(([, r]) => r.group === g && !r.finished)
+                                          .map(([n, r]) => ({ name: n, status: r.attacking_status }));
+                                        const small = (groupsMovedThisRound && groupsMovedThisRound.includes(g));
+                                        return (
+                                          <div key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, textAlign: 'center' }}>
+                                            <div style={{ fontSize: small ? '0.65rem' : '0.9rem', fontWeight: 700 }}>{`G${g}`}</div>
+                                            <div style={{ fontSize: small ? '0.55rem' : '0.65rem', marginTop: 2, lineHeight: 1 }}>
+                                              {ridersHere.length === 0 ? (<span className="text-xs text-gray-400">(none)</span>) : (
+                                                ridersHere.slice(0,4).map((rObj, i) => {
+                                                  const dropped = ridersHere.length < 3;
+                                                  return (
+                                                    <span key={rObj.name} style={{ display: 'inline-block', marginRight: i < Math.min(3, ridersHere.length) - 1 ? 4 : 0, opacity: dropped ? 0.6 : 1 }} title={rObj.name}>
+                                                      {rObj.name.slice(0,5)}{rObj.status === 'attacker' ? '⚑' : ''}
+                                                    </span>
+                                                  );
+                                                })
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
                                   )}
                                 </div>
