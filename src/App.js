@@ -2871,6 +2871,19 @@ const checkCrash = () => {
   const [fallRider, setFallRider] = useState(null);
   const [fallTargetGroup, setFallTargetGroup] = useState(null);
 
+  // Prevent background scrolling when any modal (card select / fallback / draft) is open.
+  useEffect(() => {
+    try {
+      const anyModalOpen = !!(cardSelectionOpen || fallBackOpen || gameState === 'draft');
+      if (typeof document !== 'undefined' && document && document.body) {
+        document.body.style.overflow = anyModalOpen ? 'hidden' : '';
+      }
+    } catch (e) {}
+    return () => {
+      try { if (typeof document !== 'undefined' && document && document.body) document.body.style.overflow = ''; } catch (e) {}
+    };
+  }, [cardSelectionOpen, fallBackOpen, gameState]);
+
   const openCardSelectionForGroup = (groupNum) => {
     // find human riders in the group
     const humanRiders = Object.entries(cards).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
@@ -3507,7 +3520,7 @@ const checkCrash = () => {
               {/* Card selection modal for human riders when moving a group */}
               {cardSelectionOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
-                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 pb-12 max-h-[80vh] overflow-y-auto">
+                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 pb-40 md:pb-12 max-h-[80vh] overflow-y-auto">
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">Speed: <strong>{groupSpeed}</strong>, SV: <strong>{slipstream}</strong></div>
                     <div className="space-y-4 mb-4">
@@ -3603,7 +3616,7 @@ const checkCrash = () => {
               {/* Fall-back modal: let one human rider fall back to a group behind them */}
               {fallBackOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
-                  <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto">
+                  <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 pb-40 md:pb-6 max-h-[80vh] overflow-y-auto">
                     <h3 className="text-lg font-bold mb-3">Let rider fall back</h3>
                     <p className="text-sm text-gray-600 mb-3">Choose one of your riders and move them back to a group behind them.</p>
                     <div className="mb-3">
