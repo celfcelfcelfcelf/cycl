@@ -3929,16 +3929,38 @@ const checkCrash = () => {
                                       );
                                     }
                                     if (groupsHere.length > 0) {
+                                      // Split groups into those that have NOT moved and those that HAVE moved.
+                                      // Render not-moved groups above moved groups, stacked vertically when both present.
+                                      const unmovedGroups = groupsHere.filter(g => !(groupMoved && typeof groupMoved[g] !== 'undefined') || groupMoved[g] === false);
+                                      const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                          {groupsHere.map((g, idx) => {
-                                              const movedFlag = (groupMoved && typeof groupMoved[g] !== 'undefined') ? groupMoved[g] : false;
-                                              const fontSize = movedFlag === false ? '0.975rem' : '0.65rem';
-                                              const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold ${movedFlag ? 'bg-white border' : ''}`;
-                                              return (
-                                                <span key={g} className={className} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize, fontWeight: 700, color: movedFlag ? '#000' : undefined }}>{`G${g}`}</span>
-                                              );
-                                            })}
+                                          {/* unmoved groups on the top row */}
+                                          {unmovedGroups.length > 0 && (
+                                            <div style={{ display: 'block' }}>
+                                              {unmovedGroups.map((g, idx) => {
+                                                const movedFlag = false;
+                                                const fontSize = '0.975rem';
+                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold`;
+                                                return (
+                                                  <span key={`u${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < unmovedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                          {/* moved groups on the second row, below unmoved groups */}
+                                          {movedGroups.length > 0 && (
+                                            <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
+                                              {movedGroups.map((g, idx) => {
+                                                const movedFlag = true;
+                                                const fontSize = '0.65rem';
+                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold bg-white border`;
+                                                return (
+                                                  <span key={`m${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < movedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
                                       );
                                     }
