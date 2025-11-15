@@ -2573,6 +2573,24 @@ const checkCrash = () => {
     }
     return false;
   };
+
+  // Return true if the given rider can play at least the given pace value
+  // (i.e. has a card in top-4 whose effective value >= pace). This is used
+  // when selecting a leader for a chosen pace: a leader who doesn't have the
+  // exact value may still lead if they can play a higher card (and thus meet
+  // the group's chosen speed by playing that higher card).
+  const canRiderPlayAtLeast = (name, rider, pace) => {
+    if (!rider) return false;
+    const top4 = rider.cards.slice(0, Math.min(4, rider.cards.length));
+    const penalty = getPenalty(name, cards) || 0;
+    for (const c of top4) {
+      if (!c || !c.id) continue;
+      const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(pace), track);
+      const cv = sv > 2 ? c.flat : c.uphill;
+      if ((cv - penalty) >= pace) return true;
+    }
+    return false;
+  };
   const handleTeamChoice = (type, value = null) => {
     // For 'pace' we don't set a pace value immediately; pace options depend on chosen leader
     setTeamChoice(type);
@@ -2668,36 +2686,77 @@ const checkCrash = () => {
             Angreb
           </button>
           
-          {[8,7,6,5,4,3,2].map(pace => {
-            // If a leader is chosen, compute playable set for that leader; otherwise
-            // enable the value if any rider in the human team can play it.
-            let disabled = false;
-            if (paceLeader) {
-              const riderObj = riders.find(([n]) => n === paceLeader)[1];
-              const playable = computePlayablePaces(paceLeader, riderObj) || [];
-              const playableSet = new Set(playable);
-              if (playable.length > 0 && !playableSet.has(pace)) disabled = true;
-            } else {
-              // No leader chosen: enable only if at least one rider can play this pace
-              const anyCan = riders.some(([n, r]) => canRiderPlayValue(n, r, pace));
-              if (!anyCan) disabled = true;
-            }
+          {(() => {
+            const paces = [8,7,6,5,4,3,2];
 
-            return (
-              <button
-                key={pace}
-                onClick={() => { setTeamChoice('pace'); setPaceValue(pace); setPaceLeader(null); }}
-                disabled={disabled}
-                className={`px-3 py-2 text-sm rounded ${
-                  teamChoice === 'pace' && paceValue === pace
-                    ? 'bg-green-600 text-white font-bold'
-                    : disabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-green-200 hover:bg-green-300'
-                }`}
-              >
-                {pace}
-              </button>
-            );
-          })}
+            return paces.map(pace => {
+              let disabled = false;
+              let exactMatch = false; // someone has a card with effective value === pace
+              let greaterMatch = false; // someone has a card with effective value > pace
+
+              if (paceLeader) {
+                // Restrict checks to the chosen leader
+                try {
+                  const riderObj = riders.find(([n]) => n === paceLeader)[1];
+                  const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                  const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
+                  for (const c of top4) {
+                    const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                    const effective = cardVal - localPenalty;
+                    if (effective === pace) exactMatch = true;
+                    if (effective > pace) greaterMatch = true;
+                  }
+                  // If neither exact nor greater exist, this pace is not playable by leader
+                  if (!exactMatch && !greaterMatch) disabled = true;
+                } catch (e) { disabled = true; }
+              } else {
+                // Team-level: check any rider
+                for (const [n, riderObj] of riders) {
+                  try {
+                    const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                    const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                    for (const c of top4) {
+                      const cardVal = slipstream > 2 ? c.flat : c.uphill;
+                      const effective = cardVal - localPenalty;
+                      if (effective === pace) exactMatch = true;
+                      if (effective > pace) greaterMatch = true;
+                    }
+                  } catch (e) { /* ignore rider errors */ }
+                }
+                if (!exactMatch && !greaterMatch) disabled = true;
+              }
+
+              // CSS decisions:
+              // - selected pace: full green
+              // - disabled: grey
+              // - exactMatch: full green (even if not selected)
+              // - greaterMatch (but not exact): green border
+              let cls;
+              if (teamChoice === 'pace' && paceValue === pace) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white font-bold';
+              } else if (disabled) {
+                cls = 'px-3 py-2 text-sm rounded bg-gray-200 text-gray-400 cursor-not-allowed';
+              } else if (exactMatch) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white';
+              } else if (greaterMatch) {
+                cls = 'px-3 py-2 text-sm rounded border border-green-600 bg-white text-green-700 hover:bg-green-50';
+              } else {
+                cls = 'px-3 py-2 text-sm rounded bg-green-200 hover:bg-green-300';
+              }
+
+              return (
+                <button
+                  key={pace}
+                  onClick={() => { setTeamChoice('pace'); setPaceValue(pace); setPaceLeader(null); }}
+                  disabled={disabled}
+                  className={cls}
+                >
+                  {pace}
+                </button>
+              );
+            });
+          })()}
           
           <button
             onClick={() => handleTeamChoice('follow', 0)}
@@ -2761,16 +2820,15 @@ const checkCrash = () => {
         <div className="mb-4 p-3 bg-green-50 rounded border border-green-300">
           <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (pace):</p>
           <div className="space-y-2">
-            {riders.map(([name]) => (
+                {riders.map(([name]) => (
               <button
                 key={name}
                 onClick={() => {
                   // When selecting a leader, ensure chosen pace still valid; otherwise clear
                   setPaceLeader(name);
                   if (paceValue) {
-                    const riderObj = riders.find(([n]) => n === name)[1];
-                    const playable = computePlayablePaces(name, riderObj) || [];
-                    if (playable.length > 0 && !playable.includes(paceValue)) setPaceValue(null);
+                        const riderObj = riders.find(([n]) => n === name)[1];
+                        if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
                   }
                 }}
                 className={`w-full px-3 py-2 text-sm rounded text-left ${
@@ -2788,13 +2846,13 @@ const checkCrash = () => {
               <>
                 <p className="text-sm font-semibold mb-2">Ryttere der kan spille {paceValue}:</p>
                 <div className="space-y-2">
-                  {riders.filter(([n, r]) => canRiderPlayValue(n, r, paceValue)).map(([n]) => (
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).map(([n]) => (
                     <button key={n} onClick={() => setPaceLeader(n)} className={`w-full px-3 py-2 text-sm rounded text-left ${paceLeader === n ? 'bg-green-600 text-white font-bold' : 'bg-white hover:bg-green-100 border'}`}>
                       {n}
                     </button>
                   ))}
-                  {riders.filter(([n, r]) => canRiderPlayValue(n, r, paceValue)).length === 0 && (
-                    <div className="text-xs text-gray-500">Ingen ryttere kan spille {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).length === 0 && (
+                    <div className="text-xs text-gray-500">Ingen ryttere kan spille mindst {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
                   )}
                 </div>
               </>
@@ -2809,8 +2867,7 @@ const checkCrash = () => {
                         setPaceLeader(name);
                         if (paceValue) {
                           const riderObj = riders.find(([n]) => n === name)[1];
-                          const playable = computePlayablePaces(name, riderObj) || [];
-                          if (playable.length > 0 && !playable.includes(paceValue)) setPaceValue(null);
+                          if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
                         }
                       }}
                       className={`w-full px-3 py-2 text-sm rounded text-left ${
@@ -3706,24 +3763,57 @@ const checkCrash = () => {
               <div className="max-w-7xl mx-auto px-3">
                 <div className="relative">
                   {/* Toggle button to minimize/restore footer */}
-                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow">
-                    <span className="text-sm">{footerCollapsed ? '▲' : '▼'}</span>
+                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" aria-expanded={!footerCollapsed} className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow hover:ring-2 hover:ring-green-300 transition-all" title="Toggle footer">
+                    <span className="text-sm" aria-hidden>{footerCollapsed ? '▲' : '▼'}</span>
                   </button>
 
-                  <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
+                  <div className="py-2" style={{ overflow: 'hidden', transition: 'max-height 260ms ease', maxHeight: footerCollapsed ? 0 : '1000px' }} aria-hidden={footerCollapsed}>
                     {/* Track row (restored) */}
                     <div className="overflow-x-auto bg-gray-50 rounded p-1 mb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <div style={{ display: 'flex', gap: 1, alignItems: 'stretch', height: 'auto', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
                           const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                          const groupPosMap = {};
-                          groupsList.forEach(g => {
-                            const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
-                            groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
-                          });
+
+                          // Compute the "main" position for each group. If some riders in
+                          // the group are attackers, compute the group's main position as
+                          // the max position among non-attacker riders so the group's GX
+                          // label is placed where the rest of the group is. If no
+                          // non-attackers exist, fall back to the max of all members.
+                          const groupMainPos = {};
+                          const groupMoved = {};
+                          for (const g of groupsList) {
+                            const members = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished);
+                            const nonAttackers = members.filter(([,r]) => (r.attacking_status || '') !== 'attacker').map(([,r]) => r.position || 0);
+                            if (nonAttackers.length > 0) groupMainPos[g] = Math.max(...nonAttackers);
+                            else groupMainPos[g] = members.length ? Math.max(...members.map(([,r]) => r.position || 0)) : 0;
+                            // Determine whether the group moved this round by comparing
+                            // each member's position to their old_position. If any member
+                            // changed position, consider the group as moved.
+                            const moved = members.some(([,r]) => Number(r.position) !== Number(r.old_position || r.position));
+                            groupMoved[g] = moved;
+                          }
+
                           const posToGroups = {};
-                          Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+                          Object.entries(groupMainPos).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                          // Map attacker riders (those with attacking_status==='attacker')
+                          // to their landing positions so we can render their names on the
+                          // tile they ended up on while the round is in progress.
+                          const ridersAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (r && !r.finished && (r.attacking_status === 'attacker')) {
+                              const p = Number(r.position) || 0;
+                              ridersAtPos[p] = ridersAtPos[p] || [];
+                              ridersAtPos[p].push(name);
+                            }
+                          }
+                          const firstNameShort = (full) => {
+                            if (!full || typeof full !== 'string') return full || '';
+                            const parts = full.trim().split(/\s+/);
+                            const first = parts[0] || '';
+                            return first.slice(0, 5);
+                          };
 
                           const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
                           // make tiles roughly twice as big
@@ -3766,13 +3856,30 @@ const checkCrash = () => {
                                     } catch (e) { return null; }
                                   })()}
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
-                                  {groupsHere.length > 0 && (
-                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                      {groupsHere.map((g, idx) => (
-                                        <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (g === 1 || g === 2) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const ridersHere = ridersAtPos[t.idx] || [];
+                                    if (ridersHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
+                                          {ridersHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < ridersHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                              {firstNameShort(n)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    if (groupsHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
+                                          {groupsHere.map((g, idx) => (
+                                              <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (groupMoved && groupMoved[g] === false) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
+                                            ))}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </div>
                               </div>
                             );
