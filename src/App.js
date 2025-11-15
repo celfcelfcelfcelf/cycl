@@ -3393,6 +3393,27 @@ const checkCrash = () => {
                   return (
                     <div className="mt-3">
                       <div className="text-sm font-semibold mb-2">Current chosen values</div>
+                      {/* Group-from-behind box: shows numeric distance to a moved group ahead or X */}
+                      {(() => {
+                        try {
+                          const groupNum = Number(currentGroup);
+                          const groupPositions = Object.values(cards).filter(r => r.group === groupNum && !r.finished).map(r => Number(r.position || 0));
+                          const groupPos = groupPositions.length > 0 ? Math.max(...groupPositions) : 0;
+                          const aheadMoved = Object.values(cards).filter(r => r.group > groupNum && !r.finished && Number(r.position) !== Number(r.old_position || r.position)).map(r => Number(r.position || 0));
+                          let display = 'X';
+                          if (aheadMoved && aheadMoved.length > 0) {
+                            const maxAheadPos = Math.max(...aheadMoved);
+                            if (maxAheadPos > groupPos) display = String(maxAheadPos - groupPos);
+                          }
+                          return (
+                            <div className="mb-2">
+                              <div className="inline-block p-2 bg-white rounded border text-sm">
+                                Group from behind: <strong>{display}</strong>
+                              </div>
+                            </div>
+                          );
+                        } catch (e) { return null; }
+                      })()}
                       <div className="grid grid-cols-3 gap-2">
                         {(teams || []).map((t) => {
                           const paceKey = `${currentGroup}-${t}`;
@@ -3417,6 +3438,12 @@ const checkCrash = () => {
                               }
                               if (cardObj && typeof cardObj.flat !== 'undefined' && typeof cardObj.uphill !== 'undefined') {
                                 return `${attackerName} attacks with ${cardObj.flat}|${cardObj.uphill}`;
+                              }
+                              // If the attacker is an AI and we only have a numeric selected_value,
+                              // show that as value|value so the UI reports the effective attack value.
+                              if (riderObj && typeof riderObj.selected_value === 'number' && riderObj.selected_value > 0) {
+                                const v = Math.round(riderObj.selected_value);
+                                return `${attackerName} attacks with ${v}|${v}`;
                               }
                               // fallback: if we only have an id string somewhere, try to display it
                               if (riderObj && riderObj.planned_card_id) return `${attackerName} attacks with ${riderObj.planned_card_id}`;
@@ -3881,7 +3908,7 @@ const checkCrash = () => {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
                                           {attackersHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
@@ -3894,7 +3921,7 @@ const checkCrash = () => {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
                                           {fallenHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
@@ -3909,7 +3936,7 @@ const checkCrash = () => {
                                               const fontSize = movedFlag === false ? '0.975rem' : '0.65rem';
                                               const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold ${movedFlag ? 'bg-white border' : ''}`;
                                               return (
-                                                <span key={g} className={className} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</span>
+                                                <span key={g} className={className} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize, fontWeight: 700, color: movedFlag ? '#000' : undefined }}>{`G${g}`}</span>
                                               );
                                             })}
                                         </div>
@@ -3944,6 +3971,8 @@ const checkCrash = () => {
                         </div>
                       );
                     })()}
+
+                    
 
                     {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
                       <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
