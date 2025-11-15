@@ -677,9 +677,10 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     }
   }
 
+  // Penalty is the count of TK-1 cards in the top-4 (non-binary)
   let penalty = 0;
   for (const c of (rider.cards || []).slice(0, 4)) {
-    if (c.id === 'TK-1: 99') { penalty = 1; break; }
+    if (c && c.id === 'TK-1: 99') { penalty += 1; }
   }
 
   let selectedCard = (rider.cards && rider.cards[0]) ? rider.cards[0] : { flat: 2, uphill: 2, id: 'kort: 1' };
@@ -727,7 +728,8 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   const finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
 
   const top4 = (rider.cards || []).slice(0, 4);
-  const allowed = new Set(top4.map(c => Math.round((getSlipstreamValue(rider.position, rider.position + c.flat, trackStr) === 3 ? c.flat : c.uphill) - (c.id === 'TK-1: 99' ? 1 : 0))));
+  const localPenaltyTop4 = top4.slice(0,4).filter(c => c && c.id === 'TK-1: 99').length;
+  const allowed = new Set(top4.map(c => Math.round((getSlipstreamValue(rider.position, rider.position + c.flat, trackStr) === 3 ? c.flat : c.uphill) - localPenaltyTop4)));
   if (!allowed.has(finalValue)) {
     let best = null;
     let bestDiff = Infinity;
@@ -819,7 +821,7 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
           const targetVal = Math.round(chosenValue);
           const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
           const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
-          const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+          const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
           const plannedCardVal = svForLead > 2 ? plannedCandidate.flat : plannedCandidate.uphill;
           // Accept planned if it exactly matches target, or if it's greater-or-equal (lenient acceptance)
           const plannedEffective = plannedCardVal - localPenalty;
@@ -832,9 +834,9 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     if (!chosenCard) {
       if (isLeadRider) {
         const targetVal = Math.round(chosenValue);
-        const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
-        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
-        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+  const top4 = (rider.cards || []).slice(0, Math.min(4, (rider.cards || []).length));
+  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(targetVal), track);
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
         let found = null;
         // Prefer exact match
         for (const c of top4) {
@@ -1207,7 +1209,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     if (!chosenCard && typeof targetNumeric === 'number' && targetNumeric > 0) {
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const svForAttack = getSlipstreamValue(rider.position, rider.position + Math.floor(targetNumeric), track);
-      const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
       // Prefer exact match
       for (const c of top4) {
         if (c.id && c.id.startsWith('TK-1')) continue;
@@ -1248,7 +1250,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       if (!replacement) {
         let candidate = null;
         let candidateEff = Infinity;
-        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
         for (const c of top4) {
           if (c.id && c.id.startsWith('TK-1')) continue;
           const cardVal = svCheck > 2 ? c.flat : c.uphill;

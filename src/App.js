@@ -483,8 +483,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
         let planned = null;
         // compute local penalty from top-4 (if any TK-1 present)
-        const top4 = updatedCards[name].cards.slice(0,4);
-        const localPenalty = top4.some(c => c && c.id && c.id.startsWith('TK-1')) ? 1 : 0;
+  const top4 = updatedCards[name].cards.slice(0,4);
+  const localPenalty = top4.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
 
         // We want the non-TK top-4 card with lowest numeric id (highest effort)
         // that has cardValue >= targetNumeric + localPenalty
@@ -1648,7 +1648,7 @@ return { pace, updatedCards };
             const top4Before = leadR.cards.slice(0, Math.min(4, leadR.cards.length));
             const svAfter = getSlipstreamValue(leadR.position, leadR.position + Math.floor(leaderSelectedValue), track);
             const targetNumeric = Math.round(leaderSelectedValue);
-            const localPenalty = top4Before.some(c => c && c.id && c.id.startsWith('TK-1')) ? 1 : 0;
+            const localPenalty = top4Before.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
 
             // Prefer a non-TK top-4 card whose value (after applying localPenalty)
             // is >= targetNumeric. Among candidates pick the one with highest numeric id.
@@ -2702,7 +2702,7 @@ const checkCrash = () => {
                 try {
                   const riderObj = riders.find(([n]) => n === paceLeader)[1];
                   const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
-                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                   const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
                   for (const c of top4) {
                     const cardVal = svForLead > 2 ? c.flat : c.uphill;
@@ -2718,7 +2718,7 @@ const checkCrash = () => {
                 for (const [n, riderObj] of riders) {
                   try {
                     const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
-                    const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                    const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                     for (const c of top4) {
                       const cardVal = slipstream > 2 ? c.flat : c.uphill;
                       const effective = cardVal - localPenalty;
@@ -2958,11 +2958,11 @@ const checkCrash = () => {
     // fallback to first top-4 for non-leaders.
     humanRiders.forEach(name => {
       const rider = cards[name] || { cards: [] };
-      const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-      const isLeader = (rider.takes_lead || 0) === 1;
-      if (isLeader) {
-        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
-        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+  const isLeader = (rider.takes_lead || 0) === 1;
+  if (isLeader) {
+  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
         const targetVal = Math.round(groupSpeed || 0);
         // prefer exact match, otherwise pick smallest card >= targetVal
         let best = null;
@@ -3659,7 +3659,7 @@ const checkCrash = () => {
                                 if (isLeader) {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
@@ -3677,7 +3677,7 @@ const checkCrash = () => {
                                 if (isLeader) {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
@@ -3687,7 +3687,7 @@ const checkCrash = () => {
                                 } else {
                                   // Non-leader: determine whether playing this card would cause rider to fall out
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = slipstream > 2 ? c.flat : c.uphill;
                                   const effective = (cardVal - localPenalty);
                                   const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
