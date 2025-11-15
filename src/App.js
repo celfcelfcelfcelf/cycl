@@ -483,8 +483,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
         let planned = null;
         // compute local penalty from top-4 (if any TK-1 present)
-        const top4 = updatedCards[name].cards.slice(0,4);
-        const localPenalty = top4.some(c => c && c.id && c.id.startsWith('TK-1')) ? 1 : 0;
+  const top4 = updatedCards[name].cards.slice(0,4);
+  const localPenalty = top4.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
 
         // We want the non-TK top-4 card with lowest numeric id (highest effort)
         // that has cardValue >= targetNumeric + localPenalty
@@ -1648,7 +1648,7 @@ return { pace, updatedCards };
             const top4Before = leadR.cards.slice(0, Math.min(4, leadR.cards.length));
             const svAfter = getSlipstreamValue(leadR.position, leadR.position + Math.floor(leaderSelectedValue), track);
             const targetNumeric = Math.round(leaderSelectedValue);
-            const localPenalty = top4Before.some(c => c && c.id && c.id.startsWith('TK-1')) ? 1 : 0;
+            const localPenalty = top4Before.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
 
             // Prefer a non-TK top-4 card whose value (after applying localPenalty)
             // is >= targetNumeric. Among candidates pick the one with highest numeric id.
@@ -2227,6 +2227,9 @@ const moveToNextGroup = () => {
       takes_lead: 0,
       selected_value: 0,
       planned_card_id: undefined,
+      // Ensure old_position matches current position at the start of the new round
+      // so groups are not flagged as "moved" immediately after round rollover.
+      old_position: Number(updatedCards[n].position || 0),
     };
   }
 
@@ -2573,6 +2576,24 @@ const checkCrash = () => {
     }
     return false;
   };
+
+  // Return true if the given rider can play at least the given pace value
+  // (i.e. has a card in top-4 whose effective value >= pace). This is used
+  // when selecting a leader for a chosen pace: a leader who doesn't have the
+  // exact value may still lead if they can play a higher card (and thus meet
+  // the group's chosen speed by playing that higher card).
+  const canRiderPlayAtLeast = (name, rider, pace) => {
+    if (!rider) return false;
+    const top4 = rider.cards.slice(0, Math.min(4, rider.cards.length));
+    const penalty = getPenalty(name, cards) || 0;
+    for (const c of top4) {
+      if (!c || !c.id) continue;
+      const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(pace), track);
+      const cv = sv > 2 ? c.flat : c.uphill;
+      if ((cv - penalty) >= pace) return true;
+    }
+    return false;
+  };
   const handleTeamChoice = (type, value = null) => {
     // For 'pace' we don't set a pace value immediately; pace options depend on chosen leader
     setTeamChoice(type);
@@ -2668,36 +2689,77 @@ const checkCrash = () => {
             Angreb
           </button>
           
-          {[8,7,6,5,4,3,2].map(pace => {
-            // If a leader is chosen, compute playable set for that leader; otherwise
-            // enable the value if any rider in the human team can play it.
-            let disabled = false;
-            if (paceLeader) {
-              const riderObj = riders.find(([n]) => n === paceLeader)[1];
-              const playable = computePlayablePaces(paceLeader, riderObj) || [];
-              const playableSet = new Set(playable);
-              if (playable.length > 0 && !playableSet.has(pace)) disabled = true;
-            } else {
-              // No leader chosen: enable only if at least one rider can play this pace
-              const anyCan = riders.some(([n, r]) => canRiderPlayValue(n, r, pace));
-              if (!anyCan) disabled = true;
-            }
+          {(() => {
+            const paces = [8,7,6,5,4,3,2];
 
-            return (
-              <button
-                key={pace}
-                onClick={() => { setTeamChoice('pace'); setPaceValue(pace); setPaceLeader(null); }}
-                disabled={disabled}
-                className={`px-3 py-2 text-sm rounded ${
-                  teamChoice === 'pace' && paceValue === pace
-                    ? 'bg-green-600 text-white font-bold'
-                    : disabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-green-200 hover:bg-green-300'
-                }`}
-              >
-                {pace}
-              </button>
-            );
-          })}
+            return paces.map(pace => {
+              let disabled = false;
+              let exactMatch = false; // someone has a card with effective value === pace
+              let greaterMatch = false; // someone has a card with effective value > pace
+
+              if (paceLeader) {
+                // Restrict checks to the chosen leader
+                try {
+                  const riderObj = riders.find(([n]) => n === paceLeader)[1];
+                  const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                  const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
+                  for (const c of top4) {
+                    const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                    const effective = cardVal - localPenalty;
+                    if (effective === pace) exactMatch = true;
+                    if (effective > pace) greaterMatch = true;
+                  }
+                  // If neither exact nor greater exist, this pace is not playable by leader
+                  if (!exactMatch && !greaterMatch) disabled = true;
+                } catch (e) { disabled = true; }
+              } else {
+                // Team-level: check any rider
+                for (const [n, riderObj] of riders) {
+                  try {
+                    const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                    const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                    for (const c of top4) {
+                      const cardVal = slipstream > 2 ? c.flat : c.uphill;
+                      const effective = cardVal - localPenalty;
+                      if (effective === pace) exactMatch = true;
+                      if (effective > pace) greaterMatch = true;
+                    }
+                  } catch (e) { /* ignore rider errors */ }
+                }
+                if (!exactMatch && !greaterMatch) disabled = true;
+              }
+
+              // CSS decisions:
+              // - selected pace: full green
+              // - disabled: grey
+              // - exactMatch: full green (even if not selected)
+              // - greaterMatch (but not exact): green border
+              let cls;
+              if (teamChoice === 'pace' && paceValue === pace) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white font-bold';
+              } else if (disabled) {
+                cls = 'px-3 py-2 text-sm rounded bg-gray-200 text-gray-400 cursor-not-allowed';
+              } else if (exactMatch) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white';
+              } else if (greaterMatch) {
+                cls = 'px-3 py-2 text-sm rounded border border-green-600 bg-white text-green-700 hover:bg-green-50';
+              } else {
+                cls = 'px-3 py-2 text-sm rounded bg-green-200 hover:bg-green-300';
+              }
+
+              return (
+                <button
+                  key={pace}
+                  onClick={() => { setTeamChoice('pace'); setPaceValue(pace); setPaceLeader(null); }}
+                  disabled={disabled}
+                  className={cls}
+                >
+                  {pace}
+                </button>
+              );
+            });
+          })()}
           
           <button
             onClick={() => handleTeamChoice('follow', 0)}
@@ -2761,16 +2823,15 @@ const checkCrash = () => {
         <div className="mb-4 p-3 bg-green-50 rounded border border-green-300">
           <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (pace):</p>
           <div className="space-y-2">
-            {riders.map(([name]) => (
+                {riders.map(([name]) => (
               <button
                 key={name}
                 onClick={() => {
                   // When selecting a leader, ensure chosen pace still valid; otherwise clear
                   setPaceLeader(name);
                   if (paceValue) {
-                    const riderObj = riders.find(([n]) => n === name)[1];
-                    const playable = computePlayablePaces(name, riderObj) || [];
-                    if (playable.length > 0 && !playable.includes(paceValue)) setPaceValue(null);
+                        const riderObj = riders.find(([n]) => n === name)[1];
+                        if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
                   }
                 }}
                 className={`w-full px-3 py-2 text-sm rounded text-left ${
@@ -2788,13 +2849,13 @@ const checkCrash = () => {
               <>
                 <p className="text-sm font-semibold mb-2">Ryttere der kan spille {paceValue}:</p>
                 <div className="space-y-2">
-                  {riders.filter(([n, r]) => canRiderPlayValue(n, r, paceValue)).map(([n]) => (
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).map(([n]) => (
                     <button key={n} onClick={() => setPaceLeader(n)} className={`w-full px-3 py-2 text-sm rounded text-left ${paceLeader === n ? 'bg-green-600 text-white font-bold' : 'bg-white hover:bg-green-100 border'}`}>
                       {n}
                     </button>
                   ))}
-                  {riders.filter(([n, r]) => canRiderPlayValue(n, r, paceValue)).length === 0 && (
-                    <div className="text-xs text-gray-500">Ingen ryttere kan spille {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).length === 0 && (
+                    <div className="text-xs text-gray-500">Ingen ryttere kan spille mindst {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
                   )}
                 </div>
               </>
@@ -2809,8 +2870,7 @@ const checkCrash = () => {
                         setPaceLeader(name);
                         if (paceValue) {
                           const riderObj = riders.find(([n]) => n === name)[1];
-                          const playable = computePlayablePaces(name, riderObj) || [];
-                          if (playable.length > 0 && !playable.includes(paceValue)) setPaceValue(null);
+                          if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
                         }
                       }}
                       className={`w-full px-3 py-2 text-sm rounded text-left ${
@@ -2898,11 +2958,11 @@ const checkCrash = () => {
     // fallback to first top-4 for non-leaders.
     humanRiders.forEach(name => {
       const rider = cards[name] || { cards: [] };
-      const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-      const isLeader = (rider.takes_lead || 0) === 1;
-      if (isLeader) {
-        const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
-        const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+  const isLeader = (rider.takes_lead || 0) === 1;
+  if (isLeader) {
+  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
         const targetVal = Math.round(groupSpeed || 0);
         // prefer exact match, otherwise pick smallest card >= targetVal
         let best = null;
@@ -3333,6 +3393,27 @@ const checkCrash = () => {
                   return (
                     <div className="mt-3">
                       <div className="text-sm font-semibold mb-2">Current chosen values</div>
+                      {/* Group-from-behind box: shows numeric distance to a moved group ahead or X */}
+                      {(() => {
+                        try {
+                          const groupNum = Number(currentGroup);
+                          const groupPositions = Object.values(cards).filter(r => r.group === groupNum && !r.finished).map(r => Number(r.position || 0));
+                          const groupPos = groupPositions.length > 0 ? Math.max(...groupPositions) : 0;
+                          const aheadMoved = Object.values(cards).filter(r => r.group > groupNum && !r.finished && Number(r.position) !== Number(r.old_position || r.position)).map(r => Number(r.position || 0));
+                          let display = 'X';
+                          if (aheadMoved && aheadMoved.length > 0) {
+                            const maxAheadPos = Math.max(...aheadMoved);
+                            if (maxAheadPos > groupPos) display = String(maxAheadPos - groupPos);
+                          }
+                          return (
+                            <div className="mb-2">
+                              <div className="inline-block p-2 bg-white rounded border text-sm">
+                                Group from behind: <strong>{display}</strong>
+                              </div>
+                            </div>
+                          );
+                        } catch (e) { return null; }
+                      })()}
                       <div className="grid grid-cols-3 gap-2">
                         {(teams || []).map((t) => {
                           const paceKey = `${currentGroup}-${t}`;
@@ -3357,6 +3438,12 @@ const checkCrash = () => {
                               }
                               if (cardObj && typeof cardObj.flat !== 'undefined' && typeof cardObj.uphill !== 'undefined') {
                                 return `${attackerName} attacks with ${cardObj.flat}|${cardObj.uphill}`;
+                              }
+                              // If the attacker is an AI and we only have a numeric selected_value,
+                              // show that as value|value so the UI reports the effective attack value.
+                              if (riderObj && typeof riderObj.selected_value === 'number' && riderObj.selected_value > 0) {
+                                const v = Math.round(riderObj.selected_value);
+                                return `${attackerName} attacks with ${v}|${v}`;
                               }
                               // fallback: if we only have an id string somewhere, try to display it
                               if (riderObj && riderObj.planned_card_id) return `${attackerName} attacks with ${riderObj.planned_card_id}`;
@@ -3572,7 +3659,7 @@ const checkCrash = () => {
                                 if (isLeader) {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
@@ -3590,7 +3677,7 @@ const checkCrash = () => {
                                 if (isLeader) {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
@@ -3600,7 +3687,7 @@ const checkCrash = () => {
                                 } else {
                                   // Non-leader: determine whether playing this card would cause rider to fall out
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).some(tc => tc && tc.id === 'TK-1: 99') ? 1 : 0;
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   const cardVal = slipstream > 2 ? c.flat : c.uphill;
                                   const effective = (cardVal - localPenalty);
                                   const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
@@ -3706,24 +3793,72 @@ const checkCrash = () => {
               <div className="max-w-7xl mx-auto px-3">
                 <div className="relative">
                   {/* Toggle button to minimize/restore footer */}
-                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow">
-                    <span className="text-sm">{footerCollapsed ? '▲' : '▼'}</span>
+                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" aria-expanded={!footerCollapsed} className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow hover:ring-2 hover:ring-green-300 transition-all" title="Toggle footer">
+                    <span className="text-sm" aria-hidden>{footerCollapsed ? '▲' : '▼'}</span>
                   </button>
 
-                  <div className={`py-2 ${footerCollapsed ? 'hidden' : ''}`}>
+                  <div className="py-2" style={{ overflow: 'hidden', transition: 'max-height 260ms ease', maxHeight: footerCollapsed ? 0 : '1000px' }} aria-hidden={footerCollapsed}>
                     {/* Track row (restored) */}
                     <div className="overflow-x-auto bg-gray-50 rounded p-1 mb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                       <div style={{ display: 'flex', gap: 1, alignItems: 'stretch', height: 'auto', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
                           const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
-                          const groupPosMap = {};
-                          groupsList.forEach(g => {
-                            const entries = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([,r]) => r.position || 0);
-                            groupPosMap[g] = entries.length ? Math.max(...entries) : 0;
-                          });
+
+                          // Compute the "main" position for each group. If some riders in
+                          // the group are attackers, compute the group's main position as
+                          // the max position among non-attacker riders so the group's GX
+                          // label is placed where the rest of the group is. If no
+                          // non-attackers exist, fall back to the max of all members.
+                          const groupMainPos = {};
+                          const groupMoved = {};
+                          for (const g of groupsList) {
+                            const members = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished);
+                            const nonAttackers = members.filter(([,r]) => (r.attacking_status || '') !== 'attacker').map(([,r]) => r.position || 0);
+                            if (nonAttackers.length > 0) groupMainPos[g] = Math.max(...nonAttackers);
+                            else groupMainPos[g] = members.length ? Math.max(...members.map(([,r]) => r.position || 0)) : 0;
+                            // Determine whether the group moved this round by comparing
+                            // each member's position to their old_position. If any member
+                            // changed position, consider the group as moved.
+                            const moved = members.some(([,r]) => Number(r.position) !== Number(r.old_position || r.position));
+                            groupMoved[g] = moved;
+                          }
+
                           const posToGroups = {};
-                          Object.entries(groupPosMap).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+                          Object.entries(groupMainPos).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                          // Map attacker riders (those with attacking_status==='attacker')
+                          // to their landing positions so we can render their names on the
+                          // tile they ended up on while the round is in progress.
+                          const ridersAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (r && !r.finished && (r.attacking_status === 'attacker')) {
+                              const p = Number(r.position) || 0;
+                              ridersAtPos[p] = ridersAtPos[p] || [];
+                              ridersAtPos[p].push(name);
+                            }
+                          }
+                          // Map riders who fell out (couldn't follow the group's main speed)
+                          // These are non-attackers whose position is strictly less than
+                          // the group's main position. Render them on their own tile.
+                          const fallenAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (!r || r.finished) continue;
+                            if (r.attacking_status === 'attacker') continue; // already handled
+                            const g = r.group;
+                            const mainPos = typeof groupMainPos[g] !== 'undefined' ? Number(groupMainPos[g]) : null;
+                            const pos = Number(r.position) || 0;
+                            if (mainPos !== null && pos < mainPos) {
+                              fallenAtPos[pos] = fallenAtPos[pos] || [];
+                              fallenAtPos[pos].push(name);
+                            }
+                          }
+                          const firstNameShort = (full) => {
+                            if (!full || typeof full !== 'string') return full || '';
+                            const parts = full.trim().split(/\s+/);
+                            const first = parts[0] || '';
+                            return first.slice(0, 5);
+                          };
 
                           const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
                           // make tiles roughly twice as big
@@ -3766,13 +3901,71 @@ const checkCrash = () => {
                                     } catch (e) { return null; }
                                   })()}
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
-                                  {groupsHere.length > 0 && (
-                                    <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                      {groupsHere.map((g, idx) => (
-                                        <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (g === 1 || g === 2) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const attackersHere = ridersAtPos[t.idx] || [];
+                                    const fallenHere = fallenAtPos[t.idx] || [];
+                                    if (attackersHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
+                                          {attackersHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                              {firstNameShort(n)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    // If there are fallen riders at this tile (they couldn't follow),
+                                    // render their names in the same style as attackers.
+                                    if (fallenHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
+                                          {fallenHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                              {firstNameShort(n)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    if (groupsHere.length > 0) {
+                                      // Split groups into those that have NOT moved and those that HAVE moved.
+                                      // Render not-moved groups above moved groups, stacked vertically when both present.
+                                      const unmovedGroups = groupsHere.filter(g => !(groupMoved && typeof groupMoved[g] !== 'undefined') || groupMoved[g] === false);
+                                      const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
+                                          {/* unmoved groups on the top row */}
+                                          {unmovedGroups.length > 0 && (
+                                            <div style={{ display: 'block' }}>
+                                              {unmovedGroups.map((g, idx) => {
+                                                const movedFlag = false;
+                                                const fontSize = '0.975rem';
+                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold`;
+                                                return (
+                                                  <span key={`u${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < unmovedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                          {/* moved groups on the second row, below unmoved groups */}
+                                          {movedGroups.length > 0 && (
+                                            <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
+                                              {movedGroups.map((g, idx) => {
+                                                const movedFlag = true;
+                                                const fontSize = '0.65rem';
+                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold bg-white border`;
+                                                return (
+                                                  <span key={`m${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < movedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                 </div>
                               </div>
                             );
@@ -3800,6 +3993,8 @@ const checkCrash = () => {
                         </div>
                       );
                     })()}
+
+                    
 
                     {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
                       <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
