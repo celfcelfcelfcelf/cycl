@@ -246,7 +246,7 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
     // Previously this pushed 4 cards; reduce to 2 as initial state.
     for (let i = 0; i < 2; i++) newCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
   }
-  return newCards.sort(() => rng() - 0.5);
+  return shuffle(newCards, rng);
 };
 
 // AI helper: choose a card to play from a rider's hand (pure function)
@@ -362,6 +362,17 @@ export const colourTrackTokens = (track) => {
     '_': 'text-blue-600', 'F': 'text-green-600 font-bold text-xl'
   };
   return track.split('').map((char) => ({ char, className: colors[char] || 'text-gray-800' }));
+};
+
+// Fisher-Yates shuffle that accepts an injectable RNG (default Math.random)
+export const shuffle = (arr, rng = Math.random) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
 };
 
 export const getPenalty = (riderName, cards) => {
@@ -930,8 +941,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     // reshuffle if under 6
     if (updatedHandCards.length < 6) {
       updatedHandCards.push(...updatedDiscarded);
-      // simple shuffle using rng
-      updatedHandCards.sort(() => rng() - 0.5);
+      // shuffle using Fisher-Yates with injected rng
+      shuffle(updatedHandCards, rng);
       updatedDiscarded = [];
       logs.push(`${name}: kort blandet`);
     }
@@ -1085,9 +1096,9 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       if (rider.group !== sprintGroupId) continue;
 
       // move discarded back to hand and shuffle
-      rider.cards = [...rider.cards, ...rider.discarded];
-      rider.discarded = [];
-      rider.cards.sort(() => rng() - 0.5);
+  rider.cards = [...rider.cards, ...rider.discarded];
+  rider.discarded = [];
+  shuffle(rider.cards, rng);
 
       const cardsAvailable = [];
       let tk_penalty = 0;
@@ -1338,7 +1349,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (updatedHandCards.length < 6) {
       updatedHandCards.push(...updatedDiscarded);
-      updatedHandCards.sort(() => rng() - 0.5);
+      shuffle(updatedHandCards, rng);
       updatedDiscarded = [];
       logs.push(`${name} (attacker): kort blandet`);
     }

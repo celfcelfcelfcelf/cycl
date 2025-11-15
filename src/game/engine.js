@@ -1,4 +1,4 @@
-import { computeInitialStats, computeNonAttackerMoves, computeAttackerMoves, runSprintsPure } from './gameLogic.js';
+import { computeInitialStats, computeNonAttackerMoves, computeAttackerMoves, runSprintsPure, shuffle } from './gameLogic.js';
 
 // Lightweight engine wrapper that operates on plain JS objects and returns new states.
 export function initializeFromFixture(fixture, rng = Math.random) {
@@ -200,18 +200,24 @@ export function enforceBrosten(cardsObj, track, groupNum, rng = Math.random) {
             }
           } catch (e) { cardEffective = 0; }
           return { name: nm, isLeader, cardEffective, prevSpeed, moved };
-        });
+    });
 
   // Diagnostic log of raw candidates
   logs.push(`Brosten DEBUG raw candidates at pos=${pos}: ${JSON.stringify(candidates)}`);
 
-        candidates.sort((a, b) => {
-          if (b.isLeader - a.isLeader !== 0) return b.isLeader - a.isLeader;
-          if ((b.cardEffective || 0) - (a.cardEffective || 0) !== 0) return (b.cardEffective || 0) - (a.cardEffective || 0);
-          if (b.prevSpeed - a.prevSpeed !== 0) return b.prevSpeed - a.prevSpeed;
-          if (b.moved - a.moved !== 0) return b.moved - a.moved;
-          return rng() - 0.5;
-        });
+    // Randomize baseline order using Fisher-Yates (so we don't rely on
+    // sort with a random comparator which is biased). After shuffling,
+    // perform a deterministic sort for prioritization; shuffle provides
+    // the random tie-break behavior.
+    shuffle(candidates, rng);
+
+    candidates.sort((a, b) => {
+      if (b.isLeader - a.isLeader !== 0) return b.isLeader - a.isLeader;
+      if ((b.cardEffective || 0) - (a.cardEffective || 0) !== 0) return (b.cardEffective || 0) - (a.cardEffective || 0);
+      if (b.prevSpeed - a.prevSpeed !== 0) return b.prevSpeed - a.prevSpeed;
+      if (b.moved - a.moved !== 0) return b.moved - a.moved;
+      return 0;
+    });
 
   // Diagnostic log of sorted candidates
   logs.push(`Brosten DEBUG sorted candidates at pos=${pos}: ${JSON.stringify(candidates)}`);
@@ -220,11 +226,11 @@ export function enforceBrosten(cardsObj, track, groupNum, rng = Math.random) {
         // (slotsForGroup accounts for existing non-group riders on the tile).
         const keep = [];
         // sort full candidates list by the same comparator used above
-        const sortedCandidates = candidates.slice().sort((a, b) => {
+        const sortedCandidates = [...candidates].sort((a, b) => {
           if ((b.cardEffective || 0) - (a.cardEffective || 0) !== 0) return (b.cardEffective || 0) - (a.cardEffective || 0);
           if (b.prevSpeed - a.prevSpeed !== 0) return b.prevSpeed - a.prevSpeed;
           if (b.moved - a.moved !== 0) return b.moved - a.moved;
-          return rng() - 0.5;
+          return 0;
         });
         // pick top N up to slotsForGroup
         const slotsToKeep = Math.min(Math.max(0, slotsForGroup), sortedCandidates.length);
