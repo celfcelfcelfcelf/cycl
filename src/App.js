@@ -3811,6 +3811,21 @@ const checkCrash = () => {
                               ridersAtPos[p].push(name);
                             }
                           }
+                          // Map riders who fell out (couldn't follow the group's main speed)
+                          // These are non-attackers whose position is strictly less than
+                          // the group's main position. Render them on their own tile.
+                          const fallenAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (!r || r.finished) continue;
+                            if (r.attacking_status === 'attacker') continue; // already handled
+                            const g = r.group;
+                            const mainPos = typeof groupMainPos[g] !== 'undefined' ? Number(groupMainPos[g]) : null;
+                            const pos = Number(r.position) || 0;
+                            if (mainPos !== null && pos < mainPos) {
+                              fallenAtPos[pos] = fallenAtPos[pos] || [];
+                              fallenAtPos[pos].push(name);
+                            }
+                          }
                           const firstNameShort = (full) => {
                             if (!full || typeof full !== 'string') return full || '';
                             const parts = full.trim().split(/\s+/);
@@ -3860,12 +3875,26 @@ const checkCrash = () => {
                                   })()}
                                   <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
                                   {(() => {
-                                    const ridersHere = ridersAtPos[t.idx] || [];
-                                    if (ridersHere.length > 0) {
+                                    const attackersHere = ridersAtPos[t.idx] || [];
+                                    const fallenHere = fallenAtPos[t.idx] || [];
+                                    if (attackersHere.length > 0) {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
-                                          {ridersHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < ridersHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                          {attackersHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                              {firstNameShort(n)}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    // If there are fallen riders at this tile (they couldn't follow),
+                                    // render their names in the same style as attackers.
+                                    if (fallenHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
+                                          {fallenHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0 }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
