@@ -2227,6 +2227,9 @@ const moveToNextGroup = () => {
       takes_lead: 0,
       selected_value: 0,
       planned_card_id: undefined,
+      // Ensure old_position matches current position at the start of the new round
+      // so groups are not flagged as "moved" immediately after round rollover.
+      old_position: Number(updatedCards[n].position || 0),
     };
   }
 
@@ -3872,9 +3875,14 @@ const checkCrash = () => {
                                     if (groupsHere.length > 0) {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                          {groupsHere.map((g, idx) => (
-                                              <span key={g} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize: (groupMoved && groupMoved[g] === false) ? '0.975rem' : '0.65rem', fontWeight: 700 }}>{`G${g}`}</span>
-                                            ))}
+                                          {groupsHere.map((g, idx) => {
+                                              const movedFlag = (groupMoved && typeof groupMoved[g] !== 'undefined') ? groupMoved[g] : false;
+                                              const fontSize = movedFlag === false ? '0.975rem' : '0.65rem';
+                                              const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold ${movedFlag ? 'bg-white border' : ''}`;
+                                              return (
+                                                <span key={g} className={className} style={{ display: 'inline-block', marginRight: idx < groupsHere.length - 1 ? 6 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</span>
+                                              );
+                                            })}
                                         </div>
                                       );
                                     }
