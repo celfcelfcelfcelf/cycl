@@ -397,7 +397,30 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       } catch (err) { setRiderTooltip(null); }
     };
     document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    // Also listen for pointerdown to open tooltip immediately on press
+    const pointerHandler = (ev) => {
+      try {
+        if (!ev || !ev.target) return;
+        let node = ev.target;
+        while (node) {
+          try {
+            if (node.getAttribute && node.getAttribute('data-rider')) {
+              const name = node.getAttribute('data-rider');
+              const x = (ev.clientX != null) ? ev.clientX : (ev.touches && ev.touches[0] && ev.touches[0].clientX) || 0;
+              const y = (ev.clientY != null) ? ev.clientY : (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0;
+              setRiderTooltip({ name, x, y });
+              return;
+            }
+          } catch (inner) {}
+          node = node.parentNode;
+        }
+      } catch (e) {}
+    };
+    document.addEventListener('pointerdown', pointerHandler);
+    return () => {
+      try { document.removeEventListener('click', handler); } catch (e) {}
+      try { document.removeEventListener('pointerdown', pointerHandler); } catch (e) {}
+    };
   }, []);
 
   // (prepareSprints was removed — sprint detection runs after group reassignment in flow)
@@ -3685,7 +3708,7 @@ const checkCrash = () => {
               {/* Card selection modal for human riders when moving a group */}
               {cardSelectionOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
-                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 pb-40 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: '6rem', zIndex: 99999 }}>
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">Speed: <strong>{groupSpeed}</strong>, SV: <strong>{slipstream}</strong></div>
                     <div className="space-y-4 mb-4">
