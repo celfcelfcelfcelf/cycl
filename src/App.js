@@ -3696,7 +3696,58 @@ const checkCrash = () => {
                         ))}
                       </div>
                       <div className="flex justify-end">
-                        {/* Move next group button removed per UX polish */}
+                        {/* Offer pull-back action when attackers exist in the moved group */}
+                        {(() => {
+                          try {
+                            const g = postMoveInfo.groupMoved;
+                            const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                            const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                            const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                            const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                            if (!attackers || attackers.length === 0) {
+                              return (
+                                <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
+                              );
+                            }
+
+                            // Determine whether any attacker is within slipstream distance
+                            const sv = Number(slipstream || 0);
+                            const canPull = attackers.some(([, r]) => (Number(r.position || 0) - sv) <= groupPos);
+
+                            if (!canPull) {
+                              return (
+                                <button disabled className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">Attack is too far away to pull back</button>
+                              );
+                            }
+
+                            // If pullable, show action button
+                            return (
+                              <button onClick={() => {
+                                // Pull attacker(s) back to group's main position then continue
+                                const gNum = g;
+                                setCards(prev => {
+                                  try {
+                                    const updated = { ...prev };
+                                    const membersLocal = Object.entries(updated).filter(([, r]) => r.group === gNum && !r.finished);
+                                    const nonAtk = membersLocal.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                                    const targetPos = nonAtk.length > 0 ? Math.max(...nonAtk) : (membersLocal.length > 0 ? Math.max(...membersLocal.map(([, r]) => Number(r.position || 0))) : 0);
+                                    for (const [nm, rr] of membersLocal) {
+                                      if ((rr.attacking_status || '') === 'attacker') {
+                                        const oldPos = Number(rr.position || 0);
+                                        updated[nm] = { ...rr, position: targetPos, old_position: oldPos };
+                                      }
+                                    }
+                                    return updated;
+                                  } catch (e) { return prev; }
+                                });
+                                addLog(`Pulled attacker(s) in group ${g} back to position ${groupPos}`);
+                                // Close panel and move to next group
+                                setPostMoveInfo(null);
+                                setTimeout(() => moveToNextGroup(), 40);
+                              }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                            );
+                          } catch (e) { return null; }
+                        })()}
                       </div>
                     </div>
                   )}
