@@ -3910,7 +3910,7 @@ const checkCrash = () => {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
                                           {attackersHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: '#000', display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded bg-white/80 text-[10px] font-light border">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
@@ -3923,7 +3923,7 @@ const checkCrash = () => {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
                                           {fallenHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: '#000' }} className="inline-block px-1 py-0.5 rounded bg-white/80 text-xs font-semibold border">
+                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: '#000', display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded bg-white/80 text-[10px] font-light border">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
