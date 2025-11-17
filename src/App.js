@@ -381,9 +381,19 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const handler = (e) => {
       try {
         if (!e || !e.target) return setRiderTooltip(null);
-        // If click/tap happened on an element with data-rider, keep it
-        const el = e.target.closest && e.target.closest('[data-rider]');
-        if (!el) setRiderTooltip(null);
+        // If click/tap happened on an element with data-rider, keep it.
+        // Some browsers produce text nodes as the event target which don't
+        // implement `closest`. Walk up parentNode chain to find an element
+        // with `data-rider` instead of relying on `closest` existing.
+        let node = e.target;
+        let found = false;
+        while (node) {
+          try {
+            if (node.getAttribute && node.getAttribute('data-rider')) { found = true; break; }
+          } catch (inner) {}
+          node = node.parentNode;
+        }
+        if (!found) setRiderTooltip(null);
       } catch (err) { setRiderTooltip(null); }
     };
     document.addEventListener('click', handler);
@@ -3675,13 +3685,13 @@ const checkCrash = () => {
               {/* Card selection modal for human riders when moving a group */}
               {cardSelectionOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
-                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 pb-40 md:pb-12 max-h-[80vh] overflow-y-auto">
+                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 pb-40 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">Speed: <strong>{groupSpeed}</strong>, SV: <strong>{slipstream}</strong></div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
                         <div key={name} className="p-3 border rounded">
-                          <div className="font-semibold mb-2">{name}</div>
+                          <div data-rider={name} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="font-semibold mb-2 cursor-pointer">{name}</div>
                           <div className="grid grid-cols-4 gap-2">
                             {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
                               const isLeader = (rider.takes_lead || 0) === 1;
