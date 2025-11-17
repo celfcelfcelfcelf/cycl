@@ -3941,11 +3941,9 @@ const checkCrash = () => {
                                           {unmovedGroups.length > 0 && (
                                             <div style={{ display: 'block' }}>
                                               {unmovedGroups.map((g, idx) => {
-                                                const movedFlag = false;
-                                                const fontSize = '0.975rem';
-                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold`;
+                                                const fontSize = '0.9rem';
                                                 return (
-                                                  <span key={`u${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < unmovedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</span>
+                                                  <div key={`u${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</div>
                                                 );
                                               })}
                                             </div>
@@ -3954,11 +3952,9 @@ const checkCrash = () => {
                                           {movedGroups.length > 0 && (
                                             <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
                                               {movedGroups.map((g, idx) => {
-                                                const movedFlag = true;
-                                                const fontSize = '0.65rem';
-                                                const className = `inline-block px-1 py-0.5 rounded text-xs font-semibold bg-white border`;
+                                                const fontSize = '0.75rem';
                                                 return (
-                                                  <span key={`m${g}`} className={className} style={{ display: 'inline-block', marginRight: idx < movedGroups.length - 1 ? 6 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</span>
+                                                  <div key={`m${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
                                                 );
                                               })}
                                             </div>
