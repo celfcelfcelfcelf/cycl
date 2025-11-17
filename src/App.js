@@ -266,6 +266,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [showDebugMobile, setShowDebugMobile] = useState(false);
   const [showEngineUI, setShowEngineUI] = useState(false);
   const [footerCollapsed, setFooterCollapsed] = useState(false);
+  const [eliminateOpen, setEliminateOpen] = useState(false);
+  const [eliminateSelection, setEliminateSelection] = useState({});
   const [postMoveInfo, setPostMoveInfo] = useState(null);
   const [diceMsg, setDiceMsg] = useState(null);
   const [diceEvent, setDiceEvent] = useState(null); // { who, kind, oldPos, newPos }
@@ -4128,6 +4130,9 @@ const checkCrash = () => {
                 <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-1 rounded text-sm">
                   Back to Setup
                 </button>
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-1 rounded text-sm">
+                  Eliminate rider
+                </button>
                 
                 {/* Mobile debug toggle button */}
                 <div className="lg:hidden mt-3 px-3">
@@ -4137,6 +4142,39 @@ const checkCrash = () => {
                 </div>
 
                 <div className={`${showDebugMobile ? '' : 'hidden lg:block'} bg-gray-900 text-green-400 rounded-lg shadow p-4 mt-6 font-mono text-xs max-h-96 overflow-y-auto`}>
+                  {/* Eliminate modal */}
+                  {eliminateOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-start sm:items-center justify-center p-4" onClick={() => setEliminateOpen(false)}>
+                      <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-4" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-lg font-bold mb-3">Eliminate riders</h3>
+                        <div className="text-sm text-gray-600 mb-2">Select riders to remove from the current game. Default: none selected.</div>
+                        <div className="flex gap-2 mb-2">
+                          <button type="button" onClick={() => { const map = {}; Object.keys(cards).forEach(k => map[k] = true); setEliminateSelection(map); }} className="px-2 py-1 bg-gray-200 rounded">Select all</button>
+                          <button type="button" onClick={() => { const map = {}; Object.keys(cards).forEach(k => map[k] = false); setEliminateSelection(map); }} className="px-2 py-1 bg-gray-200 rounded">Deselect all</button>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto mb-3 border rounded p-2">
+                          {Object.keys(cards).length === 0 ? (<div className="text-sm text-gray-500">No riders available</div>) : Object.keys(cards).map((n) => (
+                            <label key={n} className="flex items-center gap-2 mb-1">
+                              <input type="checkbox" checked={!!eliminateSelection[n]} onChange={(e) => setEliminateSelection(prev => ({ ...prev, [n]: !!e.target.checked }))} />
+                              <span className="text-sm">{n}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEliminateOpen(false)} className="px-3 py-1 rounded border">Cancel</button>
+                          <button type="button" onClick={() => {
+                            const selected = Object.entries(eliminateSelection).filter(([,v]) => v).map(([k]) => k);
+                            if (selected.length > 0) {
+                              setCards(prev => { const copy = { ...prev }; selected.forEach(n => delete copy[n]); return copy; });
+                              try { addLog(`Eliminated riders: ${selected.join(', ')}`); } catch (e) {}
+                            }
+                            setEliminateOpen(false);
+                            setEliminateSelection({});
+                          }} className="px-3 py-1 rounded bg-red-600 text-white">Confirm</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <h3 className="text-lg font-bold mb-3 text-white">🐛 DEBUG: All Rider Dictionaries</h3>
                   <div className="space-y-4">
                     {Object.entries(cards).map(([name, rider]) => (
