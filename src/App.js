@@ -258,6 +258,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [groupsMovedThisRound, setGroupsMovedThisRound] = useState([]);
   const [aiMessage, setAiMessage] = useState('');
   const [expandedRider, setExpandedRider] = useState(null);
+  const [riderTooltip, setRiderTooltip] = useState(null); // { name, x, y }
   const [groupTimeGaps, setGroupTimeGaps] = useState({});
   const [latestPrelTime, setLatestPrelTime] = useState(0);
   const [sprintResults, setSprintResults] = useState([]);
@@ -374,6 +375,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'auto' });
     } catch (e) {}
   }, [cards, track]);
+
+  // Close tooltip when clicking outside rider elements
+  useEffect(() => {
+    const handler = (e) => {
+      try {
+        if (!e || !e.target) return setRiderTooltip(null);
+        // If click/tap happened on an element with data-rider, keep it
+        const el = e.target.closest && e.target.closest('[data-rider]');
+        if (!el) setRiderTooltip(null);
+      } catch (err) { setRiderTooltip(null); }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
   // (prepareSprints was removed — sprint detection runs after group reassignment in flow)
 
@@ -3063,7 +3078,7 @@ const checkCrash = () => {
 
   // Group UI removed per user request.
 
-  return (
+  return (<>
     <div className="min-h-screen bg-gray-100 p-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
@@ -3389,10 +3404,15 @@ const checkCrash = () => {
                     <div className="text-sm text-gray-700 mt-1">
                       {(() => {
                         try {
-                          const names = Object.entries(cards)
-                            .filter(([, r]) => r.group === currentGroup && !r.finished)
-                            .map(([n]) => n);
-                          return names.length > 0 ? names.join(', ') : <span className="text-gray-400">(no riders)</span>;
+                          const entries = Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished);
+                          if (entries.length === 0) return <span className="text-gray-400">(no riders)</span>;
+                          return entries.map(([n, r], idx) => (
+                            <span key={n} className="inline">
+                              <span data-rider={n} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} className="cursor-pointer hover:underline">{n}</span>
+                              <span className="text-xs text-gray-500">({r.team})</span>
+                              {idx < entries.length - 1 ? ', ' : ''}
+                            </span>
+                          ));
                         } catch (e) { return null; }
                       })()}
                     </div>
@@ -3919,8 +3939,8 @@ const checkCrash = () => {
                                     if (attackersHere.length > 0) {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
-                                          {attackersHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: '#000', display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded bg-white/80 text-[10px] font-light border">
+                                            {attackersHere.map((n, i) => (
+                                            <div key={n + i} data-rider={n} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
@@ -3933,7 +3953,7 @@ const checkCrash = () => {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
                                           {fallenHere.map((n, i) => (
-                                            <div key={n + i} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: '#000', display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded bg-white/80 text-[10px] font-light border">
+                                            <div key={n + i} data-rider={n} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
@@ -3947,24 +3967,24 @@ const checkCrash = () => {
                                       const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                          {/* unmoved groups on the top row */}
+                                          {/* unmoved groups on the top row — now boxed in white */}
                                           {unmovedGroups.length > 0 && (
                                             <div style={{ display: 'block' }}>
                                               {unmovedGroups.map((g, idx) => {
                                                 const fontSize = '0.9rem';
                                                 return (
-                                                  <div key={`u${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</div>
+                                                  <div key={`u${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
                                                 );
                                               })}
                                             </div>
                                           )}
-                                          {/* moved groups on the second row, below unmoved groups */}
+                                          {/* moved groups on the second row — now plain text (no white box) */}
                                           {movedGroups.length > 0 && (
                                             <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
                                               {movedGroups.map((g, idx) => {
                                                 const fontSize = '0.75rem';
                                                 return (
-                                                  <div key={`m${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
+                                                  <div key={`m${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</div>
                                                 );
                                               })}
                                             </div>
@@ -4034,8 +4054,8 @@ const checkCrash = () => {
                                         const bg = (teamColors && teamColors[team]) || 'transparent';
                                         const txt = (teamTextColors && teamTextColors[team]) || '#111827';
                                         return (
-                                          <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
-                                            {abbrevFirstName(name)}
+                                            <div key={name} className="whitespace-nowrap inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
+                                            <span data-rider={name} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="cursor-pointer">{abbrevFirstName(name)}</span>
                                             <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
                                           </div>
                                         );
@@ -4083,8 +4103,13 @@ const checkCrash = () => {
                         return (
                           <div key={t} className="p-2 rounded border" style={{ backgroundColor: bg, color: txt }}>
                             <div className="font-semibold">{t}</div>
-                            <div className="text-xs" style={{ color: txt === '#000000' ? '#111' : '#f0f0f0' }}>
-                              {Object.entries(cards).filter(([,r]) => r.team === t).map(([n]) => n).join(', ') || <span className="text-gray-400">(no riders)</span>}
+                                  <div className="text-xs" style={{ color: txt === '#000000' ? '#111' : '#f0f0f0' }}>
+                              {Object.entries(cards).filter(([,r]) => r.team === t).map(([n], idx, arr) => (
+                                <span key={n}>
+                                  <span data-rider={n} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t2 = e.changedTouches && e.changedTouches[0]; if (t2) { e.stopPropagation(); setRiderTooltip({ name: n, x: t2.clientX, y: t2.clientY }); } }} className="cursor-pointer">{n}</span>
+                                  {idx < arr.length - 1 ? ', ' : ''}
+                                </span>
+                              )) || <span className="text-gray-400">(no riders)</span>}
                             </div>
                           </div>
                         );
@@ -4187,9 +4212,9 @@ const checkCrash = () => {
                   )}
                   <h3 className="text-lg font-bold mb-3 text-white">🐛 DEBUG: All Rider Dictionaries</h3>
                   <div className="space-y-4">
-                    {Object.entries(cards).map(([name, rider]) => (
+                      {Object.entries(cards).map(([name, rider]) => (
                       <div key={name} className="border border-green-600 rounded p-3 bg-gray-800">
-                        <h4 className="text-yellow-400 font-bold mb-2">{name}</h4>
+                        <h4 data-rider={name} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="text-yellow-400 font-bold mb-2 cursor-pointer">{name}</h4>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                           {Object.entries(rider).filter(([k]) => k !== 'cards' && k !== 'discarded').map(([key, value]) => (
                             <div key={key} className="flex">
@@ -4258,7 +4283,24 @@ const checkCrash = () => {
         )}
       </div>
     </div>
-  );
+    {/* Rider tooltip */}
+    {riderTooltip && (typeof window !== 'undefined') && (() => {
+      const r = (cards && cards[riderTooltip.name]) ? cards[riderTooltip.name] : null;
+      const mod = r ? computeModifiedBJERG(r, track) : { modifiedBJERG: (r && r.BJERG) || 0, label: 'BJERG' };
+      const boxW = 260;
+      const boxH = 110;
+      const left = Math.min(Math.max(8, (riderTooltip.x || 0) + 8), (window.innerWidth - boxW - 8));
+      const top = Math.min(Math.max(8, (riderTooltip.y || 0) + 8), (window.innerHeight - boxH - 8));
+      return (
+        <div style={{ position: 'fixed', left, top, width: boxW, backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, zIndex: 2000, boxShadow: '0 6px 24px rgba(0,0,0,0.12)' }} onClick={(e) => { e.stopPropagation(); setRiderTooltip(null); }}>
+          <div className="font-semibold text-sm mb-1">{riderTooltip.name}</div>
+          <div className="text-xs text-gray-600 mb-1">FLAD: {r ? (r.flad || r.FLAD || '') : ''}</div>
+          <div className="text-xs text-gray-600 mb-1">{mod.label}: {mod.modifiedBJERG}</div>
+          <div className="text-xs text-gray-600">SPRINT: {r ? (r.sprint || r.SPRINT || '') : ''}</div>
+        </div>
+      );
+    })}
+  </> );
 };
 
 export default CyclingGame;
