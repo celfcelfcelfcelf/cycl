@@ -1371,6 +1371,16 @@ return { pace, updatedCards };
       addLog(`${submittingTeam} revised choice but attacker ${effectiveAttacker} remains attacker`);
     }
   }
+  // In choice-2 (round 2) NEW attacks are not allowed. If this team did
+  // not declare an attack in round-1, block any attempt to start an attack
+  // now and log the action for visibility.
+  if (currentRound === 2 && !(existingMeta && existingMeta.isAttack && existingMeta.round === 1)) {
+    if (effectiveIsAttack) {
+      addLog(`${submittingTeam} attempted a new attack in choice-2 — blocked`);
+      effectiveIsAttack = false;
+      effectiveAttacker = null;
+    }
+  }
   // record which round this submission belongs to so we can distinguish
   // round-1 vs round-2 submissions when finalizing the group.
   // If this is a round-2 revise and we have a previous pace from round-1,
