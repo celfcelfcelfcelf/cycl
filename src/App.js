@@ -4127,11 +4127,15 @@ const checkCrash = () => {
                     })()}
                   </div>
                 )}
-                <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-1 rounded text-sm">
+                <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-2 rounded text-sm">
                   Back to Setup
                 </button>
-                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-1 rounded text-sm">
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-3 rounded text-base font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
                   Eliminate rider
+                </button>
+                {/* Mobile floating button for easy activation on phones */}
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="lg:hidden fixed bottom-6 right-4 z-50 bg-red-600 text-white p-3 rounded-full shadow-lg" aria-label="Eliminate riders (mobile)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M8 6v14"></path><path d="M16 6v14"></path><path d="M10 6v14"></path></svg>
                 </button>
                 
                 {/* Mobile debug toggle button */}
