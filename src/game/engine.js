@@ -130,8 +130,8 @@ export function enforceBrosten(cardsObj, track, groupNum, rng = Math.random) {
         if (tok === '2') frac = 0.5;
         else if (tok === '1') frac = 0.33;
         else if (tok === '0') frac = 0.25;
-        // Use floor to compute minimal allowed count (user expectation: 25% of 9 -> 2)
-        return Math.max(1, Math.floor(totalPeloton * frac));
+        // Use rounding to convert fraction->count so 33% of 9 -> 3 (expected)
+        return Math.max(1, Math.round(totalPeloton * frac));
       });
       minAllowedFromPassed = Math.max(1, Math.min(...allowedList));
       logs.push(`Brosten: group ${groupNum} passed tokens ${Array.from(passedTokens).join(',')} -> applying minimal allowed=${minAllowedFromPassed}`);
@@ -166,7 +166,7 @@ export function enforceBrosten(cardsObj, track, groupNum, rng = Math.random) {
         // per-token fraction mapping. Use Math.floor to get the minimal
         // allowed count (but at least 1).
         const fracForToken = token === '2' ? 0.5 : (token === '1' ? 0.33 : (token === '0' ? 0.25 : 0.33));
-        const defaultAllowed = Math.max(1, Math.floor(totalPeloton * fracForToken));
+        const defaultAllowed = Math.max(1, Math.round(totalPeloton * fracForToken));
         const allowed = (minAllowedFromPassed !== null) ? minAllowedFromPassed : defaultAllowed;
 
         // Count how many riders already occupy this tile that are NOT part of the moved group.
