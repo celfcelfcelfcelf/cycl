@@ -87,6 +87,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
   const [teams, setTeams] = useState([]);
+  const [pullConfirmGroup, setPullConfirmGroup] = useState(null);
+  const [pullInvestGroup, setPullInvestGroup] = useState(null);
+  const [pullInvestTeam, setPullInvestTeam] = useState(null);
+  const [pullInvestSelections, setPullInvestSelections] = useState([]);
   const [teamBaseOrder, setTeamBaseOrder] = useState([]); // fixed base order assigned at game start
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
@@ -110,80 +114,21 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (!trackStr || typeof trackStr !== 'string') return 1;
     let longest = 1;
     let cur = 0;
-    for (let i = 0; i < trackStr.length; i++) {
-      const ch = trackStr[i];
-      if (ch === '0' || ch === '1') {
-        cur += 1;
-      } else if (ch === '2') {
-        cur += 0.5;
-      } else if (ch === '3' || ch === '_') {
-        cur = 0;
-      }
-      if (cur > longest) longest = cur;
-    }
-    return Math.max(1, longest);
-  };
-  // Compute approximate kilometers left from the current furthest-forward
-  // (maximum) rider position until the finish by scanning the resolved
-  // track tokens. This implementation follows the Python `get_length` you
-  // provided: apply the converter mapping first, copy previous numeric
-  // values into '^'/'*' tokens, sum the digits (with a small subtraction
-  // for the last 13 tokens), divide by 6 and return the integer part.
-  const computeKmLeft = (trackStr, cardsObj) => {
     try {
-      if (!trackStr || typeof trackStr !== 'string') return 0;
-      // find the furthest-forward (max) position among riders who are not finished
-      let maxPos = 0;
-      Object.values(cardsObj).forEach(r => {
-        if (r && !r.finished && typeof r.position === 'number') {
-          if (r.position > maxPos) maxPos = r.position;
-        }
-      });
-
-      const finishIdx = trackStr.indexOf('F');
-      if (finishIdx === -1) return 0;
-      const startIdx = Math.min(maxPos, finishIdx);
-      // slice from the furthest-forward rider to the finish (inclusive of 'F')
-      let tr = trackStr.slice(startIdx, finishIdx + 1);
-
-      // Apply the converter mapping exactly as in your Python snippet.
-      tr = tr.replace(/3/g, '6').replace(/_/g, '9').replace(/2/g, '4').replace(/1/g, '3').replace(/0/g, '2');
-
-      // Convert to array for in-place edits and copy last numeric into '^'/'*'
-      const arr = tr.split('');
-      let last = null;
-      for (let i = arr.length - 1; i >= 0; i--) {
-        const ch = arr[i];
-        // treat any digit or 'F' as a numeric anchor to copy
-        if ((/^[0-9]$/.test(ch)) || ch === 'F') {
-          last = ch;
-        }
-        if (ch === '^' || ch === '*') {
-          arr[i] = last || '0';
+      for (let i = 0; i < trackStr.length; i++) {
+        const ch = trackStr[i];
+        if (ch === '0' || ch === '1') {
+          cur += 1;
+          if (cur > longest) longest = cur;
+        } else if (ch === '2') {
+          cur += 0.5;
+          if (cur > longest) longest = cur;
+        } else {
+          cur = 0;
         }
       }
-
-      // Take everything up to (but not including) 'F'
-      const fIdx = arr.indexOf('F');
-      const seq = fIdx !== -1 ? arr.slice(0, fIdx) : arr.slice();
-
-      // Sum numeric values
-      let sum = 0;
-      for (const ch of seq) {
-        if (ch === 'F') break;
-        sum += parseInt(ch, 10) || 0;
-      }
-
-      // Subtract 0.23 * value for the last up-to-13 tokens
-      const tail = seq.slice(-13);
-      for (const ch of tail) {
-        const n = parseInt(ch, 10) || 0;
-        sum = sum - n * 0.23;
-      }
-
-      const km = Math.floor(sum / 6);
-      return km >= 0 ? km : 0;
-    } catch (e) { return 0; }
+      return Math.max(1, Math.round(longest));
+    } catch (e) { return 1; }
   };
 
   // Compute modified BJERG and label for display given a rider and the current track.
@@ -270,6 +215,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [eliminateOpen, setEliminateOpen] = useState(false);
   const [eliminateSelection, setEliminateSelection] = useState({});
   const [postMoveInfo, setPostMoveInfo] = useState(null);
+  const [pullInvestOutcome, setPullInvestOutcome] = useState({});
   const [diceMsg, setDiceMsg] = useState(null);
   const [diceEvent, setDiceEvent] = useState(null); // { who, kind, oldPos, newPos }
 
@@ -278,6 +224,120 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const newEntry = `[R${round}] ${msg}`;
       if (p.length > 0 && p[p.length - 1] === newEntry) return p; // avoid consecutive duplicates
       return [...p, newEntry];
+    });
+  };
+
+  // Deterministic helpers for evaluating AI invests so UI predictions match processing
+  const hashString = (s) => {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
+    return h >>> 0;
+  };
+  const seededRng = (seed) => {
+    let state = seed >>> 0;
+    return () => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  };
+
+  const evaluateRiderAutoInvest = (groupNum, riderName, cardsState, logger = () => {}) => {
+    try {
+      const trackStr = getResolvedTrack();
+      const seedBase = `${round}:${groupNum}:${riderName}`;
+      const rng1 = seededRng(hashString(seedBase + ':a'));
+      const rng2 = seededRng(hashString(seedBase + ':b'));
+      const rng3 = seededRng(hashString(seedBase + ':d'));
+      const rngCoin = seededRng(hashString(seedBase + ':c'));
+      const res1 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng1);
+      const res2 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng2);
+      const res3 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng3);
+      // Require three consecutive takesLeadFC successes (3/3) before a coin flip allows investment
+      if (res1 === 1 && res2 === 1 && res3 === 1) {
+        if (Math.floor(rngCoin() * 2) === 0) return 1;
+      }
+    } catch (e) {}
+    return 0;
+  };
+
+  const predictTeamInvest = (groupNum, teamName) => {
+    try {
+      const members = Object.entries(cards).filter(([, rr]) => rr.group === groupNum && !rr.finished && rr.team === teamName);
+      for (const [nm, rr] of members) {
+        if (!rr) continue;
+        if (evaluateRiderAutoInvest(groupNum, nm, cards, () => {}) === 1) return true;
+      }
+    } catch (e) {}
+    return false;
+  };
+
+  // Process AI riders in a group to decide automatic investments (TK-1).
+  // humanChoice: { invested: boolean, rider: string|null, team: string|null }
+  const processAutoInvests = (g, humanChoice = { invested: false, riders: null, rider: null, team: null }) => {
+    // Track actual per-team investment counts for this processing run
+    const perTeamInvestedActual = {};
+    const perRiderInvested = [];
+
+    setCards(prev => {
+      try {
+        const updated = { ...prev };
+        const membersLocal = Object.entries(updated).filter(([, rr]) => rr.group === g && !rr.finished);
+
+        // Handle human choice: support multiple riders (array) or legacy single 'rider'
+        if (humanChoice && humanChoice.invested) {
+          const ridersChosen = Array.isArray(humanChoice.riders) ? humanChoice.riders : (humanChoice.rider ? [humanChoice.rider] : []);
+          if (ridersChosen && ridersChosen.length > 0) {
+            const teamName = humanChoice.team || 'Me';
+            perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + ridersChosen.length;
+            for (const chosen of ridersChosen) {
+              try {
+                if (!updated[chosen]) continue;
+                const prevCards = Array.isArray(updated[chosen].cards) ? updated[chosen].cards : [];
+                updated[chosen] = { ...updated[chosen], cards: [{ id: 'TK-1: 99' }, ...prevCards] };
+                addLog(`${chosen} (team ${teamName}) invested TK-1`);
+                perRiderInvested.push({ team: teamName, rider: chosen });
+              } catch (e) { /* ignore */ }
+            }
+            addLog(`Human investment: ${ridersChosen.join(', ')} (${teamName})`);
+          }
+        }
+
+        // Run AI investment checks for computer riders in the group using deterministic evaluation
+        for (const [nm, rr] of membersLocal) {
+          if (!rr) continue;
+          if (rr.team === 'Me') continue; // skip human
+          try {
+            const invest = evaluateRiderAutoInvest(g, nm, updated, addLog);
+            if (invest === 1) {
+              const prevCards = Array.isArray(updated[nm].cards) ? updated[nm].cards : [];
+              updated[nm] = { ...updated[nm], cards: [{ id: 'TK-1: 99' }, ...prevCards] };
+              addLog(`${nm} (${updated[nm].team}) invests and takes 1 TK-1`);
+              perTeamInvestedActual[updated[nm].team] = (perTeamInvestedActual[updated[nm].team] || 0) + 1;
+              perRiderInvested.push({ team: updated[nm].team, rider: nm });
+            }
+          } catch (e) { /* ignore per-rider errors */ }
+        }
+
+        // Only pull attackers back if at least two riders invested in total (across teams)
+        const totalInvested = perRiderInvested.length;
+        const shouldPull = totalInvested >= 2;
+        if (shouldPull) {
+          const nonAtk = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker').map(([, rr]) => Number(rr.position || 0));
+          const targetPos = nonAtk.length > 0 ? Math.max(...nonAtk) : (membersLocal.length > 0 ? Math.max(...membersLocal.map(([, rr]) => Number(rr.position || 0))) : 0);
+          for (const [nm, rr] of membersLocal) {
+            if ((rr.attacking_status || '') === 'attacker') {
+              const oldPos = Number(rr.position || 0);
+              updated[nm] = { ...rr, position: targetPos, old_position: oldPos };
+            }
+          }
+          addLog(`Attack is pulled back to group ${g}`);
+        }
+
+        // Persist the actual results so the yellow post-move box can display them
+        setPullInvestOutcome(prev => ({ ...prev, [g]: { perTeam: perTeamInvestedActual, anyInvested: shouldPull, perRider: perRiderInvested, totalInvested } }));
+
+        return updated;
+      } catch (e) { return prev; }
     });
   };
 
@@ -295,6 +355,44 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       return r;
     }
     return tracks[tn] || '';
+  };
+
+  // Compute approximate kilometers left from furthest-forward rider to finish.
+  // Uses the track token string and a mapping to numeric weights, then
+  // converts summed token weights to kilometers (floor(sum/6)). This mirrors
+  // earlier logic used for km estimates in the UI.
+  const computeKmLeft = (trackStr, cardsObj) => {
+    try {
+      if (!trackStr || typeof trackStr !== 'string') return 0;
+      // find furthest-forward rider position
+      let maxPos = 0;
+      if (cardsObj && typeof cardsObj === 'object') {
+        Object.values(cardsObj).forEach(r => {
+          if (r && !r.finished && typeof r.position === 'number') {
+            if (r.position > maxPos) maxPos = r.position;
+          }
+        });
+      }
+      const finishIdx = trackStr.indexOf('F');
+      if (finishIdx === -1) return 0;
+      const startIdx = Math.min(maxPos, finishIdx);
+      let tr = trackStr.slice(startIdx, finishIdx + 1);
+      tr = tr.replace(/3/g, '6').replace(/_/g, '9').replace(/2/g, '4').replace(/1/g, '3').replace(/0/g, '2');
+      const arr = tr.split('');
+      let last = null;
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const ch = arr[i];
+        if ((/^[0-9]$/.test(ch)) || ch === 'F') last = ch;
+        if (ch === '^' || ch === '*') arr[i] = last || '0';
+      }
+      const fIdx = arr.indexOf('F');
+      const seq = fIdx !== -1 ? arr.slice(0, fIdx) : arr.slice();
+      let sum = 0;
+      for (const ch of seq) {
+        if (ch === 'F') break;
+        sum += parseInt(ch, 10) || 0;
+      }
+    } catch (e) { return 0; }
   };
 
   // If the user selects a named track (not 'random'), clear any previously
@@ -2222,8 +2320,19 @@ const moveToNextGroup = () => {
   setTeamPaceMeta({});
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
-    setCurrentTeam(shuffled[0]);
+    // Prefer a team that actually has riders in the next group so we don't
+    // land on an empty team and stall the UI. Use existing helper.
+    const preferred = findNextTeamWithRiders(0, nextGroup);
+    if (preferred) setCurrentTeam(preferred);
+    else setCurrentTeam(shuffled[0]);
     setMovePhase('input');
+    // clear stored invest outcome for this moved group so UI doesn't retain old results
+    try {
+      const gMoved = postMoveInfo && postMoveInfo.groupMoved;
+      if (typeof gMoved !== 'undefined') {
+        setPullInvestOutcome(prev => { const cp = { ...prev }; delete cp[gMoved]; return cp; });
+      }
+    } catch (e) {}
     setPostMoveInfo(null);
   } else {
     // No remaining groups -> start new round
@@ -2247,6 +2356,8 @@ const moveToNextGroup = () => {
   
   setRound(newRound);
   setCurrentGroup(maxGroup);
+  // clear any stored invest outcomes from previous round
+  setPullInvestOutcome({});
   setTeamPaces({});
   setTeamPaceMeta({});
   // Compute deterministic team order for this round based on base order
@@ -3557,14 +3668,143 @@ const checkCrash = () => {
                         const forcedAttacker = attackedInChoice1 ? (metaMe && metaMe.attacker) : null;
 
                         return (
-                          <HumanTurnInterface
-                            groupNum={currentGroup}
-                            riders={humanRiders}
-                            onSubmit={(choices) => handleHumanChoices(currentGroup, choices)}
-                            disableAttackUnlessChoice1={isChoice2}
-                            forcedAttacker={forcedAttacker}
-                            totalGroupCount={Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished).length}
-                          />
+                          (() => {
+                            // If a post-move pull-back session exists for a different group and there are attackers,
+                            // replace the human choice UI with the pull-back control so the competing team's choice
+                            // is locked until the pull-back is resolved.
+                            try {
+                              const pullInfo = postMoveInfo;
+                              const pullActive = !!(pullInfo && typeof pullInfo.groupMoved !== 'undefined');
+                              if (pullActive) {
+                                const g = pullInfo.groupMoved;
+                                const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                                const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                                const attackersExist = attackers && attackers.length > 0;
+                                if (attackersExist && g !== currentGroup) {
+                                  const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                                  const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                                  const sv = Number(slipstream || 0);
+                                  const canPull = attackers.some(([, r]) => {
+                                    const pos = Number(r.position || 0);
+                                    return pos > groupPos && (pos - sv) <= groupPos;
+                                  });
+
+                                  // Render pull-back controls for the human panel replacement
+                                  if (!canPull) {
+                                    const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                    const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="mb-1">
+                                                <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                              </div>
+                                        <div className="text-xs text-gray-600">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (
+                                                    <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
+                                                  )}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (pullConfirmGroup === g) {
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="flex justify-end items-center gap-2">
+                                          <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                          <button onClick={() => {
+                                            // Open invest-by-rider selector for the acting team, but only for human team
+                                            const team = currentTeam;
+                                              // If the human has eligible riders in this group, ask Me
+                                              const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                              if (humanHasRiders) {
+                                                setPullInvestGroup(g);
+                                                setPullInvestTeam('Me');
+                                                setPullInvestSelections([]);
+                                              } else {
+                                                // Otherwise process AI investments immediately for the acting team
+                                                processAutoInvests(g, { invested: false, rider: null, team });
+                                              }
+                                            setPullConfirmGroup(null);
+                                          }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                          <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, rider: null, team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-1 text-right">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (<div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>)}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  {
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="mb-1">
+                                          <button onClick={() => {
+                                            const team = currentTeam;
+                                            if (team === 'Me') {
+                                              setPullInvestGroup(g);
+                                              setPullInvestTeam(team);
+                                              setPullInvestSelections([]);
+                                            } else {
+                                              processAutoInvests(g, { invested: false, rider: null, team });
+                                            }
+                                          }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-1 text-right">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (<div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>)}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+                              }
+                            } catch (e) { /* ignore and fall back to normal human UI */ }
+
+                            return (
+                              <HumanTurnInterface
+                                groupNum={currentGroup}
+                                riders={humanRiders}
+                                onSubmit={(choices) => handleHumanChoices(currentGroup, choices)}
+                                disableAttackUnlessChoice1={isChoice2}
+                                forcedAttacker={forcedAttacker}
+                                totalGroupCount={Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished).length}
+                              />
+                            );
+                          })()
                         );
                       }
 
@@ -3578,6 +3818,112 @@ const checkCrash = () => {
                           )}
                           {(() => {
                             const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentTeam && !r.finished);
+
+                            // If a post-move pull-back session exists for a different group and there are attackers,
+                            // replace/disable the normal choice button here so the competing team's choice is locked
+                            // until the pull-back is resolved.
+                            try {
+                              const pullInfo = postMoveInfo;
+                              const pullActive = !!(pullInfo && typeof pullInfo.groupMoved !== 'undefined');
+                              if (pullActive) {
+                                const g = pullInfo.groupMoved;
+                                const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                                const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                                const attackersExist = attackers && attackers.length > 0;
+
+                                // Only replace the button for other groups (the competing team's choice)
+                                if (attackersExist && g !== currentGroup) {
+                                  // Compute whether attackers are within SV relative to the group's main position
+                                  const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                                  const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                                  const sv = Number(slipstream || 0);
+                                  const canPull = attackers.some(([, r]) => {
+                                    const pos = Number(r.position || 0);
+                                    return pos > groupPos && (pos - sv) <= groupPos;
+                                  });
+
+                                  // Render the pull-back control in place of the team's choice button
+                                  return (
+                                    <div className="flex flex-col items-start">
+                                      <div className="flex items-center gap-2">
+                                        {!teamHasRiders ? (
+                                          <div className="text-sm italic text-gray-500">no riders in the group</div>
+                                        ) : (
+                                          canPull ? (
+                                            <button onClick={() => {
+                                              const team = currentTeam;
+                                              if (team === 'Me') {
+                                                  setPullInvestGroup(g); setPullInvestTeam(team); setPullInvestSelections([]);
+                                                } else {
+                                                  processAutoInvests(g, { invested: false, rider: null, team });
+                                                }
+                                            }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                          ) : (
+                                            (() => {
+                                              if (!canPull) {
+                                                const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                                const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                                return (
+                                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">{label}</button>
+                                                );
+                                              }
+                                              if (pullConfirmGroup === g) {
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                                    <button onClick={() => {
+                                                        // open invest selector for the acting team (only for Me)
+                                                        const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                                        if (humanHasRiders) {
+                                                          setPullInvestGroup(g);
+                                                          setPullInvestTeam('Me');
+                                                        } else {
+                                                          processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                                        }
+                                                        setPullConfirmGroup(null);
+                                                      }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                                      <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, rider: null, team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                                  </div>
+                                                );
+                                              }
+                                              return (
+                                                <button onClick={() => {
+                                                  const team = currentTeam;
+                                                  if (team === 'Me') {
+                                                    setPullInvestGroup(g);
+                                                    setPullInvestTeam(team);
+                                                  } else {
+                                                    processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                                  }
+                                                }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                              );
+                                            })()
+                                          )
+                                        )}
+                                      </div>
+                                      {/* prediction summary for this team and overall */}
+                                      <div className="text-xs text-gray-600 mt-1">
+                                        {(() => {
+                                          try {
+                                            const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                            if (!outcome) return null;
+                                            return (
+                                              <>
+                                                {currentTeam !== 'Me' && (
+                                                  <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
+                                                )}
+                                                <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                              </>
+                                            );
+                                          } catch (e) { return null; }
+                                        })()}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                              }
+                            } catch (e) { /* ignore and fall back to normal rendering */ }
+
                             return (
                               <div className="flex items-center gap-2">
                                 {!teamHasRiders ? (
@@ -3695,6 +4041,32 @@ const checkCrash = () => {
                           </div>
                         ))}
                       </div>
+                      {(() => {
+                        try {
+                          const g = postMoveInfo.groupMoved;
+                          const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                          return (
+                            outcome ? (
+                              <div className="mb-2 text-xs text-gray-700">
+                                {(teams || []).map(t => (
+                                  <div key={t}>{(outcome.perTeam && outcome.perTeam[t]) ? `${t} invests` : `${t} does not invest`}</div>
+                                ))}
+                                {outcome.perRider && outcome.perRider.length > 0 && (
+                                  <div className="mt-1">
+                                    {outcome.perRider.map((p, idx) => (
+                                      <div key={idx} className="text-xs text-gray-700">{p.team} invests, {p.rider} takes 1 TK-1</div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="mt-1 font-medium">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                <div className="mt-2 flex justify-end">
+                                  <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
+                                </div>
+                              </div>
+                            ) : null
+                          );
+                        } catch (e) { return null; }
+                      })()}
                       <div className="flex justify-end">
                         {/* Offer pull-back action when attackers exist in the moved group */}
                         {(() => {
@@ -3712,38 +4084,49 @@ const checkCrash = () => {
 
                             // Determine whether any attacker is within slipstream distance
                             const sv = Number(slipstream || 0);
-                            const canPull = attackers.some(([, r]) => (Number(r.position || 0) - sv) <= groupPos);
+                            const canPull = attackers.some(([, r]) => {
+                              const pos = Number(r.position || 0);
+                              return pos > groupPos && (pos - sv) <= groupPos;
+                            });
 
-                            if (!canPull) {
+                              if (!canPull) {
                               return (
-                                <button disabled className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">Attack is too far away to pull back</button>
+                                <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">Attack is too far away to pull back</button>
                               );
                             }
 
-                            // If pullable, show action button
+                            // If pullable, show confirmation controls (Yes/No) after an initial press
+                            if (pullConfirmGroup === g) {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                  <button onClick={() => {
+                                    // Open invest selector for the acting team instead of immediately pulling
+                                    const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                    if (humanHasRiders) {
+                                      setPullInvestGroup(g);
+                                      setPullInvestTeam('Me');
+                                      setPullInvestSelections([]);
+                                    } else {
+                                      processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                    }
+                                    setPullConfirmGroup(null);
+                                  }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                  <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, riders: [], team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                </div>
+                              );
+                            }
+
                             return (
                               <button onClick={() => {
-                                // Pull attacker(s) back to group's main position then continue
-                                const gNum = g;
-                                setCards(prev => {
-                                  try {
-                                    const updated = { ...prev };
-                                    const membersLocal = Object.entries(updated).filter(([, r]) => r.group === gNum && !r.finished);
-                                    const nonAtk = membersLocal.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
-                                    const targetPos = nonAtk.length > 0 ? Math.max(...nonAtk) : (membersLocal.length > 0 ? Math.max(...membersLocal.map(([, r]) => Number(r.position || 0))) : 0);
-                                    for (const [nm, rr] of membersLocal) {
-                                      if ((rr.attacking_status || '') === 'attacker') {
-                                        const oldPos = Number(rr.position || 0);
-                                        updated[nm] = { ...rr, position: targetPos, old_position: oldPos };
-                                      }
-                                    }
-                                    return updated;
-                                  } catch (e) { return prev; }
-                                });
-                                addLog(`Pulled attacker(s) in group ${g} back to position ${groupPos}`);
-                                // Close panel and move to next group
-                                setPostMoveInfo(null);
-                                setTimeout(() => moveToNextGroup(), 40);
+                                const team = currentTeam;
+                                if (team === 'Me') {
+                                  setPullInvestGroup(g);
+                                  setPullInvestTeam(team);
+                                  setPullInvestSelections([]);
+                                } else {
+                                  processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                }
                               }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
                             );
                           } catch (e) { return null; }
@@ -3899,6 +4282,63 @@ const checkCrash = () => {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* Pull-invest modal: choose which rider on the investing team receives TK-1 and performs the pull */}
+              {pullInvestGroup !== null && pullInvestTeam === 'Me' && (
+                (() => {
+                  try {
+                    const g = pullInvestGroup;
+                    const team = 'Me';
+                    const candidates = Object.entries(cards).filter(([, r]) => r.group === g && r.team === team && !r.finished && (r.attacking_status || '') !== 'attacker');
+                    return (
+                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-70">
+                        <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6">
+                          <h3 className="text-lg font-bold mb-2">Which rider invests? (Me)</h3>
+                          <div className="text-sm text-gray-600 mb-3">Choose one of your riders in group {g} (excluding attackers) to receive a TK-1 card on top of their hand, or choose "No investment".</div>
+                          <div className="space-y-2 mb-4">
+                            {candidates.length === 0 ? (
+                              <div className="text-sm text-gray-500">No eligible riders in this group for team {team}.</div>
+                            ) : (
+                              <div className="grid gap-2">
+                                {candidates.map(([name, r]) => {
+                                  const selected = pullInvestSelections && pullInvestSelections.includes(name);
+                                  return (
+                                    <button key={name} type="button" onClick={() => {
+                                        if (pullInvestSelections && pullInvestSelections.includes(name)) {
+                                          setPullInvestSelections(prev => prev.filter(x => x !== name));
+                                        } else {
+                                          setPullInvestSelections(prev => (prev || []).length < 2 ? [...(prev || []), name] : prev);
+                                        }
+                                      }} className={`p-2 border rounded flex items-center justify-between ${selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>
+                                      <div>
+                                        <div className="font-medium">{name}</div>
+                                        <div className="text-xs text-gray-500">Pos: {r.position}</div>
+                                      </div>
+                                      <div className="text-sm text-gray-600">{selected ? 'Selected' : (pullInvestSelections && pullInvestSelections.length >= 2 ? 'Max selected' : 'Select')}</div>
+                                    </button>
+                                  );
+                                })}
+                                <div className="text-xs text-gray-600">Selected: {(pullInvestSelections || []).join(', ') || 'none'}</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setPullInvestGroup(null); setPullInvestTeam(null); setPullInvestSelections([]); addLog(`Me chooses no investment (0 riders)`); processAutoInvests(g, { invested: false, riders: [], team: 'Me' }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No investment</button>
+                            <button disabled={!(pullInvestSelections && pullInvestSelections.length > 0)} onClick={() => {
+                              const riders = pullInvestSelections || [];
+                              addLog(`Me chooses to invest ${riders.length} rider(s): ${riders.join(', ')}`);
+                              processAutoInvests(g, { invested: true, riders, team: 'Me' });
+                              setPullInvestGroup(null);
+                              setPullInvestTeam(null);
+                              setPullInvestSelections([]);
+                            }} className="px-3 py-2 bg-yellow-600 text-black rounded">Confirm investment</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } catch (e) { return null; }
+                })()
               )}
 
               
