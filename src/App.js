@@ -2587,8 +2587,22 @@ const checkCrash = () => {
   const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
   // Debug: indicate pure runner returned and wipe previous animation messages
   try { addLog(`runSprints: pure runner returned (result.riders=${Object.keys(res.updatedCards || {}).length})`); } catch (e) {}
-  // Wipe the animation box when a new group sprints and show initial Preparing message
-  setSprintAnimMsgs(['Preparing sprint...']);
+  // Wipe the animation box when a new group sprints and show an initial
+  // summary message listing the group and participating riders with sprint stat
+  const buildSprintSummary = (groupId, statsArr) => {
+    try {
+      if (!groupId) return ['Preparing sprint...'];
+      const parts = (statsArr || []).map(s => `${s.name} (${s.sprint_stat})`);
+      const joined = parts.join(', ');
+      if (parts.length === 0) {
+        return [`Group ${groupId} sprints.`, `No riders participate.`, ''];
+      }
+      const verb = parts.length === 1 ? 'participates.' : 'participate.';
+      // Return multiple lines: bold headline, participants line, blank spacer
+      return [`Group ${groupId} sprints.`, `${joined} ${verb}`, ''];
+    } catch (e) { return ['Preparing sprint...']; }
+  };
+  setSprintAnimMsgs(buildSprintSummary(sprintGroup, []));
 
   // Collect riders in this sprint group and their computed sprint stats
   const updated = res.updatedCards || {};
@@ -2618,14 +2632,14 @@ const checkCrash = () => {
         if (fallbackStats.length > 0) {
           stats = fallbackStats;
           try { addLog(`runSprints: using fallback stats from cards, count=${stats.length}`); } catch (e) {}
-          // Reset animation messages to the initial state before we animate
-          setSprintAnimMsgs(['Preparing sprint...']);
+          // Reset animation messages to the initial summary before we animate
+          setSprintAnimMsgs(buildSprintSummary(sprintGroup, stats));
         }
       }
 
       if (stats.length > 0) {
-        // Clear any previous animation messages (keep the initial 'Preparing sprint...' briefly)
-        setSprintAnimMsgs(['Preparing sprint...']);
+        // Clear any previous animation messages (keep the initial summary briefly)
+        setSprintAnimMsgs(buildSprintSummary(sprintGroup, stats));
         try { addLog(`runSprints: stats count=${stats.length}`); } catch (e) {}
         // Helper: try to find an exact sprint log line for a rider from res.logs
         const findLogLine = (name) => {
@@ -4017,14 +4031,16 @@ const checkCrash = () => {
                   {postMoveInfo && (
                     <div className="mt-3 p-3 border rounded bg-yellow-50">
                                       <div className="mb-2 text-sm font-medium">
-                                        {/* Show the group number at the top in bold */}
-                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved}</div>
-                                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
-                          <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : ''}`}>
+                                        {/* Show the group number and group stats at the top in bold */}
+                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={groupSpeed}, sv={slipstream})</div>
+                                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
+                          const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
+                          return (
+                          <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>
                             {m.isLead ? (
-                              <strong className={`${m.failed ? 'text-red-600' : ''}`}>{m.name} ({m.team})</strong>
+                              <strong className={`${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>{m.name} ({m.team})</strong>
                             ) : (
-                              <span>{m.name} ({m.team})</span>
+                              <span className={`${isAttacker ? 'font-semibold' : ''}`}>{m.name} ({m.team})</span>
                             )}{' '}
                             <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
                             {/* Additional consequences for riders who took TK-1 or EC */}
@@ -4039,7 +4055,8 @@ const checkCrash = () => {
                               </div>
                             )}
                           </div>
-                        ))}
+                        );
+                        })}
                       </div>
                       {(() => {
                         try {
@@ -4550,7 +4567,10 @@ const checkCrash = () => {
 
                     {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
                       <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
-                        {sprintAnimMsgs.map((m, idx) => (
+                        <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
+                        {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
+                        {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
+                        {sprintAnimMsgs.slice(3).map((m, idx) => (
                           <div key={idx} className="text-xs text-gray-800">{m}</div>
                         ))}
                       </div>
@@ -4680,6 +4700,16 @@ const checkCrash = () => {
                         </button>
                       );
                     })()}
+                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                      <div className="mt-2 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                        <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
+                        {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
+                        {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
+                        {sprintAnimMsgs.slice(3).map((m, idx) => (
+                          <div key={idx} className="text-xs text-gray-800">{m}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-2 rounded text-sm">

@@ -1038,25 +1038,66 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
   const finishPos = trackStr.indexOf('F');
   if (finishPos !== -1) {
     for (const sprintGroupId of sprintGroups) {
+      // compute minimum prel_time from riders NOT in this sprint group
+      const otherPrels = Object.values(updatedCards)
+        .filter(r => r.group !== sprintGroupId && typeof r.prel_time === 'number' && r.prel_time !== 10000)
+        .map(r => r.prel_time);
+      const minOtherPrel = otherPrels.length > 0 ? Math.min(...otherPrels) : null;
+
       for (const riderName of Object.keys(updatedCards)) {
         const r = updatedCards[riderName];
         if (r.group !== sprintGroupId) continue;
         if (typeof r.position !== 'number' || r.position < finishPos) continue;
         try {
-          const oldPos = (typeof r.old_position === 'number') ? r.old_position : r.position;
-          const fieldsToFinish = Math.max(0, finishPos - oldPos);
-          const speedForFraction = (r && r.move_distance_for_prel && r.move_distance_for_prel > 0)
+          // Determine a robust previous position for fraction calculation.
+          // Use `old_position` only when it represents a position *before* the current one.
+          // Otherwise prefer `position - move_distance_for_prel`, then `position - last_group_speed`.
+          let prevPos = r.position;
+          try {
+            if (typeof r.old_position === 'number' && r.old_position < r.position) {
+              prevPos = r.old_position;
+            } else if (typeof r.move_distance_for_prel === 'number' && r.move_distance_for_prel > 0) {
+              prevPos = r.position - r.move_distance_for_prel;
+            } else if (typeof r.last_group_speed === 'number' && r.last_group_speed > 0) {
+              prevPos = r.position - r.last_group_speed;
+            } else {
+              // conservative fallback: assume they started one field behind
+              prevPos = Math.max(0, r.position - 1);
+            }
+            // clamp to valid range
+            if (prevPos < 0) prevPos = 0;
+            if (prevPos > r.position) prevPos = r.position;
+          } catch (e) {
+            prevPos = (typeof r.position === 'number') ? r.position : 0;
+          }
+
+          const fieldsToFinish = Math.max(0, finishPos - prevPos);
+          const speedForFraction = (r && typeof r.move_distance_for_prel === 'number' && r.move_distance_for_prel > 0)
             ? r.move_distance_for_prel
-            : ((r && r.last_group_speed && r.last_group_speed > 0)
+            : ((r && typeof r.last_group_speed === 'number' && r.last_group_speed > 0)
               ? r.last_group_speed
               : 1);
           const fraction = Math.max(0, Math.min(1, fieldsToFinish / speedForFraction));
-          const prelSeconds = (round + fraction) * 60;
+          const candidatePrel = (round + fraction) * 60;
+          // Apply rule: prel_time = max(min(prel_time_of_others) + 2, candidate)
+          const minBased = (minOtherPrel !== null) ? (minOtherPrel + 2) : null;
+          const finalPrel = (minBased !== null) ? Math.max(minBased, candidatePrel) : candidatePrel;
+
           if (!(typeof r.prel_time === 'number' && r.prel_time !== 10000)) {
-            updatedCards[riderName] = { ...r, prel_time: prelSeconds };
+            updatedCards[riderName] = { ...r, prel_time: finalPrel };
             assignedPrel.add(riderName);
-            latestPt = Math.max(latestPt, prelSeconds);
-            logs.push(`Assigned prel_time for ${riderName} (group ${sprintGroupId}): ${convertToSeconds(prelSeconds)} (fraction=${fraction.toFixed(3)}, denom=${speedForFraction}, oldPos=${oldPos})`);
+            latestPt = Math.max(latestPt, finalPrel);
+            try {
+              // provisional globalMin including this newly assigned prel_time
+              const provisionalPrels = Object.values(updatedCards)
+                .filter(rr => typeof rr.prel_time === 'number' && rr.prel_time !== 10000)
+                .map(rr => rr.prel_time);
+              const provisionalGlobalMin = provisionalPrels.length > 0 ? Math.min(...provisionalPrels) : null;
+              const provisionalTaf = provisionalGlobalMin !== null ? Math.max(0, finalPrel - provisionalGlobalMin) : null;
+              logs.push(`Assigned prel_time for ${riderName} (group ${sprintGroupId}): prel=${convertToSeconds(finalPrel)} (${finalPrel}s) candidate=${convertToSeconds(candidatePrel)} (round=${round}) fraction=${fraction.toFixed(3)} denom=${speedForFraction} prevPos=${prevPos} finishPos=${finishPos} fieldsToFinish=${fieldsToFinish} pos=${r.position} move_distance_for_prel=${r.move_distance_for_prel} old_position=${r.old_position} minOther=${minOtherPrel !== null ? convertToSeconds(minOtherPrel) + ` (${minOtherPrel}s)` : 'N/A'} provisionalGlobalMin=${provisionalGlobalMin !== null ? convertToSeconds(provisionalGlobalMin) + ` (${provisionalGlobalMin}s)` : 'N/A'} provisional_taw=${provisionalTaf !== null ? convertToSeconds(provisionalTaf) + ` (${provisionalTaf}s)` : 'N/A'}`);
+            } catch (e) {
+              logs.push(`Assigned prel_time for ${riderName} (group ${sprintGroupId}): ${convertToSeconds(finalPrel)} (fraction=${fraction.toFixed(3)}, denom=${speedForFraction}, prevPos=${prevPos}, finishPos=${finishPos}, fieldsToFinish=${fieldsToFinish}, pos=${r.position}, move_distance_for_prel=${r.move_distance_for_prel}, old_position=${r.old_position}, minOther=${minOtherPrel !== null ? convertToSeconds(minOtherPrel) : 'N/A'})`);
+            }
           }
         } catch (e) {}
       }
@@ -1085,7 +1126,11 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
         if (typeof r.prel_time === 'number' && r.prel_time !== 10000) {
           const taf = Math.max(0, r.prel_time - globalMin);
           updatedCards[n] = { ...updatedCards[n], time_after_winner: taf };
-          logs.push(`Set time_after_winner for ${n}: ${convertToSeconds(taf)}`);
+          try {
+            logs.push(`Set time_after_winner for ${n}: taf=${convertToSeconds(taf)} (${taf}s) prel=${convertToSeconds(r.prel_time)} (${r.prel_time}s) globalMin=${convertToSeconds(globalMin)} (${globalMin}s)`);
+          } catch (e) {
+            logs.push(`Set time_after_winner for ${n}: ${convertToSeconds(taf)}`);
+          }
         }
       }
     }
