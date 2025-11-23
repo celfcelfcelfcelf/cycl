@@ -209,6 +209,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [sprintResults, setSprintResults] = useState([]);
   const [sprintGroupsPending, setSprintGroupsPending] = useState([]);
   const [sprintAnimMsgs, setSprintAnimMsgs] = useState([]);
+  const [sprintFocusGroup, setSprintFocusGroup] = useState(null);
   const [showDebugMobile, setShowDebugMobile] = useState(false);
   const [showEngineUI, setShowEngineUI] = useState(false);
   const [footerCollapsed, setFooterCollapsed] = useState(false);
@@ -1527,6 +1528,22 @@ return { pace, updatedCards };
       effectiveAttacker = null;
     }
   }
+  // If we blocked a new attack in choice-2, ensure no riders remain marked
+  // as attackers for this submitting team in this group (clear any stale flags).
+  if (!effectiveIsAttack) {
+    setCards(prev => {
+      try {
+        const updated = { ...prev };
+        for (const [nm, rr] of Object.entries(updated)) {
+          if (!rr) continue;
+          if (rr.group === groupNum && rr.team === submittingTeam && (rr.attacking_status || '') === 'attacker') {
+            updated[nm] = { ...rr, attacking_status: 'no', takes_lead: 0, selected_value: 0, planned_card_id: null, attack_card: null };
+          }
+        }
+        return updated;
+      } catch (e) { return prev; }
+    });
+  }
   // record which round this submission belongs to so we can distinguish
   // round-1 vs round-2 submissions when finalizing the group.
   // If this is a round-2 revise and we have a previous pace from round-1,
@@ -2342,7 +2359,21 @@ const moveToNextGroup = () => {
 };
 
   const startNewRound = () => {
+  // Prevent starting a new round while sprints are still pending.
+  if (sprintGroupsPending && sprintGroupsPending.length > 0) {
+    try {
+      const nextSprint = Math.min(...sprintGroupsPending);
+      addLog(`Sprints pending for groups: ${sprintGroupsPending.join(', ')} — focus sprint for group ${nextSprint}`);
+      setSprintAnimMsgs([`Sprints pending: focus group ${nextSprint}`]);
+      setSprintFocusGroup(nextSprint);
+    } catch (e) {}
+    return;
+  }
+
   console.log('=== START NEW ROUND ===');
+  // Clear any sprint animation messages when beginning a new round so
+  // the top status box returns to the normal chosen-speed UI.
+  try { setSprintAnimMsgs([]); } catch (e) {}
   console.log('Current cards:', cards);
   // Clear the post-move yellow panel when the user starts a new round
   // so the played-cards summary is not left visible between rounds.
@@ -2638,8 +2669,16 @@ const checkCrash = () => {
       }
 
       if (stats.length > 0) {
-        // Clear any previous animation messages (keep the initial summary briefly)
-        setSprintAnimMsgs(buildSprintSummary(sprintGroup, stats));
+        // Build a full summary list for the top animation box: include every
+        // rider name and their computed sprint points so the top box shows
+        // the complete standings before the per-rider reveal animation.
+        const fullList = [];
+        fullList.push(`Sprint: Group ${sprintGroup}`);
+        for (const s of stats.slice().sort((a,b) => (b.sprint_points||0) - (a.sprint_points||0))) {
+          fullList.push(`${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+        }
+        fullList.push('');
+        setSprintAnimMsgs(fullList);
         try { addLog(`runSprints: stats count=${stats.length}`); } catch (e) {}
         // Helper: try to find an exact sprint log line for a rider from res.logs
         const findLogLine = (name) => {
@@ -2656,13 +2695,16 @@ const checkCrash = () => {
 
         // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
         const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
+        // Brief pause so the full summary is visible, then reveal each rider
+        // from worst->best to create a reveal animation in the top box.
+        await new Promise(r => setTimeout(r, 1200));
         for (const s of asc) {
           const logLine = findLogLine(s.name);
           const msg = logLine ? `Sprint: ${logLine}` : `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`;
           setSprintAnimMsgs(prev => [...prev, msg]);
           try { addLog(`runSprints: animated sprint for ${s.name}`); } catch (e) {}
-          // Wait 3 seconds between each message to emphasize the animation
-          await new Promise(r => setTimeout(r, 3000));
+          // Wait 2 seconds between each reveal to keep the animation snappy
+          await new Promise(r => setTimeout(r, 2000));
         }
       }
       else {
@@ -3269,6 +3311,19 @@ const checkCrash = () => {
             <EngineUI />
           </div>
         )}
+        {/* If there are pending sprint groups, show a prominent sprint button at the top */}
+        {gameState === 'playing' && sprintGroupsPending && sprintGroupsPending.length > 0 && (() => {
+          try {
+            const minG = Math.min(...sprintGroupsPending);
+            return (
+              <div className="mb-4">
+                <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); setSprintFocusGroup(minG); }} className="w-full bg-purple-600 text-white py-3 rounded-lg text-center font-semibold">
+                  Sprint with group {minG}
+                </button>
+              </div>
+            );
+          } catch (e) { return null; }
+        })()}
         
         {gameState === 'setup' && (
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
@@ -3556,7 +3611,15 @@ const checkCrash = () => {
               <div className="bg-white rounded-lg shadow p-3 mb-3">
                   <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-extrabold">Group {currentGroup} moves.</div>
+                    <div className="text-2xl font-extrabold">
+                      {sprintFocusGroup !== null ? (
+                        <div className="w-full">
+                          <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, sprintFocusGroup); setSprintFocusGroup(null); }} className="w-full bg-purple-600 text-white py-2 rounded font-semibold">Sprint with group {sprintFocusGroup}</button>
+                        </div>
+                      ) : (
+                        `Group ${currentGroup} moves.`
+                      )}
+                    </div>
                     <div className="text-sm text-gray-700 mt-1">{currentTeam}'s turn to choose</div>
                     {/* Small, normal-font list of riders in the current group */}
                     <div className="text-sm text-gray-700 mt-1">
@@ -3578,8 +3641,18 @@ const checkCrash = () => {
                   <div className="text-sm text-gray-500">Phase: {movePhase}</div>
                 </div>
 
-                {/* Current chosen values for the group */}
-                {(() => {
+                {/* If there is an active sprint animation, show it here and hide the usual status */}
+                {sprintAnimMsgs && sprintAnimMsgs.length > 0 ? (
+                  <div className="mt-3">
+                    <div className="p-3 bg-purple-50 border rounded">
+                      {sprintAnimMsgs.map((m, i) => (
+                        <div key={i} className={`${i === 0 ? 'text-sm font-semibold text-gray-800' : 'text-xs text-gray-700'} ${i === 0 ? 'mb-2' : 'mb-1'}`}>
+                          {m}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (() => {
                   return (
                     <div className="mt-3">
                       <div className="text-sm font-semibold mb-2">Current chosen values</div>
@@ -4107,10 +4180,12 @@ const checkCrash = () => {
                             });
 
                               if (!canPull) {
-                              return (
-                                <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">Attack is too far away to pull back</button>
-                              );
-                            }
+                                const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                return (
+                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                );
+                              }
 
                             // If pullable, show confirmation controls (Yes/No) after an initial press
                             if (pullConfirmGroup === g) {
@@ -4552,19 +4627,6 @@ const checkCrash = () => {
                     })()}
                     <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
                   <div className="md:col-span-1">
-                    {sprintGroupsPending.length > 0 && (() => {
-                      const minG = Math.min(...sprintGroupsPending);
-                      return (
-                        <div className="mb-1">
-                          <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, minG); }} className="w-full bg-purple-500 text-white py-2 rounded">
-                            Sprint with group {minG}
-                          </button>
-                        </div>
-                      );
-                    })()}
-
-                    
-
                     {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
                       <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
                         <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
@@ -4689,27 +4751,16 @@ const checkCrash = () => {
                   );
                 })()}
 
-                {/* Sprint controls: show per-group sprint buttons when pending */}
-                {sprintGroupsPending.length > 0 && (
+                {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
                   <div className="mt-3">
-                    {(() => {
-                      const minG = Math.min(...sprintGroupsPending);
-                      return (
-                        <button key={minG} onClick={() => runSprints(track, minG)} className="w-full bg-purple-500 text-white py-2 rounded">
-                          Sprint with group {minG}
-                        </button>
-                      );
-                    })()}
-                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
-                      <div className="mt-2 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
-                        <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
-                        {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
-                        {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
-                        {sprintAnimMsgs.slice(3).map((m, idx) => (
-                          <div key={idx} className="text-xs text-gray-800">{m}</div>
-                        ))}
-                      </div>
-                    )}
+                    <div className="mt-2 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                      <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
+                      {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
+                      {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
+                      {sprintAnimMsgs.slice(3).map((m, idx) => (
+                        <div key={idx} className="text-xs text-gray-800">{m}</div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-2 rounded text-sm">
