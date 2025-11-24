@@ -53,6 +53,12 @@ const tracks = {
   'BrostensTest': '3333330033333311332233333333333330033333333331113333330033333333333FFFFFFFFFFFFFF*',
   'nedkørselstest': '_333______000___3___33333FFF',
   'Paris-Roubaix': '2333223331113330003333323333333333333232333311003233333233333333FFFFFFFFFF*',
+  'Gent-Wevelgem': '333331113333333222333311133330033333333333333333333333333333333333333FFFFFFFB',
+  'GiroStage20 Finestre': '11111100000000000000000000000000000_____3333322222221111111111111FFFFFFFFFF',
+  'Milano - San Remo': '3333333222333223333333331111_33333333222222222___33333332222222__33333FFFFFFFFFFFF',
+  'Dwars door Vlanderen': '333332233333333331133333333333333331333333333333331133333333333FFFFFFFFFFFB',
+  'GP Montreal': '11_3333333333332211_333333333333__33_3333333333332211_3333333333FFFFFFFFF',
+  'Classic Bretagne': '3333333330333333333333332333331133333333113333333333222333332233333FFFFFFFFFF',
   'random': 'random'
 };
 
@@ -393,6 +399,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         if (ch === 'F') break;
         sum += parseInt(ch, 10) || 0;
       }
+      // Convert token-weight sum to approximate kilometers left (mirror getLength logic)
+      return Math.floor(sum / 6);
     } catch (e) { return 0; }
   };
 
@@ -4552,59 +4560,46 @@ const checkCrash = () => {
                                   {(() => {
                                     const attackersHere = ridersAtPos[t.idx] || [];
                                     const fallenHere = fallenAtPos[t.idx] || [];
-                                    if (attackersHere.length > 0) {
+                                    if (attackersHere.length > 0 || fallenHere.length > 0 || groupsHere.length > 0) {
                                       return (
                                         <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
-                                            {attackersHere.map((n, i) => (
-                                            <div key={n + i} data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 0, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
+                                          {/* Attackers (if any) — render above group labels */}
+                                          {attackersHere.length > 0 && attackersHere.map((n, i) => (
+                                            <div key={n + i} data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t2 = e.changedTouches && e.changedTouches[0]; if (t2) { e.stopPropagation(); setRiderTooltip({ name: n, x: t2.clientX, y: t2.clientY }); } }} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 4, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
-                                        </div>
-                                      );
-                                    }
-                                    // If there are fallen riders at this tile (they couldn't follow),
-                                    // render their names in the same style as attackers.
-                                    if (fallenHere.length > 0) {
-                                      return (
-                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
-                                          {fallenHere.map((n, i) => (
-                                            <div key={n + i} data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} style={{ marginBottom: i < fallenHere.length - 1 ? 2 : 0, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
+
+                                          {/* Groups (if any) — render below attackers */}
+                                          {groupsHere.length > 0 && (() => {
+                                            const unmovedGroups = groupsHere.filter(g => !(groupMoved && typeof groupMoved[g] !== 'undefined') || groupMoved[g] === false);
+                                            const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
+                                            return (
+                                              <div>
+                                                {unmovedGroups.length > 0 && (
+                                                  <div style={{ display: 'block' }}>
+                                                    {unmovedGroups.map((g, idx) => (
+                                                      <div key={`u${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize: '0.9rem', fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                                {movedGroups.length > 0 && (
+                                                  <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
+                                                    {movedGroups.map((g, idx) => (
+                                                      <div key={`m${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize: '0.75rem', fontWeight: 700 }}>{`G${g}`}</div>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
+
+                                          {/* Fallen riders (if any) — render below groups/attackers when present */}
+                                          {fallenHere.length > 0 && fallenHere.map((n, i) => (
+                                            <div key={`f${n}${i}`} data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t3 = e.changedTouches && e.changedTouches[0]; if (t3) { e.stopPropagation(); setRiderTooltip({ name: n, x: t3.clientX, y: t3.clientY }); } }} style={{ marginTop: 4, color: styleColors.text, display: 'block', textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light cursor-pointer">
                                               {firstNameShort(n)}
                                             </div>
                                           ))}
-                                        </div>
-                                      );
-                                    }
-                                    if (groupsHere.length > 0) {
-                                      // Split groups into those that have NOT moved and those that HAVE moved.
-                                      // Render not-moved groups above moved groups, stacked vertically when both present.
-                                      const unmovedGroups = groupsHere.filter(g => !(groupMoved && typeof groupMoved[g] !== 'undefined') || groupMoved[g] === false);
-                                      const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
-                                      return (
-                                        <div style={{ position: 'absolute', bottom: 6, left: 0, right: 0, textAlign: 'center' }}>
-                                          {/* unmoved groups on the top row — now boxed in white */}
-                                          {unmovedGroups.length > 0 && (
-                                            <div style={{ display: 'block' }}>
-                                              {unmovedGroups.map((g, idx) => {
-                                                const fontSize = '0.9rem';
-                                                return (
-                                                  <div key={`u${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
-                                          {/* moved groups on the second row — now plain text (no white box) */}
-                                          {movedGroups.length > 0 && (
-                                            <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
-                                              {movedGroups.map((g, idx) => {
-                                                const fontSize = '0.75rem';
-                                                return (
-                                                  <div key={`m${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize, fontWeight: 700 }}>{`G${g}`}</div>
-                                                );
-                                              })}
-                                            </div>
-                                          )}
                                         </div>
                                       );
                                     }
