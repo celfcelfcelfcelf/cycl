@@ -1742,6 +1742,8 @@ return { pace, updatedCards };
       }
     }
 
+    // Ensure a minimum group speed of 2 (UI-level guard). Downhill override below
+    speed = Math.max(2, speed);
     if (track[groupPos] === '_') speed = Math.max(5, speed);
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
@@ -4388,16 +4390,16 @@ const checkCrash = () => {
               )}
 
               {/* Pull-invest modal: choose which rider on the investing team receives TK-1 and performs the pull */}
-              {pullInvestGroup !== null && pullInvestTeam === 'Me' && (
+                      {pullInvestGroup !== null && pullInvestTeam === 'Me' && (
                 (() => {
                   try {
                     const g = pullInvestGroup;
                     const team = 'Me';
                     const candidates = Object.entries(cards).filter(([, r]) => r.group === g && r.team === team && !r.finished && (r.attacking_status || '') !== 'attacker');
                     return (
-                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-70">
+                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
                         <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6">
-                          <h3 className="text-lg font-bold mb-2">Which rider invests? (Me)</h3>
+                          <h3 className="text-lg font-bold mb-2">Which rider invests? (Me) — candidates: "{candidates.length}"</h3>
                           <div className="text-sm text-gray-600 mb-3">Choose one of your riders in group {g} (excluding attackers) to receive a TK-1 card on top of their hand, or choose "No investment".</div>
                           <div className="space-y-2 mb-4">
                             {candidates.length === 0 ? (
