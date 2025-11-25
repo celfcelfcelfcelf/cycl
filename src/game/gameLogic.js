@@ -471,7 +471,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
   const ratio = fraTeamIGruppe / Math.max(1, groupSize);
   const sv = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
 
-  try { logger(`TLFC START ${riderName} group=${group} groupSize=${groupSize} ratio=${ratio.toFixed(3)} sv=${sv}`); } catch (e) {}
+  if (write) { try { logger(`TLFC START ${riderName} group=${group} groupSize=${groupSize} ratio=${ratio.toFixed(3)} sv=${sv}`); } catch (e) {} }
 
   if (ratio === 1) {
     if (!floating) return 1; else return 6;
@@ -503,10 +503,10 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     attack_prob_percent = attack_prob_percent * fb_ratio;
 
     const attack_prob = Math.floor(1 / Math.max(1e-9, attack_prob_percent)) + 1;
-    try { logger(`TLFC ${riderName}: attack_prob_percent=${attack_prob_percent.toFixed(6)} attack_prob=${attack_prob}`); } catch(e) {}
+    if (write) { try { logger(`TLFC ${riderName}: attack_prob_percent=${attack_prob_percent.toFixed(6)} attack_prob=${attack_prob}`); } catch(e) {} }
     if (Math.floor(rng() * (attack_prob + 1)) === 1) {
       if (groupSize > 2) {
-        try { logger(`TLFC DECISION ${riderName} chooses to ATTACK (attack_prob_percent=${attack_prob_percent.toFixed(6)}, attack_prob=${attack_prob})`); } catch(e) {}
+        if (write) { try { logger(`TLFC DECISION ${riderName} chooses to ATTACK (attack_prob_percent=${attack_prob_percent.toFixed(6)}, attack_prob=${attack_prob})`); } catch(e) {} }
         if (!floating) return 2; else return 2;
       }
     }
@@ -597,18 +597,18 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     // Reduce take-lead chance when the group already has high chosen speeds.
     // Find the highest chosen speed (selected_value) among non-attacker riders
     // in the same group and divide chance_tl by at least 2 or that value.
-    try {
+      try {
       const chosenSpeeds = (groupRiders || []).map(r => Math.round(r.selected_value || 0)).filter(v => v > 0);
       const maxChosen = chosenSpeeds.length > 0 ? Math.max(...chosenSpeeds) : 0;
       const denom = Math.max(2, maxChosen);
       chance_tl = chance_tl / denom;
-      logger && logger(`TLFC ADJUST ${riderName}: maxChosen=${maxChosen} denom=${denom} -> chance_tl=${chance_tl.toFixed(6)}`);
+      if (write) { logger && logger(`TLFC ADJUST ${riderName}: maxChosen=${maxChosen} denom=${denom} -> chance_tl=${chance_tl.toFixed(6)}`); }
     } catch (e) {}
 
     if (!floating) {
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
       if (rng() < prob) {
-        try { logger(`TLFC DECIDE ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 1`); } catch(e) {}
+        if (write) { try { logger(`TLFC DECIDE ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 1`); } catch(e) {} }
         return 1;
       }
     } else {
@@ -618,7 +618,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
   try {
     const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
-    logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 0`);
+    if (write) { logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 0`); }
   } catch(e) {}
   return 0;
 };
@@ -1103,17 +1103,19 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       }
     }
 
-    // Normalize within each sprint group
+    // Normalize within each sprint group.
+    // Use the group's latest assigned prel_time (max) so riders who crossed
+    // later don't get clamped down to an earlier time from another rider.
     for (const sprintGroupId of sprintGroups) {
       const groupRidersAtFinish = Object.entries(updatedCards)
         .filter(([n, r]) => r.group === sprintGroupId && typeof r.position === 'number' && r.position >= finishPos);
       const groupPrels = groupRidersAtFinish.map(([, r]) => r.prel_time).filter(t => typeof t === 'number' && t !== 10000);
       if (groupPrels.length > 0) {
-        const groupMin = Math.min(...groupPrels);
+        const groupMax = Math.max(...groupPrels);
         for (const [n] of groupRidersAtFinish) {
-          updatedCards[n] = { ...updatedCards[n], prel_time: groupMin };
+          updatedCards[n] = { ...updatedCards[n], prel_time: groupMax };
         }
-        logs.push(`Normalized prel_time for group ${sprintGroupId} to group min ${convertToSeconds(groupMin)}`);
+        logs.push(`Normalized prel_time for group ${sprintGroupId} to group max ${convertToSeconds(groupMax)}`);
       }
     }
 

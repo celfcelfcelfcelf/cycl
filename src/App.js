@@ -583,7 +583,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // messages are routed to the game log (previously the logger param was
   // omitted and so no TLFC logs were emitted).
   updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, false, [], addLog);
-  try { addLog(`TRACE takesLeadFC called for ${name} -> ${updatedCards[name].takes_lead}`); } catch(e) {}
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.
@@ -596,6 +595,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         teamAttackDeclared[tteam] = true;
         // mark as attacker
         updatedCards[name].attacking_status = 'attacker';
+        try {
+          const finishPos = track.indexOf('F');
+          const fieldsLeft = Math.max(1, finishPos - (updatedCards[name].position || 0));
+          const mult = 8 / Math.pow(fieldsLeft, 0.5);
+          if (typeof updatedCards[name].win_chance !== 'undefined' && typeof updatedCards[name].win_chance_original === 'undefined') {
+            updatedCards[name].win_chance_original = updatedCards[name].win_chance;
+            updatedCards[name].win_chance = (updatedCards[name].win_chance || 0) * mult;
+            try { addLog(`Attacker boost applied to ${name}: win_chance ${updatedCards[name].win_chance_original} -> ${updatedCards[name].win_chance.toFixed(2)} (mult=${mult.toFixed(3)}, fieldsLeft=${fieldsLeft})`); } catch(e) {}
+          }
+        } catch (e) {}
   // mark planned attacker (no TK-1 added here; attackers should not take TK-1)
 
         // Clear teammates' take_lead/selected_value
@@ -1020,6 +1029,21 @@ return { pace, updatedCards };
         }
   
         addLog(`${t} (AI) resubmits for choice-2: pace=${aiTeamPace}${aiIsAttack ? ' attack' : ''}`);
+        // Enforce: in choice-2 AI may not lower their previously announced pace.
+        try {
+          const paceKey = `${groupNum}-${t}`;
+          const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+          const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+          const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+          const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+          if (typeof prevPace !== 'undefined' && currentRound === 2) {
+            if (aiTeamPace < prevPace) {
+              try { addLog(`${t} (AI) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`); } catch (e) {}
+              aiTeamPace = prevPace;
+            }
+          }
+        } catch (e) {}
+
         handlePaceSubmit(groupNum, aiTeamPace, t, aiIsAttack, aiAttackerName);
         // small delay so logs and UI update smoothly
         await new Promise(r => setTimeout(r, 90));
@@ -1966,6 +1990,16 @@ const handleHumanChoices = (groupNum, choice) => {
     
     updatedCards[attacker].selected_value = cardValue;
     updatedCards[attacker].attacking_status = 'attacker';
+    try {
+      const finishPos = track.indexOf('F');
+      const fieldsLeft = Math.max(1, finishPos - (updatedCards[attacker].position || 0));
+      const mult = 8 / Math.pow(fieldsLeft, 0.5);
+      if (typeof updatedCards[attacker].win_chance !== 'undefined' && typeof updatedCards[attacker].win_chance_original === 'undefined') {
+        updatedCards[attacker].win_chance_original = updatedCards[attacker].win_chance;
+        updatedCards[attacker].win_chance = (updatedCards[attacker].win_chance || 0) * mult;
+        try { addLog(`Attacker boost applied to ${attacker}: win_chance ${updatedCards[attacker].win_chance_original} -> ${updatedCards[attacker].win_chance.toFixed(2)} (mult=${mult.toFixed(3)}, fieldsLeft=${fieldsLeft})`); } catch(e) {}
+      }
+    } catch (e) {}
     // Mark attacker as planned attacker (takes_lead = 2)
     updatedCards[attacker].takes_lead = 2;
     updatedCards[attacker].attack_card = card;
@@ -2536,7 +2570,11 @@ if (potentialLeaders.length > 0) {
     rider.sprint_chance = sprint2Sum > 0 ? (sprint2Values[riderName] / sprint2Sum) * 100 : 100 / Object.keys(updatedCards).length;
     rider.win_chance_wo_sprint = getWinChanceWoSprint(rider, totalPoints, factor);
     rider.win_chance = getWinChance(rider, totalPoints, factor, sprintWeight);
-    
+    // Clear any temporary attacker boost marker now that win_chance is recalculated
+    if (typeof rider.win_chance_original !== 'undefined') {
+      try { delete rider.win_chance_original; } catch (e) {}
+    }
+
     console.log(`${riderName}: sprint_chance=${rider.sprint_chance.toFixed(1)}%, win_chance_wo_sprint=${rider.win_chance_wo_sprint.toFixed(1)}%, win_chance=${rider.win_chance.toFixed(1)}%`);
   }
   
@@ -2713,12 +2751,17 @@ const checkCrash = () => {
         // from worst->best to create a reveal animation in the top box.
         await new Promise(r => setTimeout(r, 1200));
         for (const s of asc) {
-          const logLine = findLogLine(s.name);
-          const msg = logLine ? `Sprint: ${logLine}` : `Sprint: ${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`;
-          setSprintAnimMsgs(prev => [...prev, msg]);
-          try { addLog(`runSprints: animated sprint for ${s.name}`); } catch (e) {}
-          // Wait 2 seconds between each reveal to keep the animation snappy
-          await new Promise(r => setTimeout(r, 2000));
+          // First line: rider name, team and sprint stat
+          const nameLine = `${s.name} (${s.team}, ${s.sprint_stat})`;
+          setSprintAnimMsgs(prev => [...prev, nameLine]);
+          try { addLog(`runSprints: animated sprint name for ${s.name}`); } catch (e) {}
+          await new Promise(r => setTimeout(r, 1500));
+
+          // Second line: final points
+          const pointsLine = `Final points: ${s.sprint_points}`;
+          setSprintAnimMsgs(prev => [...prev, pointsLine]);
+          try { addLog(`runSprints: animated sprint points for ${s.name}`); } catch (e) {}
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
       else {

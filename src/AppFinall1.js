@@ -183,10 +183,7 @@ const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = 
   const ratio = fraTeamIGruppe / Math.max(1, groupSize);
   const sv = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
 
-  // Minimal trace for debugging why function returns 0/1/2
-  try {
-    addLog(`TLFC START ${riderName} group=${group} groupSize=${groupSize} ratio=${ratio.toFixed(3)} sv=${sv}`);
-  } catch (e) {}
+  // (TLFC debug logs removed)
 
   if (ratio === 1) {
     if (!floating) return 1; else return 6;
@@ -221,10 +218,8 @@ const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = 
     attack_prob_percent = attack_prob_percent * fb_ratio;
 
   const attack_prob = Math.floor(1 / Math.max(1e-9, attack_prob_percent)) + 1;
-  try { addLog(`TLFC ${riderName}: attack_prob_percent=${attack_prob_percent.toFixed(6)} attack_prob=${attack_prob}`); } catch(e) {}
   if (Math.floor(Math.random() * (attack_prob + 1)) === 1) {
       if (groupSize > 2) {
-        try { addLog(`TLFC DECISION ${riderName} chooses to ATTACK (attack_prob_percent=${attack_prob_percent.toFixed(6)}, attack_prob=${attack_prob})`); } catch(e) {}
         if (!floating) return 2; else return 2;
       }
     }
@@ -303,7 +298,6 @@ const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = 
       // Map chance_tl (0..inf) to a probability in (0..1): p = chance_tl / (1 + chance_tl)
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
       if (Math.random() < prob) {
-        try { addLog(`TLFC DECIDE ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 1`); } catch(e) {}
         return 1;
       }
     } else {
@@ -311,7 +305,7 @@ const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = 
     }
   }
 
-  try { addLog(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} -> RETURNS 0`); } catch(e) {}
+  // (TLFC end debug log removed)
   return 0;
 };
 
@@ -416,13 +410,17 @@ const pickValue = (riderName, cardsState, trackStr, paces) => {
     ideal_move = ideal_move - len_left / 20;
 
     if (trackStr[rider.position] === '_') {
-      if (ideal_move < 7.2) ideal_move = -10;
+      if (ideal_move < 7.2) {
+        try { addLog(`pickValue ${riderName}: on '_' tile, ideal_move ${ideal_move.toFixed(2)} -> forcing no-lead`); } catch (e) {}
+        ideal_move = -10;
+      }
     }
   }
 
   // slipstream and pull values
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
   const [pvs0, pvs1] = getPullValue(paces, sv);
+  try { addLog(`pickValue ${riderName}: ideal_move=${ideal_move.toFixed(2)} sv=${sv} pullVals=[${pvs0},${pvs1}] pos=${rider.position}`); } catch (e) {}
 
   if (Math.floor(ideal_move) <= pvs0) {
     if (!(sv === 3 && pvs1 === 1)) {
@@ -435,6 +433,7 @@ const pickValue = (riderName, cardsState, trackStr, paces) => {
   for (const c of (rider.cards || []).slice(0, 4)) {
     if (c.id === 'TK-1: 99') { penalty = 1; break; }
   }
+  try { addLog(`pickValue ${riderName}: penalty=${penalty} top4=${(rider.cards||[]).slice(0,4).map(c=>c.id).join(',')}`); } catch(e) {}
 
   // Choose best card among top-4 using the same error metric as Streamlit
   let selectedCard = (rider.cards && rider.cards[0]) ? rider.cards[0] : { flat: 2, uphill: 2, id: 'kort: 1' };
@@ -472,6 +471,7 @@ const pickValue = (riderName, cardsState, trackStr, paces) => {
       bestError = error_total;
     }
   }
+  try { addLog(`pickValue ${riderName}: selectedCard=${selectedCard && selectedCard.id} bestError=${bestError.toFixed(3)}`); } catch(e) {}
 
   // selected numeric value depends on slipstream for the chosen card
   const svFinal = getSlipstreamValue(rider.position, rider.position + selectedCard.flat, trackStr);
@@ -485,6 +485,7 @@ const pickValue = (riderName, cardsState, trackStr, paces) => {
 
   // final value is card-based minus penalty and must be integer
   const finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
+  try { addLog(`pickValue ${riderName}: svFinal=${svFinal} selectedNumeric=${selectedNumeric} finalValue=${finalValue}`); } catch(e) {}
 
   // Ensure the finalValue corresponds to a value from top-4 cards (flat/uphill minus penalty)
   const top4 = (rider.cards || []).slice(0, 4);
@@ -498,6 +499,7 @@ const pickValue = (riderName, cardsState, trackStr, paces) => {
       if (d < bestDiff) { bestDiff = d; best = v; }
     }
     if (best === null) return 0;
+    try { addLog(`pickValue ${riderName}: finalValue ${finalValue} not in allowed, returning closest ${best}`); } catch(e) {}
     return best;
   }
   
@@ -569,7 +571,6 @@ const takesLeadFCFloating = (riderName, cardsState, track, numberOfTeams) => {
   const teamAttackDeclared = {};
   for (const [name] of teamRiders) {
     updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false);
-    try { addLog(`TRACE takesLeadFC called for ${name} -> ${updatedCards[name].takes_lead}`); } catch(e) {}
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.
@@ -582,6 +583,16 @@ const takesLeadFCFloating = (riderName, cardsState, track, numberOfTeams) => {
         teamAttackDeclared[tteam] = true;
         // mark as attacker
         updatedCards[name].attacking_status = 'attacker';
+        try {
+          const finishPos = track.indexOf('F');
+          const fieldsLeft = Math.max(1, finishPos - (updatedCards[name].position || 0));
+          const mult = 8 / Math.pow(fieldsLeft, 0.5);
+          if (typeof updatedCards[name].win_chance !== 'undefined' && typeof updatedCards[name].win_chance_original === 'undefined') {
+            updatedCards[name].win_chance_original = updatedCards[name].win_chance;
+            updatedCards[name].win_chance = (updatedCards[name].win_chance || 0) * mult;
+            try { addLog(`Attacker boost applied to ${name}: win_chance ${updatedCards[name].win_chance_original} -> ${updatedCards[name].win_chance.toFixed(2)} (mult=${mult.toFixed(3)}, fieldsLeft=${fieldsLeft})`); } catch(e) {}
+          }
+        } catch(e) {}
   // mark planned attacker (no TK-1 added here; attackers should not take TK-1)
 
         // Clear teammates' take_lead/selected_value
@@ -1191,6 +1202,16 @@ const handleHumanChoices = (groupNum, choice) => {
     
     updatedCards[attacker].selected_value = cardValue;
     updatedCards[attacker].attacking_status = 'attacker';
+    try {
+      const finishPos = track.indexOf('F');
+      const fieldsLeft = Math.max(1, finishPos - (updatedCards[attacker].position || 0));
+      const mult = 8 / Math.pow(fieldsLeft, 0.5);
+      if (typeof updatedCards[attacker].win_chance !== 'undefined' && typeof updatedCards[attacker].win_chance_original === 'undefined') {
+        updatedCards[attacker].win_chance_original = updatedCards[attacker].win_chance;
+        updatedCards[attacker].win_chance = (updatedCards[attacker].win_chance || 0) * mult;
+        try { addLog(`Attacker boost applied to ${attacker}: win_chance ${updatedCards[attacker].win_chance_original} -> ${updatedCards[attacker].win_chance.toFixed(2)} (mult=${mult.toFixed(3)}, fieldsLeft=${fieldsLeft})`); } catch(e) {}
+      }
+    } catch(e) {}
     // Mark attacker as planned attacker (takes_lead = 2)
     updatedCards[attacker].takes_lead = 2;
     updatedCards[attacker].attack_card = card;
@@ -2034,7 +2055,11 @@ if (potentialLeaders.length > 0) {
     rider.sprint_chance = sprint2Sum > 0 ? (sprint2Values[riderName] / sprint2Sum) * 100 : 100 / Object.keys(updatedCards).length;
     rider.win_chance_wo_sprint = getWinChanceWoSprint(rider, totalPoints, factor);
     rider.win_chance = getWinChance(rider, totalPoints, factor, sprintWeight);
-    
+    // Clear any temporary attacker boost marker now that win_chance is recalculated
+    if (typeof rider.win_chance_original !== 'undefined') {
+      try { delete rider.win_chance_original; } catch (e) {}
+    }
+
     console.log(`${riderName}: sprint_chance=${rider.sprint_chance.toFixed(1)}%, win_chance_wo_sprint=${rider.win_chance_wo_sprint.toFixed(1)}%, win_chance=${rider.win_chance.toFixed(1)}%`);
   }
   
