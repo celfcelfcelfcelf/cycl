@@ -2766,7 +2766,7 @@ if (potentialLeaders.length > 0) {
               <div className="bg-white rounded-lg shadow p-3 mt-3 max-h-96 overflow-y-auto">
                 <h3 className="font-bold mb-2"><FileText size={16} className="inline"/>Log</h3>
                 <div className="text-xs space-y-1">
-                  {logs.slice(-50).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
+                  {logs.slice(-100).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
                 </div>
               </div>
             </div>

@@ -2813,11 +2813,18 @@ const checkCrash = () => {
   setSprintAnimMsgs(buildSprintSummary(sprintGroup, []));
 
   // Collect riders in this sprint group and their computed sprint stats
-  const updated = res.updatedCards || {};
-      const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup && !r.finished);
-      // Build stats array from the pure-runner's updated cards
+      const updated = res.updatedCards || {};
+      // Include riders even if they were marked `finished` by the pure runner
+      // so the UI animation shows the computed sprint_points produced by
+      // `runSprintsPure`. Filtering out finished riders caused the UI to
+      // fall back to using the un-updated `cards` state where sprint_points
+      // were not yet set (making the displayed points equal to the raw
+      // sprint stat).
+      const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup);
+      // Build stats array from the pure-runner's updated cards and include team
       let stats = groupRiders.map(([name, r]) => ({
         name,
+        team: r.team,
         sprint_points: Math.round(r.sprint_points || 0),
         sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
         tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
@@ -2831,6 +2838,7 @@ const checkCrash = () => {
         const fallbackGroup = Object.entries(cards).filter(([, r]) => r.group === sprintGroup && !r.finished);
         const fallbackStats = fallbackGroup.map(([name, r]) => ({
           name,
+          team: r.team,
           // Prefer explicit sprint_points if present, otherwise approximate from r.sprint
           sprint_points: Math.round((typeof r.sprint_points === 'number') ? r.sprint_points : (typeof r.sprint === 'number' ? r.sprint : 0)),
           sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
@@ -5113,7 +5121,7 @@ const checkCrash = () => {
               <div className="bg-white rounded-lg shadow p-3 mt-3 max-h-96 overflow-y-auto">
                 <h3 className="font-bold mb-2"><FileText size={16} className="inline"/>Log</h3>
                 <div className="text-xs space-y-1">
-                  {logs.slice(-50).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
+                  {logs.slice(-100).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
                 </div>
               </div>
             </div>
