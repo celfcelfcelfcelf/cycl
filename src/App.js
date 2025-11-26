@@ -101,7 +101,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [pullInvestGroup, setPullInvestGroup] = useState(null);
   const [pullInvestTeam, setPullInvestTeam] = useState(null);
   const [pullInvestSelections, setPullInvestSelections] = useState([]);
+  const [pullInvestButtonsDisabled, setPullInvestButtonsDisabled] = useState(false);
   const [teamBaseOrder, setTeamBaseOrder] = useState([]); // fixed base order assigned at game start
+  const processedInvestsRef = useRef(new Set());
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
@@ -289,6 +291,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const perTeamInvestedActual = {};
     const perRiderInvested = [];
 
+    // Guard against duplicate identical invocations (UI races/double clicks)
+    try {
+      const hcRiders = humanChoice && humanChoice.invested ? (Array.isArray(humanChoice.riders) ? humanChoice.riders.slice() : (humanChoice.rider ? [humanChoice.rider] : [])) : [];
+      const hcTeam = humanChoice && humanChoice.team ? humanChoice.team : 'Me';
+      // normalize rider order for the key so same selections produce same key
+      hcRiders.sort();
+      const key = `g:${g}|team:${hcTeam}|riders:${JSON.stringify(hcRiders)}`;
+      try { addLog(`processAutoInvests called: ${key}`); } catch (e) {}
+      if (processedInvestsRef.current.has(key)) {
+        try { addLog(`processAutoInvests: duplicate invocation ignored for ${key}`); } catch (e) {}
+        return;
+      }
+      processedInvestsRef.current.add(key);
+      setTimeout(() => { try { processedInvestsRef.current.delete(key); } catch (e) {} }, 3000);
+    } catch (e) {}
+
     setCards(prev => {
       try {
         const updated = { ...prev };
@@ -299,34 +317,88 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           const ridersChosen = Array.isArray(humanChoice.riders) ? humanChoice.riders : (humanChoice.rider ? [humanChoice.rider] : []);
           if (ridersChosen && ridersChosen.length > 0) {
             const teamName = humanChoice.team || 'Me';
-            perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + ridersChosen.length;
-            for (const chosen of ridersChosen) {
+            // Count desired investments per rider
+            const desired = {};
+            for (const r of ridersChosen) desired[r] = (desired[r] || 0) + 1;
+            perTeamInvestedActual[teamName] = perTeamInvestedActual[teamName] || 0;
+            for (const [chosen, want] of Object.entries(desired)) {
               try {
                 if (!updated[chosen]) continue;
+                // determine how many TK-1 already at top
                 const prevCards = Array.isArray(updated[chosen].cards) ? updated[chosen].cards : [];
-                updated[chosen] = { ...updated[chosen], cards: [{ id: 'TK-1: 99' }, ...prevCards] };
-                addLog(`${chosen} (team ${teamName}) invested TK-1`);
-                perRiderInvested.push({ team: teamName, rider: chosen });
+                let topTk = 0;
+                for (const c of prevCards) {
+                  if (c && String(c.id).startsWith('TK-1')) topTk++; else break;
+                }
+                // available team slots
+                const teamSlotsLeft = Math.max(0, 2 - (perTeamInvestedActual[teamName] || 0));
+                const canAdd = Math.min(want, Math.max(0, teamSlotsLeft));
+                const toAdd = Math.max(0, canAdd - topTk);
+                if (toAdd <= 0) {
+                  try { addLog(`Skipped human invest for ${chosen} (already has ${topTk} TK-1 or no slots)`); } catch (e) {}
+                } else {
+                  const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
+                  updated[chosen] = { ...updated[chosen], cards: [...extra, ...prevCards] };
+                  addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
+                }
+                // record each invested occurrence (including ones skipped earlier count-wise)
+                for (let i = 0; i < Math.min(want, teamSlotsLeft); i++) perRiderInvested.push({ team: teamName, rider: chosen });
+                perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + Math.min(want, teamSlotsLeft);
               } catch (e) { /* ignore */ }
             }
             addLog(`Human investment: ${ridersChosen.join(', ')} (${teamName})`);
           }
         }
 
-        // Run AI investment checks for computer riders in the group using deterministic evaluation
+        // Run AI investment checks for computer riders per team with team cap of 2
+        const teamsMap = {};
         for (const [nm, rr] of membersLocal) {
           if (!rr) continue;
-          if (rr.team === 'Me') continue; // skip human
-          try {
-            const invest = evaluateRiderAutoInvest(g, nm, updated, addLog);
-            if (invest === 1) {
-              const prevCards = Array.isArray(updated[nm].cards) ? updated[nm].cards : [];
-              updated[nm] = { ...updated[nm], cards: [{ id: 'TK-1: 99' }, ...prevCards] };
-              addLog(`${nm} (${updated[nm].team}) invests and takes 1 TK-1`);
-              perTeamInvestedActual[updated[nm].team] = (perTeamInvestedActual[updated[nm].team] || 0) + 1;
-              perRiderInvested.push({ team: updated[nm].team, rider: nm });
-            }
-          } catch (e) { /* ignore per-rider errors */ }
+          if (rr.team === 'Me') continue;
+          teamsMap[rr.team] = teamsMap[rr.team] || [];
+          teamsMap[rr.team].push([nm, rr]);
+        }
+        for (const teamName of Object.keys(teamsMap)) {
+          perTeamInvestedActual[teamName] = perTeamInvestedActual[teamName] || 0;
+          let slotsLeft = Math.max(0, 2 - perTeamInvestedActual[teamName]);
+          if (slotsLeft <= 0) continue;
+          // sort riders ascending by win_chance (lowest first)
+          teamsMap[teamName].sort((a, b) => {
+            const wa = Number((a[1] && a[1].win_chance) || 0);
+            const wb = Number((b[1] && b[1].win_chance) || 0);
+            return wa - wb;
+          });
+          for (const [nm, rr] of teamsMap[teamName]) {
+            if (slotsLeft <= 0) break;
+            try {
+              const invest = evaluateRiderAutoInvest(g, nm, updated, addLog);
+              try { addLog(`Evaluated auto-invest for ${nm}: ${invest}`); } catch (e) {}
+              if (invest === 1) {
+                // decide how much to invest: random 0..2
+                const rnd = Math.floor(Math.random() * 3);
+                if (rnd <= 0) {
+                  try { addLog(`AI candidate ${nm} decided to invest 0`); } catch (e) {}
+                  continue;
+                }
+                const prevCards = Array.isArray(updated[nm].cards) ? updated[nm].cards : [];
+                let topTk = 0;
+                for (const c of prevCards) { if (c && String(c.id).startsWith('TK-1')) topTk++; else break; }
+                const want = Math.min(rnd, slotsLeft);
+                const toAdd = Math.max(0, want - topTk);
+                if (toAdd > 0) {
+                  const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
+                  updated[nm] = { ...updated[nm], cards: [...extra, ...prevCards] };
+                  try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
+                } else {
+                  try { addLog(`Skipped duplicate AI invest for ${nm} (already has ${topTk})`); } catch (e) {}
+                }
+                // record invested occurrences (count by want, not toAdd, to reflect team slot usage)
+                for (let i = 0; i < want; i++) perRiderInvested.push({ team: teamName, rider: nm });
+                perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + want;
+                slotsLeft = Math.max(0, 2 - perTeamInvestedActual[teamName]);
+              }
+            } catch (e) { /* ignore per-rider errors */ }
+          }
         }
 
         // Only pull attackers back if at least two riders invested in total (across teams)
@@ -3873,6 +3945,7 @@ const checkCrash = () => {
                                               // If the human has eligible riders in this group, ask Me
                                               const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
                                               if (humanHasRiders) {
+                                                addLog(`Opening pull-invest modal for Me group ${g}`);
                                                 setPullInvestGroup(g);
                                                 setPullInvestTeam('Me');
                                                 setPullInvestSelections([]);
@@ -3906,17 +3979,18 @@ const checkCrash = () => {
                                     return (
                                       <div className="flex flex-col items-end">
                                         <div className="mb-1">
-                                          <button onClick={() => {
-                                            const team = currentTeam;
-                                            if (team === 'Me') {
-                                              setPullInvestGroup(g);
-                                              setPullInvestTeam(team);
-                                              setPullInvestSelections([]);
-                                            } else {
-                                              processAutoInvests(g, { invested: false, rider: null, team });
-                                            }
-                                          }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
-                                        </div>
+                                            <button onClick={() => {
+                                              const team = currentTeam;
+                                              if (team === 'Me') {
+                                                addLog(`Opening pull-invest modal for ${team} group ${g}`);
+                                                setPullInvestGroup(g);
+                                                setPullInvestTeam(team);
+                                                setPullInvestSelections([]);
+                                              } else {
+                                                processAutoInvests(g, { invested: false, rider: null, team });
+                                              }
+                                            }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                          </div>
                                         <div className="text-xs text-gray-600 mt-1 text-right">
                                           {(() => {
                                             try {
@@ -3997,6 +4071,7 @@ const checkCrash = () => {
                                             <button onClick={() => {
                                               const team = currentTeam;
                                               if (team === 'Me') {
+                                                  addLog(`Opening pull-invest modal for ${team} group ${g}`);
                                                   setPullInvestGroup(g); setPullInvestTeam(team); setPullInvestSelections([]);
                                                 } else {
                                                   processAutoInvests(g, { invested: false, rider: null, team });
@@ -4019,6 +4094,7 @@ const checkCrash = () => {
                                                         // open invest selector for the acting team (only for Me)
                                                         const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
                                                         if (humanHasRiders) {
+                                                          addLog(`Opening pull-invest modal for Me group ${g}`);
                                                           setPullInvestGroup(g);
                                                           setPullInvestTeam('Me');
                                                         } else {
@@ -4270,6 +4346,7 @@ const checkCrash = () => {
                               <button onClick={() => {
                                 const team = currentTeam;
                                 if (team === 'Me') {
+                                  addLog(`Opening pull-invest modal for ${team} group ${g}`);
                                   setPullInvestGroup(g);
                                   setPullInvestTeam(team);
                                   setPullInvestSelections([]);
@@ -4434,7 +4511,7 @@ const checkCrash = () => {
               )}
 
               {/* Pull-invest modal: choose which rider on the investing team receives TK-1 and performs the pull */}
-                      {pullInvestGroup !== null && pullInvestTeam === 'Me' && (
+                      {pullInvestGroup !== null && (pullInvestTeam === 'Me' || pullInvestTeam === null) && (
                 (() => {
                   try {
                     const g = pullInvestGroup;
@@ -4451,30 +4528,85 @@ const checkCrash = () => {
                             ) : (
                               <div className="grid gap-2">
                                 {candidates.map(([name, r]) => {
-                                  const selected = pullInvestSelections && pullInvestSelections.includes(name);
+                                  const selections = pullInvestSelections || [];
+                                  const count = selections.filter(x => x === name).length;
+                                  const slotsLeft = Math.max(0, 2 - selections.length);
+                                  const invest1Selected = count >= 1;
+                                  const invest2Selected = count >= 2;
                                   return (
-                                    <button key={name} type="button" onClick={() => {
-                                        if (pullInvestSelections && pullInvestSelections.includes(name)) {
-                                          setPullInvestSelections(prev => prev.filter(x => x !== name));
-                                        } else {
-                                          setPullInvestSelections(prev => (prev || []).length < 2 ? [...(prev || []), name] : prev);
-                                        }
-                                      }} className={`p-2 border rounded flex items-center justify-between ${selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>
+                                    <div key={name} className="p-2 border rounded flex items-center justify-between">
                                       <div>
                                         <div className="font-medium">{name}</div>
                                         <div className="text-xs text-gray-500">Pos: {r.position}</div>
                                       </div>
-                                      <div className="text-sm text-gray-600">{selected ? 'Selected' : (pullInvestSelections && pullInvestSelections.length >= 2 ? 'Max selected' : 'Select')}</div>
-                                    </button>
+                                      <div className="flex items-center gap-2">
+                                        <button type="button" disabled={pullInvestButtonsDisabled} onClick={() => {
+                                          if (pullInvestButtonsDisabled) return;
+                                          setPullInvestButtonsDisabled(true);
+                                          setTimeout(() => setPullInvestButtonsDisabled(false), 300);
+                                          setPullInvestSelections(prev => {
+                                            const cur = prev ? [...prev] : [];
+                                            const existing = cur.indexOf(name);
+                                            if (existing !== -1) {
+                                              // remove one occurrence
+                                              cur.splice(existing, 1);
+                                              return cur;
+                                            }
+                                            // add one if room
+                                            if (cur.length < 2) return [...cur, name];
+                                            return cur;
+                                          });
+                                        }} className={`px-2 py-1 rounded border ${invest1Selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>+1</button>
+
+                                        <button type="button" disabled={pullInvestButtonsDisabled} onClick={() => {
+                                          if (pullInvestButtonsDisabled) return;
+                                          setPullInvestButtonsDisabled(true);
+                                          setTimeout(() => setPullInvestButtonsDisabled(false), 300);
+                                          setPullInvestSelections(prev => {
+                                            const cur = prev ? [...prev] : [];
+                                            const cnt = cur.filter(x => x === name).length;
+                                            if (cnt >= 2) {
+                                              // remove both occurrences
+                                              return cur.filter(x => x !== name);
+                                            }
+                                            // we need two slots to add two occurrences
+                                            if (cur.length === 0) return [name, name];
+                                            if (cur.length === 1 && cur[0] === name) return [name, name];
+                                            // not enough room to add two; do nothing
+                                            return cur;
+                                          });
+                                        }} className={`px-2 py-1 rounded border ${invest2Selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>+2</button>
+
+                                        <div className="text-sm text-gray-600">{invest2Selected ? 'Selected x2' : (invest1Selected ? 'Selected x1' : (selections.length >= 2 ? 'Max selected' : 'Select'))}</div>
+                                      </div>
+                                    </div>
                                   );
                                 })}
-                                <div className="text-xs text-gray-600">Selected: {(pullInvestSelections || []).join(', ') || 'none'}</div>
+                                <div className="text-xs text-gray-600">Selected: {(() => {
+                                      const sel = pullInvestSelections || [];
+                                      if (sel.length === 0) return 'none';
+                                      const counts = {};
+                                      for (const s of sel) counts[s] = (counts[s] || 0) + 1;
+                                      return Object.entries(counts).map(([n, c]) => c > 1 ? `${n} x${c}` : n).join(', ');
+                                    })()}</div>
                               </div>
                             )}
                           </div>
                           <div className="flex justify-end gap-2">
-                            <button onClick={() => { setPullInvestGroup(null); setPullInvestTeam(null); setPullInvestSelections([]); addLog(`Me chooses no investment (0 riders)`); processAutoInvests(g, { invested: false, riders: [], team: 'Me' }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No investment</button>
-                            <button disabled={!(pullInvestSelections && pullInvestSelections.length > 0)} onClick={() => {
+                            <button disabled={pullInvestButtonsDisabled} onClick={() => {
+                                if (pullInvestButtonsDisabled) return;
+                                setPullInvestButtonsDisabled(true);
+                                setTimeout(() => setPullInvestButtonsDisabled(false), 500);
+                                setPullInvestGroup(null);
+                                setPullInvestTeam(null);
+                                setPullInvestSelections([]);
+                                addLog(`Me chooses no investment (0 riders)`);
+                                processAutoInvests(g, { invested: false, riders: [], team: 'Me' });
+                              }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No investment</button>
+                            <button disabled={pullInvestButtonsDisabled || !(pullInvestSelections && pullInvestSelections.length > 0)} onClick={() => {
+                              if (pullInvestButtonsDisabled) return;
+                              setPullInvestButtonsDisabled(true);
+                              setTimeout(() => setPullInvestButtonsDisabled(false), 500);
                               const riders = pullInvestSelections || [];
                               addLog(`Me chooses to invest ${riders.length} rider(s): ${riders.join(', ')}`);
                               processAutoInvests(g, { invested: true, riders, team: 'Me' });
