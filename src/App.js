@@ -63,6 +63,7 @@ const tracks = {
   'VM 24 Zurich': '133333333111331111333333333___133333333111331111333333333___1333333',
   'Tour Down Under (24, E2 - Norwood-Lobethal)': '11113333333333333333333333223333333331111333333233333FFFFFFFF',
   'Volta a la Comunitat Valenciana (23, E5 / Paterna - Valencia)': '11111111111111_______333333333333333333333333333333333FFFFFFFFF',
+  'Utsunomiya Japan Cup Road Race': '_333333222221_333333222221_333333222221_333333222221_333333FFFFFFFFF',
   'random': 'random'
 };
 
@@ -104,6 +105,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [pullInvestButtonsDisabled, setPullInvestButtonsDisabled] = useState(false);
   const [teamBaseOrder, setTeamBaseOrder] = useState([]); // fixed base order assigned at game start
   const processedInvestsRef = useRef(new Set());
+  const addingInvestRef = useRef(new Set());
+  const pullInvestHandledRef = useRef(new Set());
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
@@ -332,18 +335,27 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 }
                 // available team slots
                 const teamSlotsLeft = Math.max(0, 2 - (perTeamInvestedActual[teamName] || 0));
-                const canAdd = Math.min(want, Math.max(0, teamSlotsLeft));
-                const toAdd = Math.max(0, canAdd - topTk);
+                // how many the human wanted for this rider (want) but limited by slots
+                const allowedWant = Math.min(want, teamSlotsLeft);
+                // actual new TK-1 to add is allowedWant minus already-present topTk
+                const toAdd = Math.max(0, allowedWant - topTk);
                 if (toAdd <= 0) {
                   try { addLog(`Skipped human invest for ${chosen} (already has ${topTk} TK-1 or no slots)`); } catch (e) {}
                 } else {
-                  const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
-                  updated[chosen] = { ...updated[chosen], cards: [...extra, ...prevCards] };
-                  addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
+                  const addKey = `${chosen}|${g}`;
+                  if (addingInvestRef.current.has(addKey)) {
+                    try { addLog(`Skipped human invest for ${chosen} due to concurrent add (key=${addKey})`); } catch (e) {}
+                  } else {
+                    addingInvestRef.current.add(addKey);
+                    setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
+                    const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
+                    updated[chosen] = { ...updated[chosen], cards: [...extra, ...prevCards], last_invest_group: g };
+                    addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
+                    // record actual additions
+                    for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: chosen });
+                    perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
+                  }
                 }
-                // record each invested occurrence (including ones skipped earlier count-wise)
-                for (let i = 0; i < Math.min(want, teamSlotsLeft); i++) perRiderInvested.push({ team: teamName, rider: chosen });
-                perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + Math.min(want, teamSlotsLeft);
               } catch (e) { /* ignore */ }
             }
             addLog(`Human investment: ${ridersChosen.join(', ')} (${teamName})`);
@@ -386,15 +398,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 const want = Math.min(rnd, slotsLeft);
                 const toAdd = Math.max(0, want - topTk);
                 if (toAdd > 0) {
-                  const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
-                  updated[nm] = { ...updated[nm], cards: [...extra, ...prevCards] };
-                  try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
+                  const addKey = `${nm}|${g}`;
+                  if (addingInvestRef.current.has(addKey)) {
+                    try { addLog(`Skipped AI invest for ${nm} due to concurrent add (key=${addKey})`); } catch (e) {}
+                  } else {
+                    addingInvestRef.current.add(addKey);
+                    setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
+                    const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
+                    updated[nm] = { ...updated[nm], cards: [...extra, ...prevCards], last_invest_group: g };
+                    try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
+                    // record actual additions
+                    for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: nm });
+                    perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
+                  }
                 } else {
                   try { addLog(`Skipped duplicate AI invest for ${nm} (already has ${topTk})`); } catch (e) {}
                 }
-                // record invested occurrences (count by want, not toAdd, to reflect team slot usage)
-                for (let i = 0; i < want; i++) perRiderInvested.push({ team: teamName, rider: nm });
-                perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + want;
                 slotsLeft = Math.max(0, 2 - perTeamInvestedActual[teamName]);
               }
             } catch (e) { /* ignore per-rider errors */ }
@@ -605,6 +624,40 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       try { document.removeEventListener('pointerdown', pointerHandler); } catch (e) {}
     };
   }, []);
+
+  // Auto-open pull-invest modal if a post-move pull-back occurred and the human
+  // has eligible non-attacker riders in that group. This is defensive: some
+  // call paths may process investments immediately and skip opening the modal,
+  // so ensure the player still gets a chance to invest when relevant.
+  useEffect(() => {
+    try {
+      const p = postMoveInfo;
+      if (!p || typeof p.groupMoved === 'undefined') return;
+      const g = p.groupMoved;
+      // If modal already open for this group, nothing to do
+      if (pullInvestGroup === g) return;
+      // If we've already handled this group's pull-invest (user responded), don't auto-open
+      if (pullInvestHandledRef.current.has(g)) return;
+      const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+      const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+      if (!attackers || attackers.length === 0) return;
+      const humanHasEligible = members.some(([, r]) => r.team === 'Me' && !r.finished && (r.attacking_status || '') !== 'attacker');
+      if (humanHasEligible) {
+        try { addLog(`Auto-opening pull-invest modal for Me group ${g}`); } catch (e) {}
+        setPullInvestGroup(g);
+        setPullInvestTeam('Me');
+        setPullInvestSelections([]);
+      }
+    } catch (e) { /* ignore */ }
+  }, [postMoveInfo, cards, pullInvestGroup]);
+
+  // Debug: log pull-invest selection changes so we can diagnose why user can't submit
+  useEffect(() => {
+    try {
+      if (typeof pullInvestSelections === 'undefined' || pullInvestSelections === null) return;
+      addLog(`DEBUG pullInvestSelections -> ${JSON.stringify(pullInvestSelections)}`);
+    } catch (e) {}
+  }, [pullInvestSelections]);
 
   // (prepareSprints was removed — sprint detection runs after group reassignment in flow)
 
@@ -4518,8 +4571,8 @@ const checkCrash = () => {
                     const team = 'Me';
                     const candidates = Object.entries(cards).filter(([, r]) => r.group === g && r.team === team && !r.finished && (r.attacking_status || '') !== 'attacker');
                     return (
-                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                        <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6">
+                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                        <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 z-60">
                           <h3 className="text-lg font-bold mb-2">Which rider invests? (Me) — candidates: "{candidates.length}"</h3>
                           <div className="text-sm text-gray-600 mb-3">Choose one of your riders in group {g} (excluding attackers) to receive a TK-1 card on top of their hand, or choose "No investment".</div>
                           <div className="space-y-2 mb-4">
@@ -4597,6 +4650,8 @@ const checkCrash = () => {
                                 if (pullInvestButtonsDisabled) return;
                                 setPullInvestButtonsDisabled(true);
                                 setTimeout(() => setPullInvestButtonsDisabled(false), 500);
+                                // mark handled so auto-open doesn't reopen modal immediately
+                                try { pullInvestHandledRef.current.add(g); setTimeout(() => pullInvestHandledRef.current.delete(g), 5000); } catch (e) {}
                                 setPullInvestGroup(null);
                                 setPullInvestTeam(null);
                                 setPullInvestSelections([]);
@@ -4607,6 +4662,8 @@ const checkCrash = () => {
                               if (pullInvestButtonsDisabled) return;
                               setPullInvestButtonsDisabled(true);
                               setTimeout(() => setPullInvestButtonsDisabled(false), 500);
+                              // mark handled so auto-open doesn't reopen modal immediately
+                              try { pullInvestHandledRef.current.add(g); setTimeout(() => pullInvestHandledRef.current.delete(g), 5000); } catch (e) {}
                               const riders = pullInvestSelections || [];
                               addLog(`Me chooses to invest ${riders.length} rider(s): ${riders.join(', ')}`);
                               processAutoInvests(g, { invested: true, riders, team: 'Me' });
