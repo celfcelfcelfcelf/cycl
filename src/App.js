@@ -268,10 +268,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const res1 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng1);
       const res2 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng2);
       const res3 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng3);
+      // Count successes and log them for diagnostics
+      const succ = (res1 === 1 ? 1 : 0) + (res2 === 1 ? 1 : 0) + (res3 === 1 ? 1 : 0);
       // Require three consecutive takesLeadFC successes (3/3) before a coin flip allows investment
       if (res1 === 1 && res2 === 1 && res3 === 1) {
-        if (Math.floor(rngCoin() * 2) === 0) return 1;
+        if (Math.floor(rngCoin() * 2) === 0) {
+          try { logger(`Evaluated auto-invest for ${riderName}: 1 (${succ}/3)`); } catch (e) {}
+          return 1;
+        }
       }
+      try { logger(`Evaluated auto-invest for ${riderName}: 0 (${succ}/3)`); } catch (e) {}
     } catch (e) {}
     return 0;
   };
@@ -348,8 +354,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   } else {
                     addingInvestRef.current.add(addKey);
                     setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
-                    const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
-                    updated[chosen] = { ...updated[chosen], cards: [...extra, ...prevCards], last_invest_group: g };
+                    // Add one TK-1 to the top of the rider's hand and put any
+                    // additional TK-1 into the discarded pile so only one TK-1
+                    // sits at the top while extras are available as future cards.
+                    const topInsert = { id: 'TK-1: 99' };
+                    const extrasToDiscard = Math.max(0, toAdd - 1);
+                    const newCards = [topInsert, ...prevCards];
+                    const prevDiscarded = Array.isArray(updated[chosen].discarded) ? updated[chosen].discarded : [];
+                    const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
+                    updated[chosen] = { ...updated[chosen], cards: newCards, discarded: newDiscarded, last_invest_group: g };
                     addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
                     // record actual additions
                     for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: chosen });
@@ -384,7 +397,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             if (slotsLeft <= 0) break;
             try {
               const invest = evaluateRiderAutoInvest(g, nm, updated, addLog);
-              try { addLog(`Evaluated auto-invest for ${nm}: ${invest}`); } catch (e) {}
+              // Detailed evaluation logging is performed inside evaluateRiderAutoInvest
               if (invest === 1) {
                 // decide how much to invest: random 0..2
                 const rnd = Math.floor(Math.random() * 3);
@@ -404,8 +417,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   } else {
                     addingInvestRef.current.add(addKey);
                     setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
-                    const extra = Array(toAdd).fill({ id: 'TK-1: 99' });
-                    updated[nm] = { ...updated[nm], cards: [...extra, ...prevCards], last_invest_group: g };
+                    // Insert one TK-1 on top and move any remaining TK-1 to discarded
+                    const topInsert = { id: 'TK-1: 99' };
+                    const extrasToDiscard = Math.max(0, toAdd - 1);
+                    const prevDiscarded = Array.isArray(updated[nm].discarded) ? updated[nm].discarded : [];
+                    const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
+                    const newCards = [topInsert, ...prevCards];
+                    updated[nm] = { ...updated[nm], cards: newCards, discarded: newDiscarded, last_invest_group: g };
                     try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
                     // record actual additions
                     for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: nm });
@@ -641,7 +659,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
       const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
       if (!attackers || attackers.length === 0) return;
-      const humanHasEligible = members.some(([, r]) => r.team === 'Me' && !r.finished && (r.attacking_status || '') !== 'attacker');
+      // Determine the group's main position among non-attackers so we can
+      // exclude riders who fell off (position < mainPos). Only riders who
+      // stayed with the group's main non-attacker position are eligible to invest.
+      const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
+      const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
+      const humanHasEligible = members.some(([, r]) => r.team === 'Me' && !r.finished && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
       if (humanHasEligible) {
         try { addLog(`Auto-opening pull-invest modal for Me group ${g}`); } catch (e) {}
         setPullInvestGroup(g);
@@ -4577,7 +4600,14 @@ const checkCrash = () => {
                   try {
                     const g = pullInvestGroup;
                     const team = 'Me';
-                    const candidates = Object.entries(cards).filter(([, r]) => r.group === g && r.team === team && !r.finished && (r.attacking_status || '') !== 'attacker');
+                    // Compute group's main non-attacker position and only offer
+                    // candidates who are non-attackers and remained with the group
+                    // (position >= groupMainPos). This excludes riders who 'fell'
+                    // behind (had an X and couldn't follow).
+                    const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                    const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
+                    const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
+                    const candidates = members.filter(([, r]) => r.team === team && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
                     return (
                       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
                         <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 z-60">
