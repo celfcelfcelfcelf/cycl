@@ -1032,6 +1032,23 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
   let winnerTime = Infinity;
   let result = [...sprintResults];
   let latestPt = latestPrel || 0;
+  // winner_prel_time: baseline prel_time for "time after winner" calculations.
+  // Initialize to 100:00 (6000s), then take minimum with existing times.
+  // This ensures the baseline can ONLY decrease, never increase.
+  let winner_prel_time = 6000; // Start at 100:00
+  try {
+    const existingPrels = Object.values(cardsObj)
+      .filter(r => typeof r.prel_time === 'number' && r.prel_time !== 10000 && r.prel_time > 0)
+      .map(r => r.prel_time);
+    const minExisting = existingPrels.length > 0 ? Math.min(...existingPrels) : null;
+    const candidates = [winner_prel_time]; // Always start with 6000
+    if (minExisting !== null) candidates.push(minExisting);
+    if (latestPrel && latestPrel > 0 && latestPrel < 6000) candidates.push(latestPrel);
+    winner_prel_time = Math.min(...candidates);
+  } catch (e) {
+    // Fallback: start at 6000, or use latestPrel if it's smaller
+    winner_prel_time = (latestPrel && latestPrel > 0 && latestPrel < 6000) ? latestPrel : 6000;
+  }
 
   // First pass: assign prel_time for riders in all sprint groups (if they crossed finish)
   const assignedPrel = new Set();
@@ -1124,21 +1141,29 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       .map(r => r.prel_time);
     if (allPrels.length > 0) {
       const globalMin = Math.min(...allPrels);
+      // CRITICAL: winner_prel_time can ONLY decrease, never increase.
+      // Always take the minimum of current baseline and new minimum.
+      winner_prel_time = Math.min(winner_prel_time, globalMin);
       for (const [n, r] of Object.entries(updatedCards)) {
         if (typeof r.prel_time === 'number' && r.prel_time !== 10000) {
-          const taf = Math.max(0, r.prel_time - globalMin);
+          const taf = Math.max(0, r.prel_time - winner_prel_time);
           updatedCards[n] = { ...updatedCards[n], time_after_winner: taf };
           try {
-            logs.push(`Set time_after_winner for ${n}: taf=${convertToSeconds(taf)} (${taf}s) prel=${convertToSeconds(r.prel_time)} (${r.prel_time}s) globalMin=${convertToSeconds(globalMin)} (${globalMin}s)`);
+            logs.push(`Set time_after_winner for ${n}: taf=${convertToSeconds(taf)} (${taf}s) prel=${convertToSeconds(r.prel_time)} (${r.prel_time}s) winner_prel=${convertToSeconds(winner_prel_time)} (${winner_prel_time}s)`);
           } catch (e) {
             logs.push(`Set time_after_winner for ${n}: ${convertToSeconds(taf)}`);
           }
         }
       }
+      try { logs.push(`Using winner_prel_time baseline ${convertToSeconds(winner_prel_time)} (${winner_prel_time}s)`); } catch (e) {}
     }
   }
 
   // Second pass: perform sprint scoring, logging and assign placements per sprint group
+  // Record finished riders added by this run so we can build a final-standings
+  // text before we delete them from the returned cards object.
+  const resultStartIndex = result.length;
+  const finishedThisRun = [];
   for (const sprintGroupId of sprintGroups) {
     for (const riderName of Object.keys(updatedCards)) {
       const rider = updatedCards[riderName];
@@ -1207,12 +1232,34 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       placeCounter += 1;
       const overallPos = alreadyFinishedCount + placeCounter;
       logs.push(`${overallPos}. ${rName} - ${Math.round(rObj.sprint_points || 0)} sprint points (Sprint stat: ${Math.round(rObj.sprint || 0)} TK_penalty: ${rObj.tk_penalty || 0})`);
-      result.push([overallPos, rName, convertToSeconds(rObj.prel_time || groupMinTime || 0), rObj.team]);
+      // Prefer time_after_winner for final standings. If missing, derive from prel_time and winner_prel_time.
+      const taf = (typeof rObj.time_after_winner === 'number')
+        ? Math.round(rObj.time_after_winner)
+        : (typeof rObj.prel_time === 'number' && typeof winner_prel_time === 'number'
+          ? Math.max(0, Math.round(rObj.prel_time - winner_prel_time))
+          : 0);
+      result.push([overallPos, rName, convertToSeconds(taf), rObj.team]);
+      const timeSec = taf;
+      const finishedEntry = { pos: overallPos, name: rName, time: convertToSeconds(timeSec), timeSec, team: rObj.team };
+      finishedThisRun.push(finishedEntry);
       updatedCards[rName] = { ...rObj, ranking: placeCounter, finished: true, result: overallPos };
     }
   }
 
-  return { updatedCards, result, latestPt, logs };
+  // Build a final standings text from the riders finished in this run
+  // (do this BEFORE removing finished riders from returned cards).
+  try {
+    if (finishedThisRun.length > 0) {
+      const lines = finishedThisRun.map(f => `${f.pos}. ${f.name}${f.team ? ' (' + f.team + ')' : ''} - ${f.time}`);
+      const finalStandingsText = `FINAL STANDINGS:\n${lines.join('\n')}`;
+      logs.push(finalStandingsText);
+      const survivors = Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
+      return { updatedCards: survivors, result, latestPt, logs, winner_prel_time, finalStandingsText, finishedThisRun };
+    }
+  } catch (e) {}
+
+  const survivors = Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
+  return { updatedCards: survivors, result, latestPt, logs, winner_prel_time, finishedThisRun: [] };
 };
 
 // Compute attacker moves for a group as a pure function.

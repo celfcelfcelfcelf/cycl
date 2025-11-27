@@ -95,6 +95,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [cards, setCards] = useState({});
+  const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
   const [teams, setTeams] = useState([]);
@@ -220,7 +221,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [expandedRider, setExpandedRider] = useState(null);
   const [riderTooltip, setRiderTooltip] = useState(null); // { name, x, y }
   const [groupTimeGaps, setGroupTimeGaps] = useState({});
-  const [latestPrelTime, setLatestPrelTime] = useState(0);
+  const [latestPrelTime, setLatestPrelTime] = useState(6000); // Start at 100:00, can only decrease
   const [sprintResults, setSprintResults] = useState([]);
   const [sprintGroupsPending, setSprintGroupsPending] = useState([]);
   const [sprintAnimMsgs, setSprintAnimMsgs] = useState([]);
@@ -2754,9 +2755,9 @@ if (potentialLeaders.length > 0) {
     gaps[g] = timeGap;
   }
   setGroupTimeGaps(gaps);
-  // reset sprint results/time for the new round
+  // reset sprint results for the new round
+  // NOTE: Do NOT reset latestPrelTime - it should only decrease across the entire game
   setSprintResults([]);
-  setLatestPrelTime(0);
 };
 
 // Check crash handler: called by the UI when user presses "Check if crash"
@@ -2902,22 +2903,25 @@ const checkCrash = () => {
         };
 
         // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
+        // Reveal one combined line per rider and pause 100ms between reveals.
         const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
-        // Brief pause so the full summary is visible, then reveal each rider
-        // from worst->best to create a reveal animation in the top box.
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 100));
         for (const s of asc) {
-          // First line: rider name, team and sprint stat
-          const nameLine = `${s.name} (${s.team}, ${s.sprint_stat})`;
-          setSprintAnimMsgs(prev => [...prev, nameLine]);
-          try { addLog(`runSprints: animated sprint name for ${s.name}`); } catch (e) {}
-          await new Promise(r => setTimeout(r, 1500));
+          // Try to find the official placement from res.result (if available)
+          let placement = null;
+          try {
+            if (res && Array.isArray(res.result)) {
+              const found = res.result.find(it => it && it[1] === s.name);
+              if (found) placement = found[0];
+            }
+          } catch (e) { placement = null; }
 
-          // Second line: final points
-          const pointsLine = `Final points: ${s.sprint_points}`;
-          setSprintAnimMsgs(prev => [...prev, pointsLine]);
-          try { addLog(`runSprints: animated sprint points for ${s.name}`); } catch (e) {}
-          await new Promise(r => setTimeout(r, 1500));
+          const placePrefix = placement ? `${placement}. ` : '';
+          const line = `${placePrefix}${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`;
+          setSprintAnimMsgs(prev => [...prev, line]);
+          try { addLog(`runSprints: animated sprint for ${s.name} -> ${s.sprint_points}`); } catch (e) {}
+          // 0.1 seconds pause between rider reveals
+          await new Promise(r => setTimeout(r, 100));
         }
       }
       else {
@@ -2925,11 +2929,40 @@ const checkCrash = () => {
         setSprintAnimMsgs(prev => [...prev, 'No sprintable riders found.']);
       }
 
-      // After animation, apply the computed results to state and global logs
-      setCards(res.updatedCards);
-      setSprintResults(res.result);
-      setLatestPrelTime(res.latestPt);
-      for (const l of res.logs || []) addLog(l);
+          // Persist finished riders into a dedicated finalStandings state
+          if (res && Array.isArray(res.finishedThisRun) && res.finishedThisRun.length > 0) {
+            setFinalStandings(prev => {
+              // Append new finished entries, avoid duplicates by rider name
+              const byName = new Map(prev.map(p => [p.name, p]));
+              for (const f of res.finishedThisRun) byName.set(f.name, f);
+              return Array.from(byName.values()).sort((a,b) => (a.pos || 9999) - (b.pos || 9999));
+            });
+          }
+          // After recording finalStandings, update game state with survivors
+          setCards(res.updatedCards);
+          setSprintResults(res.result);
+          // Prefer the pure-runner's explicit winner baseline when available.
+          // CRITICAL: latestPrelTime can ONLY decrease, never increase.
+          try {
+            const candidate = (typeof res.winner_prel_time === 'number' && res.winner_prel_time > 0)
+              ? res.winner_prel_time
+              : (typeof res.latestPt === 'number' ? res.latestPt : 6000);
+            setLatestPrelTime(prev => {
+              // Always take minimum, starting from 6000 if prev is invalid
+              const safePrev = (typeof prev === 'number' && prev > 0) ? prev : 6000;
+              const safeCandidate = (typeof candidate === 'number' && candidate > 0) ? candidate : 6000;
+              return Math.min(safePrev, safeCandidate);
+            });
+          } catch (e) {
+            // Fallback: only update if res.latestPt is smaller than current
+            try { 
+              setLatestPrelTime(prev => {
+                if (typeof res.latestPt !== 'number') return prev;
+                return Math.min(prev || 6000, res.latestPt);
+              });
+            } catch (e) {}
+          }
+          for (const l of res.logs || []) addLog(l);
 
       // Remove the sprintGroup we just ran from the pending list so the
       // UI no longer shows the "Sprint with group X" button.
@@ -5034,9 +5067,7 @@ const checkCrash = () => {
                     </div>
                   </div>
                 )}
-                <button onClick={() => setGameState('setup')} className="w-full mt-3 bg-gray-600 text-white py-2 rounded text-sm">
-                  Back to Setup
-                </button>
+                {/* Back to Setup button removed per user request */}
                 <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-3 rounded text-base font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
                   Eliminate rider
                 </button>
@@ -5131,16 +5162,38 @@ const checkCrash = () => {
                   <h3 className="font-bold mb-2">Final Standings</h3>
                   <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                   {(() => {
-                    const finished = Object.entries(cards)
+                    // Merge finished riders recorded in `cards` (if any) and
+                    // the accumulated `finalStandings` we persist when sprints
+                    // happen. This ensures final placements are visible even
+                    // after we remove finished riders from the live `cards`.
+                    const fromCards = Object.entries(cards)
                       .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
-                      .sort((a, b) => (a[1].result || 9999) - (b[1].result || 9999));
-                    if (finished.length === 0) return <div className="text-sm text-gray-500">No finishers yet</div>;
+                      .map(([name, r]) => ({ pos: r.result, name, team: r.team, timeSec: (typeof r.time_after_winner === 'number' ? r.time_after_winner : null) }));
+                    const fromState = Array.isArray(finalStandings) ? finalStandings.map(f => ({ pos: f.pos, name: f.name, team: f.team, timeSec: f.timeSec })) : [];
+                    const mergedByName = new Map();
+                    for (const e of [...fromState, ...fromCards]) {
+                      mergedByName.set(e.name, e);
+                    }
+                    // Build an array and sort by time-after-winner (ascending).
+                    // Missing timeSec values are treated as very large so they land at the end.
+                    const mergedArr = Array.from(mergedByName.values()).sort((a, b) => {
+                      const ta = (typeof a.timeSec === 'number') ? a.timeSec : 1e9;
+                      const tb = (typeof b.timeSec === 'number') ? b.timeSec : 1e9;
+                      if (ta !== tb) return ta - tb;
+                      const pa = (typeof a.pos === 'number') ? a.pos : 9999;
+                      const pb = (typeof b.pos === 'number') ? b.pos : 9999;
+                      if (pa !== pb) return pa - pb;
+                      return (a.name || '').localeCompare(b.name || '');
+                    });
+                    // Re-assign consecutive positions 1..N to avoid duplicates
+                    const merged = mergedArr.map((e, idx) => ({ ...e, pos: idx + 1 }));
+                    if (merged.length === 0) return <div className="text-sm text-gray-500">No finishers yet</div>;
                     return (
                       <div className="text-sm space-y-1">
-                        {finished.map(([name, r]) => (
-                          <div key={name} className="flex justify-between">
-                            <div>{r.result}. {r.team === 'Me' ? (<strong>{name}</strong>) : name} <span className="text-xs text-gray-500">({r.team})</span></div>
-                            <div className="text-xs text-green-600">{typeof r.time_after_winner === 'number' ? convertToSeconds(r.time_after_winner) : '-'}</div>
+                        {merged.map((r) => (
+                          <div key={r.name} className="flex justify-between">
+                            <div>{r.pos}. {r.team === 'Me' ? (<strong>{r.name}</strong>) : r.name} <span className="text-xs text-gray-500">({r.team})</span></div>
+                            <div className="text-xs text-green-600">{typeof r.timeSec === 'number' ? convertToSeconds(r.timeSec) : '-'}</div>
                           </div>
                         ))}
                       </div>
