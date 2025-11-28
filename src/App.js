@@ -302,19 +302,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const perRiderInvested = [];
 
     // Guard against duplicate identical invocations (UI races/double clicks)
+    // Use group number as primary key to prevent any duplicate processing
     try {
+      const groupKey = `g:${g}`;
+      if (processedInvestsRef.current.has(groupKey)) {
+        try { addLog(`processAutoInvests: duplicate invocation ignored for group ${g}`); } catch (e) {}
+        return;
+      }
+      processedInvestsRef.current.add(groupKey);
+      setTimeout(() => { try { processedInvestsRef.current.delete(groupKey); } catch (e) {} }, 3000);
+
+      // Log the specific call parameters for debugging
       const hcRiders = humanChoice && humanChoice.invested ? (Array.isArray(humanChoice.riders) ? humanChoice.riders.slice() : (humanChoice.rider ? [humanChoice.rider] : [])) : [];
       const hcTeam = humanChoice && humanChoice.team ? humanChoice.team : 'Me';
-      // normalize rider order for the key so same selections produce same key
       hcRiders.sort();
       const key = `g:${g}|team:${hcTeam}|riders:${JSON.stringify(hcRiders)}`;
       try { addLog(`processAutoInvests called: ${key}`); } catch (e) {}
-      if (processedInvestsRef.current.has(key)) {
-        try { addLog(`processAutoInvests: duplicate invocation ignored for ${key}`); } catch (e) {}
-        return;
-      }
-      processedInvestsRef.current.add(key);
-      setTimeout(() => { try { processedInvestsRef.current.delete(key); } catch (e) {} }, 3000);
     } catch (e) {}
 
     setCards(prev => {
@@ -349,26 +352,19 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 if (toAdd <= 0) {
                   try { addLog(`Skipped human invest for ${chosen} (already has ${topTk} TK-1 or no slots)`); } catch (e) {}
                 } else {
-                  const addKey = `${chosen}|${g}`;
-                  if (addingInvestRef.current.has(addKey)) {
-                    try { addLog(`Skipped human invest for ${chosen} due to concurrent add (key=${addKey})`); } catch (e) {}
-                  } else {
-                    addingInvestRef.current.add(addKey);
-                    setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
-                    // Add one TK-1 to the top of the rider's hand and put any
-                    // additional TK-1 into the discarded pile so only one TK-1
-                    // sits at the top while extras are available as future cards.
-                    const topInsert = { id: 'TK-1: 99' };
-                    const extrasToDiscard = Math.max(0, toAdd - 1);
-                    const newCards = [topInsert, ...prevCards];
-                    const prevDiscarded = Array.isArray(updated[chosen].discarded) ? updated[chosen].discarded : [];
-                    const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
-                    updated[chosen] = { ...updated[chosen], cards: newCards, discarded: newDiscarded, last_invest_group: g };
-                    addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
-                    // record actual additions
-                    for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: chosen });
-                    perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
-                  }
+                  // Add one TK-1 to the top of the rider's hand and put any
+                  // additional TK-1 into the discarded pile so only one TK-1
+                  // sits at the top while extras are available as future cards.
+                  const topInsert = { id: 'TK-1: 99' };
+                  const extrasToDiscard = Math.max(0, toAdd - 1);
+                  const newCards = [topInsert, ...prevCards];
+                  const prevDiscarded = Array.isArray(updated[chosen].discarded) ? updated[chosen].discarded : [];
+                  const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
+                  updated[chosen] = { ...updated[chosen], cards: newCards, discarded: newDiscarded, last_invest_group: g };
+                  addLog(`${chosen} (team ${teamName}) invested TK-1 x${toAdd}`);
+                  // record actual additions
+                  for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: chosen });
+                  perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
                 }
               } catch (e) { /* ignore */ }
             }
@@ -412,24 +408,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 const want = Math.min(rnd, slotsLeft);
                 const toAdd = Math.max(0, want - topTk);
                 if (toAdd > 0) {
-                  const addKey = `${nm}|${g}`;
-                  if (addingInvestRef.current.has(addKey)) {
-                    try { addLog(`Skipped AI invest for ${nm} due to concurrent add (key=${addKey})`); } catch (e) {}
-                  } else {
-                    addingInvestRef.current.add(addKey);
-                    setTimeout(() => { try { addingInvestRef.current.delete(addKey); } catch (e) {} }, 5000);
-                    // Insert one TK-1 on top and move any remaining TK-1 to discarded
-                    const topInsert = { id: 'TK-1: 99' };
-                    const extrasToDiscard = Math.max(0, toAdd - 1);
-                    const prevDiscarded = Array.isArray(updated[nm].discarded) ? updated[nm].discarded : [];
-                    const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
-                    const newCards = [topInsert, ...prevCards];
-                    updated[nm] = { ...updated[nm], cards: newCards, discarded: newDiscarded, last_invest_group: g };
-                    try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
-                    // record actual additions
-                    for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: nm });
-                    perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
-                  }
+                  // Insert one TK-1 on top and move any remaining TK-1 to discarded
+                  const topInsert = { id: 'TK-1: 99' };
+                  const extrasToDiscard = Math.max(0, toAdd - 1);
+                  const prevDiscarded = Array.isArray(updated[nm].discarded) ? updated[nm].discarded : [];
+                  const newDiscarded = extrasToDiscard > 0 ? [...prevDiscarded, ...Array(extrasToDiscard).fill({ id: 'TK-1: 99' })] : prevDiscarded;
+                  const newCards = [topInsert, ...prevCards];
+                  updated[nm] = { ...updated[nm], cards: newCards, discarded: newDiscarded, last_invest_group: g };
+                  try { addLog(`${nm} (${teamName}) invests and takes ${toAdd} TK-1`); } catch (e) {}
+                  // record actual additions
+                  for (let i = 0; i < toAdd; i++) perRiderInvested.push({ team: teamName, rider: nm });
+                  perTeamInvestedActual[teamName] = (perTeamInvestedActual[teamName] || 0) + toAdd;
                 } else {
                   try { addLog(`Skipped duplicate AI invest for ${nm} (already has ${topTk})`); } catch (e) {}
                 }
@@ -439,19 +428,36 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           }
         }
 
-        // Only pull attackers back if at least two riders invested in total (across teams)
+        // Only pull attackers back if:
+        // 1. At least two riders invested in total (across teams), AND
+        // 2. At least one attacker is within slipstream range of the group
         const totalInvested = perRiderInvested.length;
-        const shouldPull = totalInvested >= 2;
-        if (shouldPull) {
+        let shouldPull = false;
+        if (totalInvested >= 2) {
           const nonAtk = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker').map(([, rr]) => Number(rr.position || 0));
           const targetPos = nonAtk.length > 0 ? Math.max(...nonAtk) : (membersLocal.length > 0 ? Math.max(...membersLocal.map(([, rr]) => Number(rr.position || 0))) : 0);
-          for (const [nm, rr] of membersLocal) {
-            if ((rr.attacking_status || '') === 'attacker') {
+          const attackers = membersLocal.filter(([, rr]) => (rr.attacking_status || '') === 'attacker');
+          
+          // Calculate slipstream value for the group's position
+          const trackStr = getResolvedTrack();
+          const sv = getSlipstreamValue(targetPos, targetPos + 8, trackStr);
+          
+          // Check if any attacker is within slipstream range
+          const canPull = attackers.some(([, rr]) => {
+            const pos = Number(rr.position || 0);
+            return pos > targetPos && (pos - targetPos) <= sv;
+          });
+          
+          if (canPull) {
+            shouldPull = true;
+            for (const [nm, rr] of attackers) {
               const oldPos = Number(rr.position || 0);
               updated[nm] = { ...rr, position: targetPos, old_position: oldPos };
             }
+            addLog(`Attack is pulled back to group ${g}`);
+          } else {
+            addLog(`Investment made but attacker(s) too far away to pull back (beyond SV=${sv})`);
           }
-          addLog(`Attack is pulled back to group ${g}`);
         }
 
         // Persist the actual results so the yellow post-move box can display them
@@ -665,9 +671,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // stayed with the group's main non-attacker position are eligible to invest.
       const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
       const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
+      
+      // Check if any attacker is within slipstream range
+      const trackStr = getResolvedTrack();
+      const sv = getSlipstreamValue(groupMainPos, groupMainPos + 8, trackStr);
+      const canPull = attackers.some(([, r]) => {
+        const pos = Number(r.position || 0);
+        return pos > groupMainPos && (pos - groupMainPos) <= sv;
+      });
+      
+      // Only auto-open if attackers are within range
+      if (!canPull) return;
+      
       const humanHasEligible = members.some(([, r]) => r.team === 'Me' && !r.finished && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
       if (humanHasEligible) {
         try { addLog(`Auto-opening pull-invest modal for Me group ${g}`); } catch (e) {}
+        // Close any other modal that might be open (e.g., card selection)
+        setCardSelectionOpen(false);
         setPullInvestGroup(g);
         setPullInvestTeam('Me');
         setPullInvestSelections([]);
@@ -3418,6 +3438,11 @@ const checkCrash = () => {
   }, [cardSelectionOpen, fallBackOpen, gameState]);
 
   const openCardSelectionForGroup = (groupNum) => {
+    // Don't open card selection if pull-invest modal is already active
+    if (pullInvestGroup !== null) {
+      try { addLog(`Card selection blocked: pull-invest modal is active for group ${pullInvestGroup}`); } catch (e) {}
+      return;
+    }
     // find human riders in the group
     const humanRiders = Object.entries(cards).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
     if (!humanRiders || humanRiders.length === 0) {
@@ -4019,7 +4044,7 @@ const checkCrash = () => {
                                   const sv = Number(slipstream || 0);
                                   const canPull = attackers.some(([, r]) => {
                                     const pos = Number(r.position || 0);
-                                    return pos > groupPos && (pos - sv) <= groupPos;
+                                    return pos > groupPos && (pos - groupPos) <= sv;
                                   });
 
                                   // Render pull-back controls for the human panel replacement
@@ -4174,7 +4199,7 @@ const checkCrash = () => {
                                   const sv = Number(slipstream || 0);
                                   const canPull = attackers.some(([, r]) => {
                                     const pos = Number(r.position || 0);
-                                    return pos > groupPos && (pos - sv) <= groupPos;
+                                    return pos > groupPos && (pos - groupPos) <= sv;
                                   });
 
                                   // Render the pull-back control in place of the team's choice button
@@ -4426,7 +4451,7 @@ const checkCrash = () => {
                             const sv = Number(slipstream || 0);
                             const canPull = attackers.some(([, r]) => {
                               const pos = Number(r.position || 0);
-                              return pos > groupPos && (pos - sv) <= groupPos;
+                              return pos > groupPos && (pos - groupPos) <= sv;
                             });
 
                               if (!canPull) {
