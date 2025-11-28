@@ -893,9 +893,34 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     let eligibleForSlip = effectiveValue >= minRequiredToFollow;
     let moveBy = eligibleForSlip ? Math.min(effectiveValue + slipstream, groupSpeed) : effectiveValue;
     let newPos = (rider.position || 0) + moveBy;
+    let caughtOtherGroup = false;
 
-    // adjust based on groupsNewPositions to avoid overlapping
-    if (groupsNewPositions.length > 0) {
+    // If rider cannot follow own group, check if they can catch other groups (including already-moved groups)
+    if (!eligibleForSlip && groupsNewPositions.length > 0) {
+      const riderStartPos = rider.position || 0;
+      const maxReachWithSV = riderStartPos + effectiveValue + slipstream;
+      const maxReachWithoutSV = riderStartPos + effectiveValue;
+      
+      // Find the furthest group position this rider can reach
+      let bestTargetPos = newPos; // default to their solo movement
+      for (const [targetPos, targetSV] of groupsNewPositions) {
+        // Rider can catch this group if it's within their card value + slipstream range
+        if (targetPos >= maxReachWithoutSV && targetPos <= maxReachWithSV) {
+          if (targetPos > bestTargetPos) {
+            bestTargetPos = targetPos;
+            caughtOtherGroup = true;
+          }
+        }
+      }
+      
+      if (caughtOtherGroup) {
+        newPos = bestTargetPos;
+        logs.push(`${name}: Cannot follow own group (eff=${effectiveValue} < minReq=${minRequiredToFollow}), but catches group at pos ${bestTargetPos} with slipstream`);
+      }
+    }
+
+    // For riders who CAN follow their group, also check if overlapping with already-moved groups
+    if (eligibleForSlip && groupsNewPositions.length > 0) {
       const potPosition = (rider.position || 0) + effectiveValue + slipstream;
       for (const [targetPos] of groupsNewPositions) {
         if (potPosition >= targetPos) newPos = Math.max(newPos, targetPos);
