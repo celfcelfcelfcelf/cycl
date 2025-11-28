@@ -4528,6 +4528,7 @@ const checkCrash = () => {
                           <div className="grid grid-cols-4 gap-2">
                             {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
                               const isLeader = (rider.takes_lead || 0) === 1;
+                              const isDownhill = track[rider.position] === '_';
                               let disabled = false;
                               let title = '';
                               try {
@@ -4535,7 +4536,8 @@ const checkCrash = () => {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
                                     disabled = true;
@@ -4553,7 +4555,8 @@ const checkCrash = () => {
                                   const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
                                   const targetVal = Math.round(groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
                                     localDisabled = true; // leader cannot play this card for the required pace
@@ -4563,7 +4566,8 @@ const checkCrash = () => {
                                   // Non-leader: determine whether playing this card would cause rider to fall out
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  const cardVal = slipstream > 2 ? c.flat : c.uphill;
+                                  let cardVal = slipstream > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
                                   const effective = (cardVal - localPenalty);
                                   const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
                                   if (effective < minRequiredToFollow) {
