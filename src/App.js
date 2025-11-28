@@ -297,10 +297,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Process AI riders in a group to decide automatic investments (TK-1).
   // humanChoice: { invested: boolean, rider: string|null, team: string|null }
   const processAutoInvests = (g, humanChoice = { invested: false, riders: null, rider: null, team: null }) => {
-    // Track actual per-team investment counts for this processing run
-    const perTeamInvestedActual = {};
-    const perRiderInvested = [];
-
     // Guard against duplicate identical invocations (UI races/double clicks)
     // Use group number as primary key to prevent any duplicate processing
     try {
@@ -320,10 +316,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       try { addLog(`processAutoInvests called: ${key}`); } catch (e) {}
     } catch (e) {}
 
+    // Track investment results outside setState to prevent double-execution
+    let outcomeData = null;
+
     setCards(prev => {
       try {
         const updated = { ...prev };
         const membersLocal = Object.entries(updated).filter(([, rr]) => rr.group === g && !rr.finished);
+
+        // Track actual per-team investment counts for this processing run
+        const perTeamInvestedActual = {};
+        const perRiderInvested = [];
 
         // Handle human choice: support multiple riders (array) or legacy single 'rider'
         if (humanChoice && humanChoice.invested) {
@@ -460,12 +463,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           }
         }
 
-        // Persist the actual results so the yellow post-move box can display them
-        setPullInvestOutcome(prev => ({ ...prev, [g]: { perTeam: perTeamInvestedActual, anyInvested: shouldPull, perRider: perRiderInvested, totalInvested } }));
+        // Store outcome data to set after setState completes
+        outcomeData = { perTeam: perTeamInvestedActual, anyInvested: shouldPull, perRider: perRiderInvested, totalInvested };
 
         return updated;
       } catch (e) { return prev; }
     });
+
+    // Update outcome after setState to prevent callback re-execution
+    if (outcomeData) {
+      setPullInvestOutcome(prev => ({ ...prev, [g]: outcomeData }));
+    }
   };
 
   // Resolve the effective selected track token string. When trackName is
