@@ -1380,19 +1380,25 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     const finishPos = track.indexOf('F');
 
     let extra = (i === 0) ? 1 : 0;
-    if (extra === 1 && finishPos !== -1) {
-      if (rider.position + effectiveValue >= finishPos) {
+    if (extra === 1) {
+      // Deny extra field if attacker speed is less than group speed
+      if (effectiveValue < groupSpeed) {
         extra = 0;
-        logs.push(`Lead attacker extra denied (would reach finish without extra): ${name} pos=${rider.position} eff=${effectiveValue} finish=${finishPos}`);
-      } else {
-        let tentativeNewPos = rider.position + effectiveValue + extra;
-        const tentativeSegment = track.slice(rider.position, tentativeNewPos + 1);
-        const tentativeNedk = (tentativeSegment.match(/_/g) || []).length;
-        tentativeNewPos += tentativeNedk;
-        if (tentativeNewPos >= finishPos) {
-          extra = 0; logs.push(`Lead attacker extra denied (extra would reach or pass finish): ${name} pos=${rider.position} eff=${effectiveValue} tentativeNewPos=${tentativeNewPos} finish=${finishPos}`);
+        logs.push(`Lead attacker extra denied (attacker speed ${effectiveValue} < group speed ${groupSpeed}): ${name}`);
+      } else if (finishPos !== -1) {
+        if (rider.position + effectiveValue >= finishPos) {
+          extra = 0;
+          logs.push(`Lead attacker extra denied (would reach finish without extra): ${name} pos=${rider.position} eff=${effectiveValue} finish=${finishPos}`);
         } else {
-          logs.push(`Lead attacker extra granted: ${name} pos=${rider.position} eff=${effectiveValue} tentativeNewPos=${tentativeNewPos} finish=${finishPos}`);
+          let tentativeNewPos = rider.position + effectiveValue + extra;
+          const tentativeSegment = track.slice(rider.position, tentativeNewPos + 1);
+          const tentativeNedk = (tentativeSegment.match(/_/g) || []).length;
+          tentativeNewPos += tentativeNedk;
+          if (tentativeNewPos >= finishPos) {
+            extra = 0; logs.push(`Lead attacker extra denied (extra would reach or pass finish): ${name} pos=${rider.position} eff=${effectiveValue} tentativeNewPos=${tentativeNewPos} finish=${finishPos}`);
+          } else {
+            logs.push(`Lead attacker extra granted: ${name} pos=${rider.position} eff=${effectiveValue} tentativeNewPos=${tentativeNewPos} finish=${finishPos}`);
+          }
         }
       }
     }
