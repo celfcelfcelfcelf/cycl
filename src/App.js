@@ -316,8 +316,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       try { addLog(`processAutoInvests called: ${key}`); } catch (e) {}
     } catch (e) {}
 
-    // Track investment results outside setState to prevent double-execution
-    let outcomeData = null;
+    // Use a ref to track if we've already set the outcome for this group
+    const outcomeKey = `outcome_${g}`;
+    let outcomeAlreadySet = false;
 
     setCards(prev => {
       try {
@@ -463,17 +464,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           }
         }
 
-        // Store outcome data to set after setState completes
-        outcomeData = { perTeam: perTeamInvestedActual, anyInvested: shouldPull, perRider: perRiderInvested, totalInvested };
+        // Set outcome only once (prevent duplicate setPullInvestOutcome calls if React re-runs callback)
+        if (!outcomeAlreadySet) {
+          outcomeAlreadySet = true;
+          const outcomeData = { perTeam: perTeamInvestedActual, anyInvested: shouldPull, perRider: perRiderInvested, totalInvested };
+          setPullInvestOutcome(prev => ({ ...prev, [g]: outcomeData }));
+        }
 
         return updated;
       } catch (e) { return prev; }
     });
-
-    // Update outcome after setState to prevent callback re-execution
-    if (outcomeData) {
-      setPullInvestOutcome(prev => ({ ...prev, [g]: outcomeData }));
-    }
   };
 
   // Resolve the effective selected track token string. When trackName is
