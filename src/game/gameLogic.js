@@ -377,10 +377,11 @@ export const shuffle = (arr, rng = Math.random) => {
 
 export const getPenalty = (riderName, cards) => {
   const riderCards = (cards[riderName] && cards[riderName].cards) || [];
+  let penalty = 0;
   for (let i = 0; i < Math.min(4, riderCards.length); i++) {
-    if (riderCards[i].id === 'TK-1: 99') return 1;
+    if (riderCards[i].id === 'TK-1: 99') penalty++;
   }
-  return 0;
+  return penalty;
 };
 
 export const getTeamMatesInGroup = (riderName, cards) => {
