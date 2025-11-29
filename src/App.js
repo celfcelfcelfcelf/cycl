@@ -332,13 +332,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         // Determine which riders are eligible to invest:
         // 1. Must be in the group (g)
         // 2. Must not be an attacker
-        // 3. Must have kept up with the group (position >= groupMainPos)
+        // 3. Must be at exactly the group's main position (position == groupMainPos)
         const nonAttackers = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker');
         const nonAttackerPositions = nonAttackers.map(([, rr]) => Number(rr.position || 0));
         const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : 0;
         const eligibleInvestors = membersLocal.filter(([, rr]) => 
           (rr.attacking_status || '') !== 'attacker' && 
-          (Number(rr.position || 0) >= groupMainPos)
+          (Number(rr.position || 0) === groupMainPos)
         );
 
         // Handle human choice: support multiple riders (array) or legacy single 'rider'
@@ -4683,13 +4683,12 @@ const checkCrash = () => {
                     const g = pullInvestGroup;
                     const team = 'Me';
                     // Compute group's main non-attacker position and only offer
-                    // candidates who are non-attackers and remained with the group
-                    // (position >= groupMainPos). This excludes riders who 'fell'
-                    // behind (had an X and couldn't follow).
+                    // candidates who are non-attackers at exactly the group position
+                    // (position == groupMainPos). This excludes riders who fell behind.
                     const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
                     const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
                     const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
-                    const candidates = members.filter(([, r]) => r.team === team && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
+                    const candidates = members.filter(([, r]) => r.team === team && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) === groupMainPos);
                     return (
                       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
                         <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 z-60">
