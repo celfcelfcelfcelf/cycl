@@ -331,14 +331,24 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
         // Determine which riders are eligible to invest:
         // 1. Must be in the group (g)
-        // 2. Must not be an attacker
+        // 2. Must not be an attacker themselves
         // 3. Must be at exactly the group's main position (position == groupMainPos)
+        // 4. Must not be on a team that has an attacker
         const nonAttackers = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker');
         const nonAttackerPositions = nonAttackers.map(([, rr]) => Number(rr.position || 0));
         const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : 0;
+        
+        // Find teams that have attackers
+        const teamsWithAttackers = new Set(
+          membersLocal
+            .filter(([, rr]) => (rr.attacking_status || '') === 'attacker')
+            .map(([, rr]) => rr.team)
+        );
+        
         const eligibleInvestors = membersLocal.filter(([, rr]) => 
           (rr.attacking_status || '') !== 'attacker' && 
-          (Number(rr.position || 0) === groupMainPos)
+          (Number(rr.position || 0) === groupMainPos) &&
+          !teamsWithAttackers.has(rr.team)
         );
 
         // Handle human choice: support multiple riders (array) or legacy single 'rider'
@@ -4684,11 +4694,24 @@ const checkCrash = () => {
                     const team = 'Me';
                     // Compute group's main non-attacker position and only offer
                     // candidates who are non-attackers at exactly the group position
-                    // (position == groupMainPos). This excludes riders who fell behind.
+                    // (position == groupMainPos) and whose team doesn't have an attacker.
                     const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
                     const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
                     const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
-                    const candidates = members.filter(([, r]) => r.team === team && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) === groupMainPos);
+                    
+                    // Find teams that have attackers
+                    const teamsWithAttackers = new Set(
+                      members
+                        .filter(([, r]) => (r.attacking_status || '') === 'attacker')
+                        .map(([, r]) => r.team)
+                    );
+                    
+                    const candidates = members.filter(([, r]) => 
+                      r.team === team && 
+                      (r.attacking_status || '') !== 'attacker' && 
+                      (Number(r.position) || 0) === groupMainPos &&
+                      !teamsWithAttackers.has(r.team)
+                    );
                     return (
                       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
                         <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 z-60">
