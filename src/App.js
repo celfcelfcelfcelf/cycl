@@ -738,7 +738,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // All helper implementations (getPenalty, takesLeadFC, humanResponsibility,
   // getTeamMatesInGroup, pickValue, takesLeadFCFloating) were moved to
   // `src/game/gameLogic.js`. App now imports and uses the shared versions.
-  const autoPlayTeam = (groupNum, teamName = currentTeam) => {
+  const autoPlayTeam = (groupNum, teamName = currentTeam, minPace = undefined) => {
   const teamRiders = Object.entries(cards).filter(([,r]) => r.group === groupNum && r.team === teamName && !r.finished);
   
   let pace = 0;
@@ -932,6 +932,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   if (finalPace <= otherMax) finalPace = 0;
   // Ensure integer >= 2
   pace = Math.max(2, Math.round(finalPace || 0));
+  
+  // In choice-2, enforce that pace is at least minPace (if provided)
+  if (typeof minPace !== 'undefined' && minPace > 0) {
+    if (pace < minPace) {
+      try { addLog(`${teamName} AI choice adjusted from ${pace} to ${minPace} (minPace constraint)`); } catch (e) {}
+      pace = minPace;
+    }
+  }
 
   const msg = pace === 0 ? `${currentTeam}: 0` : `${currentTeam}: ${pace}`;
   // Show a short-lived AI message for UX, but avoid adding a log here because
@@ -1204,8 +1212,15 @@ return { pace, updatedCards };
         const roundNow = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
         if (roundNow !== 2) return;
   
-        // Run AI decision for this team (reuse autoPlayTeam helper)
-        const res = autoPlayTeam(groupNum, t);
+        // Get previous pace from choice-1 so AI doesn't choose lower
+        const paceKey = `${groupNum}-${t}`;
+        const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+        const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+        const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+        const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+
+        // Run AI decision for this team, passing the minimum allowed pace
+        const res = autoPlayTeam(groupNum, t, prevPace);
         let aiTeamPace = 0;
         let aiIsAttack = false;
         let aiAttackerName = null;
@@ -1229,19 +1244,12 @@ return { pace, updatedCards };
   
         addLog(`${t} (AI) resubmits for choice-2: pace=${aiTeamPace}${aiIsAttack ? ' attack' : ''}`);
         // Enforce: in choice-2 AI may not lower their previously announced pace.
-        try {
-          const paceKey = `${groupNum}-${t}`;
-          const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
-          const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
-          const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
-          const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
-          if (typeof prevPace !== 'undefined' && currentRound === 2) {
-            if (aiTeamPace < prevPace) {
-              try { addLog(`${t} (AI) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`); } catch (e) {}
-              aiTeamPace = prevPace;
-            }
+        if (typeof prevPace !== 'undefined' && currentRound === 2) {
+          if (aiTeamPace < prevPace) {
+            try { addLog(`${t} (AI) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`); } catch (e) {}
+            aiTeamPace = prevPace;
           }
-        } catch (e) {}
+        }
 
         handlePaceSubmit(groupNum, aiTeamPace, t, aiIsAttack, aiAttackerName);
         // small delay so logs and UI update smoothly
