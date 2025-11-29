@@ -329,6 +329,18 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const perTeamInvestedActual = {};
         const perRiderInvested = [];
 
+        // Determine which riders are eligible to invest:
+        // 1. Must be in the group (g)
+        // 2. Must not be an attacker
+        // 3. Must have kept up with the group (position >= groupMainPos)
+        const nonAttackers = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker');
+        const nonAttackerPositions = nonAttackers.map(([, rr]) => Number(rr.position || 0));
+        const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : 0;
+        const eligibleInvestors = membersLocal.filter(([, rr]) => 
+          (rr.attacking_status || '') !== 'attacker' && 
+          (Number(rr.position || 0) >= groupMainPos)
+        );
+
         // Handle human choice: support multiple riders (array) or legacy single 'rider'
         if (humanChoice && humanChoice.invested) {
           const ridersChosen = Array.isArray(humanChoice.riders) ? humanChoice.riders : (humanChoice.rider ? [humanChoice.rider] : []);
@@ -378,7 +390,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
         // Run AI investment checks for computer riders per team with team cap of 2
         const teamsMap = {};
-        for (const [nm, rr] of membersLocal) {
+        for (const [nm, rr] of eligibleInvestors) {
           if (!rr) continue;
           if (rr.team === 'Me') continue;
           teamsMap[rr.team] = teamsMap[rr.team] || [];
