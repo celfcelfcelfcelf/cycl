@@ -2805,7 +2805,7 @@ if (potentialLeaders.length > 0) {
   const groups = Array.from(new Set(Object.values(updatedCards).map(r => r.group)));
   for (const g of groups) {
   const groupPos = Math.max(...Object.values(updatedCards).filter(r => r.group === g && !r.finished).map(r => r.position));
-    let timeGap = 13 * (overallMaxPos - groupPos);
+    let timeGap = 21 * (overallMaxPos - groupPos);
     if (timeGap !== 0) {
       const jitter = Math.floor(Math.random() * 11) - 5;
       timeGap = Math.max(0, timeGap + jitter);

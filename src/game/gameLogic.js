@@ -1121,7 +1121,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
               ? r.last_group_speed
               : 1);
           const fraction = Math.max(0, Math.min(1, fieldsToFinish / speedForFraction));
-          const candidatePrel = (round + fraction) * 60;
+          const candidatePrel = (round + fraction) * 100;
           // Apply rule: prel_time = max(min(prel_time_of_others) + 2, candidate)
           const minBased = (minOtherPrel !== null) ? (minOtherPrel + 2) : null;
           const finalPrel = (minBased !== null) ? Math.max(minBased, candidatePrel) : candidatePrel;
