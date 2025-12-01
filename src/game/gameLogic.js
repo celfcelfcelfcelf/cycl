@@ -997,8 +997,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     // (Previously there was downhill pass-through extra and related discard removal here.)
     // That pass-through bonus has been removed per new downhill rules.
 
-    // reshuffle if under 6
-    if (updatedHandCards.length < 6) {
+    // reshuffle if under 5
+    if (updatedHandCards.length < 5) {
       updatedHandCards.push(...updatedDiscarded);
       // shuffle using Fisher-Yates with injected rng
       shuffle(updatedHandCards, rng);
@@ -1506,7 +1506,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     updatedDiscarded = [...updatedDiscarded, { id: 'TK-1: 99', flat: -1, uphill: -1 }];
     logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
 
-    if (updatedHandCards.length < 6) {
+    if (updatedHandCards.length < 5) {
       updatedHandCards.push(...updatedDiscarded);
       shuffle(updatedHandCards, rng);
       updatedDiscarded = [];
