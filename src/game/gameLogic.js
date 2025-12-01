@@ -312,7 +312,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
     bestCardNumber = 0;
 
     if (minimumRequired <= 2 && !hasECOnHand) {
-      availableCards = [...availableCardsBase, { id: 'tk_extra 15', flat: 2, uphill: 2 }];
+      availableCards = [...availableCardsBase, { id: 'tk_extra 99', flat: 2, uphill: 2 }];
     } else {
       availableCards = [...availableCardsBase];
     }
@@ -320,7 +320,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
     for (const card of availableCards) {
       const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
       if (cardValue >= minimumRequired) {
-        const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
+        const cardNum = card.id === 'tk_extra 99' ? 99 : parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (card.id && card.id.startsWith('TK-1')) {
           if (!chosenCard) {
             chosenCard = card;
@@ -328,6 +328,8 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
             managed = true;
           }
         } else {
+        // Prefer higher card numbers (worse cards) to save good cards
+        // TK-extra (99) should be preferred over all normal cards
         if (!chosenCard || (chosenCard.id && chosenCard.id.startsWith('TK-1')) || cardNum > bestCardNumber) {
             chosenCard = card;
             bestCardNumber = cardNum;
@@ -963,9 +965,9 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const topN = Math.min(4, updatedHandCards.length);
     const topFour = updatedHandCards.slice(0, topN);
 
-    if (chosenCard.id === 'tk_extra 15') {
+    if (chosenCard.id === 'tk_extra 99') {
       // Remove any synthetic tk_extra cards from hand (they should not be discarded)
-      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 99'));
       // Discard the top 4 REAL cards (cards 1-4). If fewer than 4 remain, discard what's available.
       const discardCount = Math.min(4, updatedHandCards.length);
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);
@@ -1472,9 +1474,9 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     let updatedDiscarded = [...(rider.discarded || [])];
     const topN = Math.min(4, updatedHandCards.length);
     const topFour = updatedHandCards.slice(0, topN);
-    if (chosenCard.id === 'tk_extra 15') {
+    if (chosenCard.id === 'tk_extra 99') {
       // Remove any synthetic tk_extra cards from hand (they should not be discarded)
-      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 15'));
+      updatedHandCards = updatedHandCards.filter(c => !(c && c.id === 'tk_extra 99'));
       // Discard the top 4 REAL cards (cards 1-4). If fewer than 4 remain, discard what's available.
       const discardCount = Math.min(4, updatedHandCards.length);
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);

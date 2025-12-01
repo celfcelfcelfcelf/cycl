@@ -3534,14 +3534,14 @@ const checkCrash = () => {
     const updated = JSON.parse(JSON.stringify(cards || {}));
     for (const [riderName, cardId] of Object.entries(cardSelections || {})) {
       if (!updated[riderName]) continue;
-      if (cardId === 'tk_extra 15') {
+      if (cardId === 'tk_extra 99') {
         // inject a special tk_extra card at the front so the engine can find it
         const existing = updated[riderName].cards || [];
   // tk_extra should behave as the low-value special card (2|2) for movement
-  // while still keeping the descriptive id 'tk_extra 15' used in UI logs.
-  const synthetic = { id: 'tk_extra 15', flat: 2, uphill: 2 };
+  // while still keeping the descriptive id 'tk_extra 99' used in UI logs.
+  const synthetic = { id: 'tk_extra 99', flat: 2, uphill: 2 };
         updated[riderName].cards = [synthetic, ...existing];
-        updated[riderName].planned_card_id = 'tk_extra 15';
+        updated[riderName].planned_card_id = 'tk_extra 99';
       } else if (typeof cardId === 'string') {
         // set planned_card_id to the chosen id (should exist in hand)
         updated[riderName].planned_card_id = cardId;
@@ -4656,7 +4656,7 @@ const checkCrash = () => {
                               const isLeader = (rider.takes_lead || 0) === 1;
                               const disabled = !!isLeader; // disallow tk_extra for leaders
                               return (
-                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 15')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 99')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 99' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
                                   <div className="font-bold">tk_extra</div>
                                   <div className="text-xs">2|2</div>
                                 </button>
