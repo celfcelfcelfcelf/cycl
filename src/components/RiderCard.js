@@ -44,7 +44,7 @@ export default function RiderCard({ name, rider, onPickCard, teamColor = null, t
             return (
               <button key={i} onClick={() => onPickCard && onPickCard(name, c)} style={cardStyle} className="p-1 text-xs rounded border" title={`${c.flat}|${c.uphill}`}>
                 <div className="font-semibold">{c.id}</div>
-                <div className="text-[10px]" style={numbersStyle}>
+                <div className="text-[10px] font-bold" style={numbersStyle}>
                   <span style={{ color: '#374151' }}>{c.flat}</span>
                   |
                   <span style={{ color: '#dc2626' }}>{c.uphill}</span>
