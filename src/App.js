@@ -4618,7 +4618,7 @@ const checkCrash = () => {
                               } catch (e) { /* ignore */ }
 
                               const btnClass = isSelected
-                                ? 'p-2 rounded text-sm border bg-blue-300 text-gray-900'
+                                ? 'p-2 rounded text-sm border bg-blue-100 text-blue-900'
                                 : (localDisabled)
                                   ? 'p-2 rounded text-sm border bg-gray-100 text-gray-400 cursor-not-allowed'
                                   : (danger)
@@ -4628,7 +4628,7 @@ const checkCrash = () => {
                               return (
                                 <button key={c.id} type="button" title={titleText} onClick={() => !localDisabled && handleCardChoice(name, c.id)} disabled={localDisabled} className={btnClass}>
                                   <div className={`font-bold ${danger ? 'text-red-700' : ''}`}>{c.id}</div>
-                                  <div className="text-xs font-bold">
+                                  <div className="text-base font-bold">
                                     <span className="text-gray-700">{c.flat}</span>
                                     |
                                     <span className="text-red-600">{c.uphill}</span>
@@ -4641,7 +4641,7 @@ const checkCrash = () => {
                               const isLeader = (rider.takes_lead || 0) === 1;
                               const disabled = !!isLeader; // disallow tk_extra for leaders
                               return (
-                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 15')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-300 text-gray-900' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 15')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 15' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
                                   <div className="font-bold">tk_extra</div>
                                   <div className="text-xs">2|2</div>
                                 </button>
