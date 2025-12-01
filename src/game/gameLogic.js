@@ -1,4 +1,8 @@
 // Shared pure game logic utilities (exported for UI modules)
+// 
+// EXPERIMENTAL RULE (flat50 branch):
+// - On flat terrain (sv=3), slipstream value becomes speed/2 instead of fixed 3
+// - Card value selection unchanged: still use flat card values on flat terrain
 
 export const convertToSeconds = (number) => {
   const minutes = Math.floor(number / 60);
@@ -14,6 +18,18 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
   if (track.slice(pos1, adjustedPos2 + 1).includes('1')) return 1;
   if (track.slice(pos1, adjustedPos2 + 1).includes('2')) return 2;
   return 3;
+};
+
+// Helper function: get effective slipstream value for card selection
+// When sv=3 (flat), return speed/2 instead of 3
+export const getEffectiveSV = (sv, speed) => {
+  if (sv === 3) return speed / 2;
+  return sv;
+};
+
+// Helper function: check if terrain is flat (for card value selection)
+export const isFlatTerrain = (sv, speed) => {
+  return sv === 3;
 };
 
 export const getLength = (track) => {
@@ -262,7 +278,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   if (chosenValue > 0 && chosenValue === speed) {
     let fallbackTK = null;
     for (const card of availableCards.slice(0, 4)) {
-      const cardValue = sv > 2 ? card.flat - penalty : card.uphill - penalty;
+      const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
       if (cardValue === chosenValue) {
         const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (card.id && card.id.startsWith('TK-1')) {
@@ -287,7 +303,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
       }
     }
   } else {
-  let minimumRequired = speed - sv;
+  let minimumRequired = speed - getEffectiveSV(sv, speed);
   // If we are on a downhill '_' tile and the required minimum is modest
   // (<= 5), treat it as easier to satisfy (lower the minimum to 2) so
   // tk_extra (2|2) becomes a considered candidate. This follows the
@@ -302,7 +318,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
     }
 
     for (const card of availableCards) {
-      const cardValue = sv > 2 ? card.flat - penalty : card.uphill - penalty;
+      const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
       if (cardValue >= minimumRequired) {
         const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (card.id && card.id.startsWith('TK-1')) {
@@ -670,10 +686,11 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
-  const [pvs0, pvs1] = getPullValue(paces, sv);
+  const effectiveSV = getEffectiveSV(sv, speed);
+  const [pvs0, pvs1] = getPullValue(paces, effectiveSV);
 
   if (Math.floor(ideal_move) <= pvs0) {
-    if (!(sv === 3 && pvs1 === 1)) {
+    if (!(isFlatTerrain(sv, speed) && pvs1 === 1)) {
       return 0;
     }
   }
@@ -689,7 +706,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
   for (const card of (rider.cards || []).slice(0, 4)) {
     const svCard = getSlipstreamValue(rider.position, rider.position + card.flat, trackStr);
-    const value = svCard < 3 ? (card.uphill - penalty) : (card.flat - penalty);
+    const value = isFlatTerrain(svCard, speed) ? (card.flat - penalty) : (card.uphill - penalty);
     const error_card = Math.pow(Math.abs(value - ideal_move), 2) + card.uphill / 100;
 
     let errorTMs = 0;
@@ -699,8 +716,8 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
       const penaltyTM = getPenalty(tm, cardsState);
       const possible = [...(cardsState[tm].cards || []).slice(0, 4), { flat: 2, uphill: 2 }];
       for (const ctm of possible) {
-        const vtm = svCard < 3 ? (ctm.uphill - penaltyTM) : (ctm.flat - penaltyTM);
-        const errTMcard = Math.abs(value - vtm + svCard);
+        const vtm = isFlatTerrain(svCard, speed) ? (ctm.flat - penaltyTM) : (ctm.uphill - penaltyTM);
+        const errTMcard = Math.abs(value - vtm + getEffectiveSV(svCard, speed));
         if (errTMcard < errorTM) errorTM = errTMcard;
       }
       errorTM = errorTM * ((cardsState[tm].win_chance || 0) / 100);
@@ -709,7 +726,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
     const track_length = trackStr.indexOf('F');
     const len_left = track_length - rider.position;
-    const error_total = (svCard < 3 ? 4 * error_card : error_card) / Math.max(1, len_left) + errorTMs;
+    const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs;
 
     if (error_total < bestError) {
       selectedCard = card;
@@ -718,19 +735,23 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   }
 
   const svFinal = getSlipstreamValue(rider.position, rider.position + selectedCard.flat, trackStr);
-  const selectedNumeric = svFinal === 3 ? selectedCard.flat : selectedCard.uphill;
+  const selectedNumeric = isFlatTerrain(svFinal, speed) ? selectedCard.flat : selectedCard.uphill;
+  const effectiveSVFinal = getEffectiveSV(svFinal, speed);
 
-  const [pv0, pv1] = getPullValue(paces, svFinal);
+  const [pv0, pv1] = getPullValue(paces, effectiveSVFinal);
   
   if (selectedNumeric <= pv0) {
-    if (!(svFinal === 3 && pv1 === 1)) return 0;
+    if (!(isFlatTerrain(svFinal, speed) && pv1 === 1)) return 0;
   }
 
   const finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
 
   const top4 = (rider.cards || []).slice(0, 4);
   const localPenaltyTop4 = top4.slice(0,4).filter(c => c && c.id === 'TK-1: 99').length;
-  const allowed = new Set(top4.map(c => Math.round((getSlipstreamValue(rider.position, rider.position + c.flat, trackStr) === 3 ? c.flat : c.uphill) - localPenaltyTop4)));
+  const allowed = new Set(top4.map(c => {
+    const svForCard = getSlipstreamValue(rider.position, rider.position + c.flat, trackStr);
+    return Math.round((isFlatTerrain(svForCard, speed) ? c.flat : c.uphill) - localPenaltyTop4);
+  }));
   if (!allowed.has(finalValue)) {
     let best = null;
     let bestDiff = Infinity;
