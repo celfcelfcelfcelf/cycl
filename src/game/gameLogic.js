@@ -508,6 +508,10 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
   }
 
   if (groupSize > 2 && rider.attacking_status !== 'attacked') {
+    // If best card is worse than 7, no chance to attack
+    if (bestSelCard > 7) {
+      // Skip attack calculation entirely
+    } else {
     let attack_prob_percent = 0.25;
     if ((attackersInTurn || []).length > 0) attack_prob_percent = attack_prob_percent * 4;
     if (ratio > 0.4999) attack_prob_percent = attack_prob_percent * Math.pow(ratio / 0.4, 8);
@@ -526,6 +530,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
         if (write) { try { logger(`TLFC DECISION ${riderName} chooses to ATTACK (attack_prob_percent=${attack_prob_percent.toFixed(6)}, attack_prob=${attack_prob})`); } catch(e) {} }
         if (!floating) return 2; else return 2;
       }
+    }
     }
   }
 
