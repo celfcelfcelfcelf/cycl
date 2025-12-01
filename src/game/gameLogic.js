@@ -660,6 +660,9 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
   if (rider.takes_lead === 0) return 0;
 
+  // Calculate speed from paces (same logic as in App.js)
+  const speed = paces.length > 0 ? Math.max(...paces.filter(p => p > 0), 2) : 2;
+
   let ideal_move;
   if (rider.attacking_status === 'attacker') {
     ideal_move = 100;
