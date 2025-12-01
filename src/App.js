@@ -4335,14 +4335,29 @@ const checkCrash = () => {
                                 ) : (
                                   <button
                                     onClick={() => {
-                                      const result = autoPlayTeam(currentGroup);
+                                      // Get previous pace from choice-1 so AI doesn't choose lower in choice-2
+                                      const paceKey = `${currentGroup}-${currentTeam}`;
+                                      const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+                                      const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+                                      const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+                                      const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+                                      const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
+                                      
+                                      const result = autoPlayTeam(currentGroup, currentTeam, currentRound === 2 ? prevPace : undefined);
                                       const teamAtCall = currentTeam;
                                       if (result) {
                                         setCards(result.updatedCards);
                                         const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
                                         const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                                        const aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                        let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                         const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                        
+                                        // Enforce: in choice-2 AI may not lower their previously announced pace (safety check)
+                                        if (typeof prevPace !== 'undefined' && currentRound === 2 && aiTeamPace < prevPace) {
+                                          try { addLog(`${teamAtCall} (AI manual) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`); } catch (e) {}
+                                          aiTeamPace = prevPace;
+                                        }
+                                        
                                         // Set a short-lived AI message for UX
                                         const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                                         setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
