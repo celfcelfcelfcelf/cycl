@@ -4628,7 +4628,11 @@ const checkCrash = () => {
                               return (
                                 <button key={c.id} type="button" title={titleText} onClick={() => !localDisabled && handleCardChoice(name, c.id)} disabled={localDisabled} className={btnClass}>
                                   <div className={`font-bold ${danger ? 'text-red-700' : ''}`}>{c.id}</div>
-                                  <div className="text-xs">{c.flat}|{c.uphill}</div>
+                                  <div className="text-xs">
+                                    <span className="text-gray-700">{c.flat}</span>
+                                    |
+                                    <span className="text-red-600">{c.uphill}</span>
+                                  </div>
                                 </button>
                               );
                             })}
