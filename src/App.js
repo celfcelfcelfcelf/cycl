@@ -3,6 +3,7 @@ import { Play, SkipForward, FileText, Trophy, ArrowRight } from 'lucide-react';
 import {
   convertToSeconds,
   getSlipstreamValue,
+  getEffectiveSV,
   getLength,
   getWeightedValue,
   getEMoveLeft,
@@ -1979,7 +1980,7 @@ return { pace, updatedCards };
     if (track[groupPos] === '_') speed = Math.max(5, speed);
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
-    setSlipstream(sv);
+    setSlipstream(getEffectiveSV(sv, speed));
 
     // If any group ahead (higher group number) has already moved and is now
     // positioned such that this group's chosen speed would move into/through
@@ -2007,7 +2008,7 @@ return { pace, updatedCards };
           // Recompute slipstream for the new capped speed
           const newSv = getSlipstreamValue(groupPos, groupPos + speed, track);
           setGroupSpeed(speed);
-          setSlipstream(newSv);
+          setSlipstream(getEffectiveSV(newSv, speed));
           // update local sv variable for logs later
           sv = newSv;
         }
