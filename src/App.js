@@ -215,6 +215,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
   const [slipstream, setSlipstream] = useState(0);
+  const [isFlat, setIsFlat] = useState(true); // Track if terrain is flat (sv === 3)
   
   const [logs, setLogs] = useState([]);
   const [groupsMovedThisRound, setGroupsMovedThisRound] = useState([]);
@@ -1981,6 +1982,7 @@ return { pace, updatedCards };
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
     setSlipstream(getEffectiveSV(sv, speed));
+    setIsFlat(sv === 3);
 
     // If any group ahead (higher group number) has already moved and is now
     // positioned such that this group's chosen speed would move into/through
@@ -2009,6 +2011,7 @@ return { pace, updatedCards };
           const newSv = getSlipstreamValue(groupPos, groupPos + speed, track);
           setGroupSpeed(speed);
           setSlipstream(getEffectiveSV(newSv, speed));
+          setIsFlat(newSv === 3);
           // update local sv variable for logs later
           sv = newSv;
         }
@@ -4368,7 +4371,10 @@ const checkCrash = () => {
                   {/* When movePhase indicates cardSelection, show the Move Group controls here */}
                   {movePhase === 'cardSelection' && (
                     <div className="border-t pt-3 bg-green-50 p-3 rounded mt-3">
-                      <div className="mb-2 text-sm font-medium">Speed: <span className="font-bold">{groupSpeed}</span>, SV: <span className="font-bold">{slipstream}</span></div>
+                      <div className="mb-2 text-sm font-medium">
+                        Speed: <span className="font-bold">{groupSpeed}</span>, 
+                        SV: <span className={`font-bold ${isFlat ? 'text-gray-700' : 'text-red-600'}`}>{slipstream}</span>
+                      </div>
                         <div className="flex justify-end">
                         <button onClick={() => openCardSelectionForGroup(currentGroup)} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
                           <ArrowRight size={14}/> Move Group
@@ -4551,7 +4557,10 @@ const checkCrash = () => {
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
                   <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: '6rem', zIndex: 99999 }}>
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
-                    <div className="text-sm text-gray-600 mb-3">Speed: <strong>{groupSpeed}</strong>, SV: <strong>{slipstream}</strong></div>
+                    <div className="text-sm text-gray-600 mb-3">
+                      Speed: <strong>{groupSpeed}</strong>, 
+                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream}</strong>
+                    </div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
                         <div key={name} className="p-3 border rounded">
