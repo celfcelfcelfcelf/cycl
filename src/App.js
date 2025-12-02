@@ -5386,8 +5386,13 @@ const checkCrash = () => {
     </div>
     {/* Rider tooltip */}
     {riderTooltip && (typeof window !== 'undefined') && (() => {
-      const r = (cards && cards[riderTooltip.name]) ? cards[riderTooltip.name] : null;
-      const mod = r ? computeModifiedBJERG(r, track) : { modifiedBJERG: (r && r.BJERG) || 0, label: 'BJERG' };
+      // Try to find rider in cards first, then in allRiders
+      let r = (cards && cards[riderTooltip.name]) ? cards[riderTooltip.name] : null;
+      if (!r && allRiders) {
+        r = allRiders.find(rider => rider.NAVN === riderTooltip.name);
+      }
+      if (!r) return null; // Rider not found
+      const mod = computeModifiedBJERG(r, track);
       const boxW = 260;
       const boxH = 110;
       const left = Math.min(Math.max(8, (riderTooltip.x || 0) + 8), (window.innerWidth - boxW - 8));
@@ -5395,9 +5400,9 @@ const checkCrash = () => {
       return (
         <div style={{ position: 'fixed', left, top, width: boxW, backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, zIndex: 2000, boxShadow: '0 6px 24px rgba(0,0,0,0.12)' }} onClick={(e) => { e.stopPropagation(); setRiderTooltip(null); }}>
           <div className="font-semibold text-sm mb-1">{riderTooltip.name}</div>
-          <div className="text-xs text-gray-600 mb-1">FLAD: {r ? (r.flad || r.FLAD || '') : ''}</div>
+          <div className="text-xs text-gray-600 mb-1">FLAD: {r.flad || r.FLAD || ''}</div>
           <div className="text-xs text-gray-600 mb-1">{mod.label}: {mod.modifiedBJERG}</div>
-          <div className="text-xs text-gray-600">SPRINT: {r ? (r.sprint || r.SPRINT || '') : ''}</div>
+          <div className="text-xs text-gray-600">SPRINT: {r.sprint || r.SPRINT || ''}</div>
         </div>
       );
     })}
