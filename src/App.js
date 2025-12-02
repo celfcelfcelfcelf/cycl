@@ -1026,6 +1026,7 @@ return { pace, updatedCards };
     try {
       const longest = getLongestHill(selectedTrack);
       const isBrosten = typeof selectedTrack === 'string' && /[B\*]$/.test(selectedTrack);
+      const isBrostensbakke = typeof selectedTrack === 'string' && /B$/.test(selectedTrack);
 
   // Compute puncheur factor multiplier per your formula:
   // multiplier = min(1, 3 / max(longest_hill, 3))
@@ -1037,14 +1038,19 @@ return { pace, updatedCards };
   const multiplier = Math.min(1, 3 / Math.max(longest, 3));
   const rpf = Math.trunc(puncheurField * multiplier * puncheur_param);
 
+      // For Brostensbakke tracks (ending with 'B'), combine BROSTEN + PUNCHEUR
+      // to determine card adjustments using the same distribution algorithm
+      const brostenField = Number(rider.BROSTEN) || 0;
+      const X = isBrostensbakke ? (brostenField + puncheurField * multiplier * puncheur_param) : rpf;
+
       // Build l[] per your snippet: 15 entries corresponding to BJERG1..BJERG15
       let l = [];
-      if (rpf !== 0) {
-        const absr = Math.abs(rpf);
+      if (X !== 0) {
+        const absr = Math.abs(X);
         const step = 16 / (absr + 1);
         for (let k = 1; k <= 15; k++) {
           if ((k % step) < 1) {
-            l.push(Math.trunc(rpf / absr));
+            l.push(Math.trunc(X / absr));
           } else {
             l.push(0);
           }
@@ -1072,33 +1078,17 @@ return { pace, updatedCards };
         // Aggregate Brosten stat is FLAD + BROSTEN (CSV) — do not include puncheur sum here
         modifiedRider.BJERG = Math.round((Number(rider.FLAD) || 0) + (Number(rider.BROSTEN) || 0));
       } else {
-        // Default behaviour (normal BJERG): base on rider.BJERG and apply l[]
+        // Default behaviour (normal BJERG or Brostensbakke 'B'): base on rider.BJERG and apply l[]
+        // For Brostensbakke tracks, l[] now includes both BROSTEN and PUNCHEUR distribution
         for (let k = 1; k <= 15; k++) {
           const base = Number(rider[`BJERG${k}`]) || Number(rider.BJERG) || 0;
           const delta = l[k - 1] || 0;
           modifiedRider[`BJERG${k}`] = Math.round(base + delta);
           sumL += delta;
         }
-        // If the track ends with plain 'B' (brostensbakke) we additionally
-        // distribute the CSV BROSTEN value across per-card BJERG slots so the
-        // number of lowered cards matches BROSTEN; otherwise include BROSTEN in total.
-        const brostenField = Number(rider.BROSTEN) || 0;
-        if (isBrosten && brostenField !== 0) {
-          const sign = brostenField > 0 ? 1 : -1;
-          let need = Math.abs(brostenField);
-          for (let k = 1; k <= 15 && need > 0; k++) {
-            if ((l[k - 1] || 0) === 0) {
-              modifiedRider[`BJERG${k}`] = Math.round((Number(modifiedRider[`BJERG${k}`]) || 0) + sign);
-              need -= 1;
-            }
-          }
-          for (let k = 1; k <= 15 && need > 0; k++) {
-            if (need <= 0) break;
-            modifiedRider[`BJERG${k}`] = Math.round((Number(modifiedRider[`BJERG${k}`]) || 0) + sign);
-            need -= 1;
-          }
-          sumL += brostenField;
-        }
+        // For Brostensbakke tracks (ending with 'B'), the BROSTEN value is now
+        // included in the l[] distribution via X = BROSTEN + PUNCHEUR, so we
+        // include it in the aggregate BJERG stat via sumL.
         modifiedRider.BJERG = Math.round((Number(rider.BJERG) || 0) + sumL);
       }
     } catch (e) {
