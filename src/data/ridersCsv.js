@@ -463,6 +463,7 @@ const riders = dataRows.map(cols => {
   out.FLAD = toNumber(row['FLAD']);
   out.BJERG = toNumber(row['BJERG']);
   out.BROSTEN = toNumber(row['BROSTEN']);
+  out.BROSTENSBAKKE = toNumber(row['BROSTENSBAKKE']);
   out.PUNCHEUR = toNumber(row['PUNCHEUR']);
   out.SPRINT = toNumber(row['SPRINT']);
   out.MENTALITET = toNumber(row['MENTALITET']);
