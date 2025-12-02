@@ -1091,17 +1091,19 @@ return { pace, updatedCards };
         modifiedRider.BJERG = Math.round((Number(rider.FLAD) || 0) + (Number(rider.BROSTEN) || 0));
       } else {
         // Default behaviour (normal BJERG or Brostensbakke 'B'): base on rider.BJERG and apply l[]
-        // For Brostensbakke tracks, l[] now includes both BROSTEN and PUNCHEUR distribution
         for (let k = 1; k <= 15; k++) {
           const base = Number(rider[`BJERG${k}`]) || Number(rider.BJERG) || 0;
           const delta = l[k - 1] || 0;
           modifiedRider[`BJERG${k}`] = Math.round(base + delta);
           sumL += delta;
         }
-        // For Brostensbakke tracks (ending with 'B'), the BROSTEN value is now
-        // included in the l[] distribution via X = BROSTEN + PUNCHEUR, so we
-        // include it in the aggregate BJERG stat via sumL.
-        modifiedRider.BJERG = Math.round((Number(rider.BJERG) || 0) + sumL);
+        // For Brostensbakke tracks (ending with 'B'), the aggregate stat should be
+        // BJERG + BROSTENSBAKKE (from CSV). For normal tracks, just use BJERG + sumL (puncheur).
+        if (isBrostensbakke) {
+          modifiedRider.BJERG = Math.round((Number(rider.BJERG) || 0) + brostensbakkeField);
+        } else {
+          modifiedRider.BJERG = Math.round((Number(rider.BJERG) || 0) + sumL);
+        }
       }
     } catch (e) {
       // On any error fall back to original rider
