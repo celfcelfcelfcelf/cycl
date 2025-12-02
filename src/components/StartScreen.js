@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const tracks = {
   'Liege-Bastogne-Liege': '3311111___333333333111333333333300000_3333333333333311133333333333333FFFFFFFFF',
@@ -93,7 +93,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
   const [attackerLeadFields, setAttackerLeadFields] = useState(5);
   
   // Update numAttackers when total riders changes
-  React.useEffect(() => {
+  useEffect(() => {
     setNumAttackers(Math.ceil(totalRiders / 10));
   }, [totalRiders]);
 
