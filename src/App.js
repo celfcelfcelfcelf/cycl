@@ -3866,7 +3866,16 @@ const checkCrash = () => {
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
-                      <div className="font-semibold">{r.NAVN}{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}</div>
+                      <div 
+                        className="font-semibold"
+                        data-rider={r.NAVN}
+                        onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                        onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                        onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                        onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
+                      >
+                        <span className="cursor-pointer hover:underline">{r.NAVN}</span>{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
+                      </div>
                       {(() => {
                         const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
                         return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
@@ -3902,7 +3911,25 @@ const checkCrash = () => {
                         <div key={t} className="p-2 bg-gray-50 rounded border text-sm">
                           <div className="font-semibold">{t}</div>
                           <div className="text-xs text-gray-500 mt-1">
-                            {picks.length > 0 ? picks.join(', ') : <span className="text-gray-400">(no picks yet)</span>}
+                            {picks.length > 0 ? (
+                              picks.map((name, idx) => (
+                                <span key={name + idx}>
+                                  <span 
+                                    data-rider={name}
+                                    onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }}
+                                    className="cursor-pointer hover:underline"
+                                  >
+                                    {name}
+                                  </span>
+                                  {idx < picks.length - 1 ? ', ' : ''}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-gray-400">(no picks yet)</span>
+                            )}
                           </div>
                         </div>
                       );
