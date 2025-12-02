@@ -84,6 +84,18 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
   const [selectedTrack, setSelectedTrack] = useState(Object.keys(tracks)[0]);
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
+  
+  // Calculate default number of attackers based on total riders
+  const totalRiders = numberOfTeams * ridersPerTeam;
+  const defaultAttackers = Math.ceil(totalRiders / 10);
+  
+  const [numAttackers, setNumAttackers] = useState(defaultAttackers);
+  const [attackerLeadFields, setAttackerLeadFields] = useState(5);
+  
+  // Update numAttackers when total riders changes
+  React.useEffect(() => {
+    setNumAttackers(Math.ceil(totalRiders / 10));
+  }, [totalRiders]);
 
   function handleStart() {
     const cfg = {
@@ -91,7 +103,9 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
       trackName: selectedTrack,
       numberOfTeams,
       ridersPerTeam,
-      totalRiders: numberOfTeams * ridersPerTeam
+      totalRiders,
+      numAttackers,
+      attackerLeadFields
     };
     onStartGame && onStartGame(cfg);
   }
@@ -102,7 +116,9 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
       trackName: selectedTrack,
       numberOfTeams: 3,
       ridersPerTeam: 3,
-      totalRiders: 9
+      totalRiders: 9,
+      numAttackers: 1,
+      attackerLeadFields: 5
     };
     onQuickStart ? onQuickStart(quickCfg) : onStartGame && onStartGame(quickCfg, true);
   }
@@ -139,6 +155,45 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
             </select>
           </div>
         </div>
+
+        {/* Attacker settings */}
+        <div className="flex flex-col md:flex-row md:gap-4 gap-3 mb-4">
+          <div className="flex-1">
+            <label className="block font-semibold mb-2">Udbrydere: {numAttackers}</label>
+            <input 
+              type="range" 
+              min="1" 
+              max="4" 
+              value={numAttackers} 
+              onChange={e => setNumAttackers(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-gray-600 mt-1">
+              <span>1</span>
+              <span>2</span>
+              <span>3</span>
+              <span>4</span>
+            </div>
+          </div>
+
+          <div className="flex-1">
+            <label className="block font-semibold mb-2">Felter foran: {attackerLeadFields}</label>
+            <input 
+              type="range" 
+              min="1" 
+              max="10" 
+              value={attackerLeadFields} 
+              onChange={e => setAttackerLeadFields(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-gray-600 mt-1">
+              <span>1</span>
+              <span>5</span>
+              <span>10</span>
+            </div>
+          </div>
+        </div>
+
         {/* Show visualization for the currently selected track under the controls */}
         <TrackVisualization track={tracks[selectedTrack]} trackName={selectedTrack} />
 
