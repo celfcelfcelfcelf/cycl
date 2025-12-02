@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, SkipForward, FileText, Trophy, ArrowRight } from 'lucide-react';
+import { Play, SkipForward, FileText, Trophy, ArrowRight, Info } from 'lucide-react';
 import {
   convertToSeconds,
   getSlipstreamValue,
@@ -3866,15 +3866,18 @@ const checkCrash = () => {
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
-                      <div 
-                        className="font-semibold"
-                        data-rider={r.NAVN}
-                        onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                        onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                        onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                        onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
-                      >
-                        <span className="cursor-pointer hover:underline">{r.NAVN}</span>{!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
+                      <div className="font-semibold flex items-center gap-1">
+                        <span>{r.NAVN}</span>
+                        <Info 
+                          size={14} 
+                          className="text-blue-500 hover:text-blue-700 cursor-pointer flex-shrink-0"
+                          data-rider={r.NAVN}
+                          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
+                        />
+                        {!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
                       </div>
                       {(() => {
                         const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
@@ -3913,17 +3916,17 @@ const checkCrash = () => {
                           <div className="text-xs text-gray-500 mt-1">
                             {picks.length > 0 ? (
                               picks.map((name, idx) => (
-                                <span key={name + idx}>
-                                  <span 
+                                <span key={name + idx} className="inline-flex items-center gap-0.5">
+                                  <span>{name}</span>
+                                  <Info 
+                                    size={12} 
+                                    className="text-blue-500 hover:text-blue-700 cursor-pointer inline-block"
                                     data-rider={name}
                                     onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
                                     onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
                                     onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
                                     onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }}
-                                    className="cursor-pointer hover:underline"
-                                  >
-                                    {name}
-                                  </span>
+                                  />
                                   {idx < picks.length - 1 ? ', ' : ''}
                                 </span>
                               ))
