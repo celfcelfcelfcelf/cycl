@@ -181,19 +181,24 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
       let sumL = 0;
       for (let k = 0; k < 15; k++) sumL += l[k] || 0;
-      const brostenField = Number(riderObj.BROSTEN) || 0;
-      const brostensbakkeField = Number(riderObj.BROSTENSBAKKE) || 0;
+      
+      // Try both lowercase and uppercase field names (cards use lowercase, allRiders use uppercase)
+      const brostenField = Number(riderObj.brosten || riderObj.BROSTEN) || 0;
+      const brostensbakkeField = Number(riderObj.brostensbakke || riderObj.BROSTENSBAKKE) || 0;
+      const bjergField = Number(riderObj.bjerg || riderObj.BJERG) || 0;
+      const fladField = Number(riderObj.flad || riderObj.FLAD) || 0;
+      
       // If track ends with '*' we show Brosten = FLAD + BROSTEN
       let modifiedBJERG;
       if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) {
-        modifiedBJERG = Math.round((Number(riderObj.FLAD) || 0) + brostenField);
+        modifiedBJERG = Math.round(fladField + brostenField);
       } else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) {
         // For Brostensbakke tracks (ending with 'B'), use BJERG + BROSTENSBAKKE
-        modifiedBJERG = Math.round((Number(riderObj.BJERG) || 0) + brostensbakkeField);
+        modifiedBJERG = Math.round(bjergField + brostensbakkeField);
       } else {
         // otherwise include puncheur sum and plain BROSTEN
         const sumTotal = sumL + (isBrosten ? brostenField : 0);
-        modifiedBJERG = Math.round((Number(riderObj.BJERG) || 0) + sumTotal);
+        modifiedBJERG = Math.round(bjergField + sumTotal);
       }
 
       let label = 'BJERG';
@@ -202,7 +207,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       else if (puncheur_factor > 0.3) label = 'BAKKE';
 
       return { modifiedBJERG, label, puncheur_factor };
-    } catch (e) { return { modifiedBJERG: Number(riderObj.BJERG) || 0, label: 'BJERG', puncheur_factor: 0 }; }
+    } catch (e) { 
+      const bjergFallback = Number(riderObj.bjerg || riderObj.BJERG) || 0;
+      return { modifiedBJERG: bjergFallback, label: 'BJERG', puncheur_factor: 0 }; 
+    }
   };
   // Touch helpers to avoid accidental taps while scrolling the draft pool on mobile
   const touchInfoRef = useRef({});
@@ -5407,12 +5415,17 @@ const checkCrash = () => {
       const boxH = 110;
       const left = Math.min(Math.max(8, (riderTooltip.x || 0) + 8), (window.innerWidth - boxW - 8));
       const top = Math.min(Math.max(8, (riderTooltip.y || 0) + 8), (window.innerHeight - boxH - 8));
+      
+      // Get values - try lowercase first (from cards), then uppercase (from allRiders)
+      const fladValue = r.flad || r.FLAD || '';
+      const sprintValue = r.sprint || r.SPRINT || '';
+      
       return (
         <div style={{ position: 'fixed', left, top, width: boxW, backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, zIndex: 2000, boxShadow: '0 6px 24px rgba(0,0,0,0.12)' }} onClick={(e) => { e.stopPropagation(); setRiderTooltip(null); }}>
           <div className="font-semibold text-sm mb-1">{riderTooltip.name}</div>
-          <div className="text-xs text-gray-600 mb-1">FLAD: {r.flad || r.FLAD || ''}</div>
+          <div className="text-xs text-gray-600 mb-1">FLAD: {fladValue}</div>
           <div className="text-xs text-gray-600 mb-1">{mod.label}: {mod.modifiedBJERG}</div>
-          <div className="text-xs text-gray-600">SPRINT: {r.sprint || r.SPRINT || ''}</div>
+          <div className="text-xs text-gray-600">SPRINT: {sprintValue}</div>
         </div>
       );
     })()}
