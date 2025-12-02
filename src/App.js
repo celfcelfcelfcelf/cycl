@@ -1027,6 +1027,7 @@ return { pace, updatedCards };
       const longest = getLongestHill(selectedTrack);
       const isBrosten = typeof selectedTrack === 'string' && /[B\*]$/.test(selectedTrack);
       const isBrostensbakke = typeof selectedTrack === 'string' && /B$/.test(selectedTrack);
+      const isBrostenStar = typeof selectedTrack === 'string' && /\*$/.test(selectedTrack);
 
   // Compute puncheur factor multiplier per your formula:
   // multiplier = min(1, 3 / max(longest_hill, 3))
@@ -1038,10 +1039,19 @@ return { pace, updatedCards };
   const multiplier = Math.min(1, 3 / Math.max(longest, 3));
   const rpf = Math.trunc(puncheurField * multiplier * puncheur_param);
 
-      // For Brostensbakke tracks (ending with 'B'), combine BROSTEN + PUNCHEUR
-      // to determine card adjustments using the same distribution algorithm
+      // Determine X for card distribution:
+      // - Brostensbakke ('B'): X = BROSTEN + PUNCHEUR
+      // - Brosten ('*'): X = BROSTEN only
+      // - Normal tracks: X = PUNCHEUR only
       const brostenField = Number(rider.BROSTEN) || 0;
-      const X = isBrostensbakke ? (brostenField + puncheurField * multiplier * puncheur_param) : rpf;
+      let X;
+      if (isBrostensbakke) {
+        X = brostenField + puncheurField * multiplier * puncheur_param;
+      } else if (isBrostenStar) {
+        X = brostenField;
+      } else {
+        X = rpf;
+      }
 
       // Build l[] per your snippet: 15 entries corresponding to BJERG1..BJERG15
       let l = [];
@@ -1062,13 +1072,14 @@ return { pace, updatedCards };
       // Apply l[] to per-card BJERGk values.
       // If this is a "Brosten" track (ends with '*'), per the requested
       // behaviour we derive per-card uphill values from the FLAD values and
-      // then apply the puncheur l[] adjustments on top. The aggregate
+      // then apply the distributed BROSTEN adjustments (l[]) on top. The aggregate
       // displayed Brosten stat will be FLAD + BROSTEN (CSV) and is handled
       // below.
       let sumL = 0;
       if (//.test('')) {} // noop to keep patch context stable
       if (typeof selectedTrack === 'string' && /\*$/.test(selectedTrack)) {
         // Brosten-star behaviour: uphill per-card = FLADk + l[k]
+        // where l[] contains the distributed BROSTEN adjustments
         for (let k = 1; k <= 15; k++) {
           const fbase = Number(rider[`FLAD${k}`]) || Number(rider.FLAD) || 0;
           const delta = l[k - 1] || 0;
