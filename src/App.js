@@ -182,12 +182,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       let sumL = 0;
       for (let k = 0; k < 15; k++) sumL += l[k] || 0;
       const brostenField = Number(riderObj.BROSTEN) || 0;
+      const brostensbakkeField = Number(riderObj.BROSTENSBAKKE) || 0;
       // If track ends with '*' we show Brosten = FLAD + BROSTEN
       let modifiedBJERG;
       if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) {
         modifiedBJERG = Math.round((Number(riderObj.FLAD) || 0) + brostenField);
+      } else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) {
+        // For Brostensbakke tracks (ending with 'B'), use BJERG + BROSTENSBAKKE
+        modifiedBJERG = Math.round((Number(riderObj.BJERG) || 0) + brostensbakkeField);
       } else {
-        // otherwise include puncheur sum and plain BROSTEN (for 'B' behaviour)
+        // otherwise include puncheur sum and plain BROSTEN
         const sumTotal = sumL + (isBrosten ? brostenField : 0);
         modifiedBJERG = Math.round((Number(riderObj.BJERG) || 0) + sumTotal);
       }
@@ -5018,16 +5022,18 @@ const checkCrash = () => {
                                           {attackersHere.length > 0 && attackersHere.map((n, i) => (
                                             <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
                                               <span>{firstNameShort(n)}</span>
-                                              <Info 
-                                                size={10} 
-                                                className="cursor-pointer flex-shrink-0"
-                                                style={{ color: styleColors.text }}
-                                                data-rider={n}
-                                                onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onTouchEnd={(e) => { const t2 = e.changedTouches && e.changedTouches[0]; if (t2) { e.stopPropagation(); setRiderTooltip({ name: n, x: t2.clientX, y: t2.clientY }); } }}
-                                              />
+                                              <button
+                                                type="button"
+                                                className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
+                                                style={{ color: styleColors.text, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                                onClick={(e) => { 
+                                                  e.stopPropagation(); 
+                                                  e.preventDefault(); 
+                                                  setRiderTooltip({ name: n, x: e.clientX, y: e.clientY });
+                                                }}
+                                              >
+                                                <Info size={10} />
+                                              </button>
                                             </div>
                                           ))}
 
@@ -5059,16 +5065,18 @@ const checkCrash = () => {
                                           {fallenHere.length > 0 && fallenHere.map((n, i) => (
                                             <div key={`f${n}${i}`} style={{ marginTop: 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
                                               <span>{firstNameShort(n)}</span>
-                                              <Info 
-                                                size={10} 
-                                                className="cursor-pointer flex-shrink-0"
-                                                style={{ color: styleColors.text }}
-                                                data-rider={n}
-                                                onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }}
-                                                onTouchEnd={(e) => { const t3 = e.changedTouches && e.changedTouches[0]; if (t3) { e.stopPropagation(); setRiderTooltip({ name: n, x: t3.clientX, y: t3.clientY }); } }}
-                                              />
+                                              <button
+                                                type="button"
+                                                className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
+                                                style={{ color: styleColors.text, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                                onClick={(e) => { 
+                                                  e.stopPropagation(); 
+                                                  e.preventDefault(); 
+                                                  setRiderTooltip({ name: n, x: e.clientX, y: e.clientY });
+                                                }}
+                                              >
+                                                <Info size={10} />
+                                              </button>
                                             </div>
                                           ))}
                                         </div>
@@ -5128,16 +5136,18 @@ const checkCrash = () => {
                                         return (
                                             <div key={name} className="whitespace-nowrap inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
                                             <span>{abbrevFirstName(name)}</span>
-                                            <Info 
-                                              size={12} 
-                                              className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100"
-                                              style={{ color: txt }}
-                                              data-rider={name}
-                                              onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
-                                              onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
-                                              onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
-                                              onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }}
-                                            />
+                                            <button
+                                              type="button"
+                                              className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100 border-0 bg-transparent p-0 m-0"
+                                              style={{ color: txt, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                              onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                e.preventDefault(); 
+                                                setRiderTooltip({ name, x: e.clientX, y: e.clientY });
+                                              }}
+                                            >
+                                              <Info size={12} />
+                                            </button>
                                             <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
                                           </div>
                                         );
@@ -5405,7 +5415,7 @@ const checkCrash = () => {
           <div className="text-xs text-gray-600">SPRINT: {r.sprint || r.SPRINT || ''}</div>
         </div>
       );
-    })}
+    })()}
   </> );
 };
 
