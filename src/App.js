@@ -1040,13 +1040,14 @@ return { pace, updatedCards };
   const rpf = Math.trunc(puncheurField * multiplier * puncheur_param);
 
       // Determine X for card distribution:
-      // - Brostensbakke ('B'): X = BROSTEN + PUNCHEUR
+      // - Brostensbakke ('B'): X = BROSTENSBAKKE field from CSV
       // - Brosten ('*'): X = BROSTEN only
       // - Normal tracks: X = PUNCHEUR only
       const brostenField = Number(rider.BROSTEN) || 0;
+      const brostensbakkeField = Number(rider.BROSTENSBAKKE) || 0;
       let X;
       if (isBrostensbakke) {
-        X = brostenField + puncheurField * multiplier * puncheur_param;
+        X = brostensbakkeField;
       } else if (isBrostenStar) {
         X = brostenField;
       } else {
