@@ -2851,4 +2851,2874 @@ if (potentialLeaders.length > 0) {
     const sprint2 = Math.pow((rider.sprint + 3) * Math.pow(minFieldsLeft / fieldsLeft, 2.5), 2);
     sprint2Values[riderName] = sprint2;
     sprint2Sum += sprint2;
+  }
   
+  console.log('Sprint2 sum:', sprint2Sum);
+  
+  // Update sprint_chance, win_chance_wo_sprint, and win_chance for each rider
+  for (const riderName in updatedCards) {
+    const rider = updatedCards[riderName];
+    
+    rider.sprint_chance = sprint2Sum > 0 ? (sprint2Values[riderName] / sprint2Sum) * 100 : 100 / Object.keys(updatedCards).length;
+    rider.win_chance_wo_sprint = getWinChanceWoSprint(rider, totalPoints, factor);
+    rider.win_chance = getWinChance(rider, totalPoints, factor, sprintWeight);
+    // Clear any temporary attacker boost marker now that win_chance is recalculated
+    if (typeof rider.win_chance_original !== 'undefined') {
+      try { delete rider.win_chance_original; } catch (e) {}
+    }
+
+    console.log(`${riderName}: sprint_chance=${rider.sprint_chance.toFixed(1)}%, win_chance_wo_sprint=${rider.win_chance_wo_sprint.toFixed(1)}%, win_chance=${rider.win_chance.toFixed(1)}%`);
+  }
+  
+  setCards(updatedCards);
+  
+  addLog(`Round ${newRound} - Statistics updated`);
+  // Brosten special: roll a 1-6 die on new round and possibly cause a puncture
+  try {
+    // Do not auto-roll here. For Brosten tracks the UI provides an explicit
+    // "Check if crash" button which the user must press. Clear any
+    // previous dice state so the new round starts clean.
+    setDiceEvent(null);
+    setDiceMsg(null);
+  } catch (e) {
+    // ignore dice errors
+  }
+  console.log('=== END NEW ROUND ===');
+  // Compute and store time gaps per group so they only update once per new round
+  const gaps = {};
+  const overallMaxPos = Math.max(...Object.values(updatedCards).map(r => r.position));
+  const groups = Array.from(new Set(Object.values(updatedCards).map(r => r.group)));
+  for (const g of groups) {
+  const groupPos = Math.max(...Object.values(updatedCards).filter(r => r.group === g && !r.finished).map(r => r.position));
+    let timeGap = 21 * (overallMaxPos - groupPos);
+    if (timeGap !== 0) {
+      const jitter = Math.floor(Math.random() * 11) - 5;
+      timeGap = Math.max(0, timeGap + jitter);
+    }
+    gaps[g] = timeGap;
+  }
+  setGroupTimeGaps(gaps);
+  // reset sprint results for the new round
+  // NOTE: Do NOT reset latestPrelTime - it should only decrease across the entire game
+  setSprintResults([]);
+};
+
+// Check crash handler: called by the UI when user presses "Check if crash"
+const checkCrash = () => {
+  try {
+    const selectedTrackStr = (typeof track === 'string' && track && track.length > 0)
+      ? track
+      : (tracks && tracks[trackName] ? tracks[trackName] : '');
+    const isBrostenTrack = typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr);
+    if (!isBrostenTrack) return;
+    const roll = Math.floor(Math.random() * 6) + 1;
+    addLog(`Brosten die roll: ${roll}`);
+    setDiceMsg(`Rolled: ${roll}`);
+    if (roll === 1 || roll === 2) {
+      // move a random non-finished rider back 3 fields
+      const updatedCards = { ...cards };
+      const candidates = Object.entries(updatedCards).filter(([, r]) => !r.finished).map(([n]) => n);
+      if (candidates.length > 0) {
+        const idx = Math.floor(Math.random() * candidates.length);
+        const who = candidates[idx];
+        const oldPos = Number(updatedCards[who].position || 0);
+        const newPos = Math.max(0, oldPos - 3);
+        updatedCards[who] = { ...updatedCards[who], position: newPos };
+        updatedCards[who].moved_fields = newPos - (updatedCards[who].old_position || oldPos);
+        const kind = roll === 1 ? 'puncture' : 'crash';
+        const capital = roll === 1 ? 'Puncture' : 'Crash';
+        const msg = `${who} gets a ${kind} and moves from field ${oldPos} to ${newPos}`;
+        addLog(msg);
+        setDiceMsg(`${capital}: ${who} ${oldPos}→${newPos}`);
+        setDiceEvent({ who, kind, oldPos, newPos });
+        // Reassign groups immediately
+        try {
+          const sorted = Object.entries(updatedCards).sort((a, b) => b[1].position - a[1].position);
+          let gNum = 1;
+          let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
+          for (const [n, r] of sorted) {
+            if (r.position < curPos) {
+              gNum++;
+              curPos = r.position;
+            }
+            updatedCards[n] = { ...updatedCards[n], group: gNum };
+          }
+        } catch (e) {}
+      }
+      setCards(updatedCards);
+    } else {
+      setDiceEvent({ who: null, kind: 'none', roll });
+      // Show exact text requested by user when there is no crash
+      setDiceMsg('no crash');
+    }
+  } catch (e) {}
+};
+
+  const runSprints = async (trackStr, sprintGroup = null) => {
+    // Run the pure sprint logic to compute results, but present an animated
+    // sequence in the UI: show riders' sprint stats, then sequentially "sprint"
+    // the lowest->highest sprinter with delays to make it more exciting.
+    try {
+  const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
+  // Debug: indicate pure runner returned and wipe previous animation messages
+  try { addLog(`runSprints: pure runner returned (result.riders=${Object.keys(res.updatedCards || {}).length})`); } catch (e) {}
+  // Wipe the animation box when a new group sprints and show an initial
+  // summary message listing the group and participating riders with sprint stat
+  const buildSprintSummary = (groupId, statsArr) => {
+    try {
+      if (!groupId) return ['Preparing sprint...'];
+      const parts = (statsArr || []).map(s => `${s.name} (${s.sprint_stat})`);
+      const joined = parts.join(', ');
+      if (parts.length === 0) {
+        return [`Group ${groupId} sprints.`, `No riders participate.`, ''];
+      }
+      const verb = parts.length === 1 ? 'participates.' : 'participate.';
+      // Return multiple lines: bold headline, participants line, blank spacer
+      return [`Group ${groupId} sprints.`, `${joined} ${verb}`, ''];
+    } catch (e) { return ['Preparing sprint...']; }
+  };
+  setSprintAnimMsgs(buildSprintSummary(sprintGroup, []));
+
+  // Collect riders in this sprint group and their computed sprint stats
+      const updated = res.updatedCards || {};
+      // Include riders even if they were marked `finished` by the pure runner
+      // so the UI animation shows the computed sprint_points produced by
+      // `runSprintsPure`. Filtering out finished riders caused the UI to
+      // fall back to using the un-updated `cards` state where sprint_points
+      // were not yet set (making the displayed points equal to the raw
+      // sprint stat).
+      const groupRiders = Object.entries(updated).filter(([, r]) => r.group === sprintGroup);
+      // Build stats array from the pure-runner's updated cards and include team
+      let stats = groupRiders.map(([name, r]) => ({
+        name,
+        team: r.team,
+        sprint_points: Math.round(r.sprint_points || 0),
+        sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
+        tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
+      }));
+
+      // If the pure runner returned no stats for this group, fall back to
+      // computing a lightweight stats array from the current `cards` state so
+      // the UI animation still shows something useful.
+      if (stats.length === 0) {
+        try { addLog('runSprints: pure runner returned no stats, attempting fallback from cards'); } catch (e) {}
+        const fallbackGroup = Object.entries(cards).filter(([, r]) => r.group === sprintGroup && !r.finished);
+        const fallbackStats = fallbackGroup.map(([name, r]) => ({
+          name,
+          team: r.team,
+          // Prefer explicit sprint_points if present, otherwise approximate from r.sprint
+          sprint_points: Math.round((typeof r.sprint_points === 'number') ? r.sprint_points : (typeof r.sprint === 'number' ? r.sprint : 0)),
+          sprint_stat: (typeof r.sprint === 'number') ? r.sprint : 0,
+          tk_penalty: (typeof r.tk_penalty === 'number') ? r.tk_penalty : 0
+        }));
+
+        if (fallbackStats.length > 0) {
+          stats = fallbackStats;
+          try { addLog(`runSprints: using fallback stats from cards, count=${stats.length}`); } catch (e) {}
+          // Reset animation messages to the initial summary before we animate
+          setSprintAnimMsgs(buildSprintSummary(sprintGroup, stats));
+        }
+      }
+
+      if (stats.length > 0) {
+        // Build a full summary list for the top animation box: include every
+        // rider name and their computed sprint points so the top box shows
+        // the complete standings before the per-rider reveal animation.
+        const fullList = [];
+        fullList.push(`Sprint: Group ${sprintGroup}`);
+        for (const s of stats.slice().sort((a,b) => (b.sprint_points||0) - (a.sprint_points||0))) {
+          fullList.push(`${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`);
+        }
+        fullList.push('');
+        setSprintAnimMsgs(fullList);
+        try { addLog(`runSprints: stats count=${stats.length}`); } catch (e) {}
+        // Helper: try to find an exact sprint log line for a rider from res.logs
+        const findLogLine = (name) => {
+          try {
+            if (!res.logs || res.logs.length === 0) return null;
+            // Find first log entry that contains the rider name and 'sprint points'
+            const entry = res.logs.find(l => l && l.includes(name) && l.includes('sprint points'));
+            if (!entry) return null;
+            // Strip any leading numeric placement like '7. ' to match previous UI format
+            const m = entry.match(/^\s*\d+\.\s*(.*)$/);
+            return m ? m[1] : entry;
+          } catch (e) { return null; }
+        };
+
+        // 2) Sprint each rider starting from the lowest sprint_points (worst sprinter)
+        // Reveal one combined line per rider and pause 100ms between reveals.
+        const asc = stats.slice().sort((a,b) => a.sprint_points - b.sprint_points);
+        await new Promise(r => setTimeout(r, 100));
+        for (const s of asc) {
+          // Try to find the official placement from res.result (if available)
+          let placement = null;
+          try {
+            if (res && Array.isArray(res.result)) {
+              const found = res.result.find(it => it && it[1] === s.name);
+              if (found) placement = found[0];
+            }
+          } catch (e) { placement = null; }
+
+          const placePrefix = placement ? `${placement}. ` : '';
+          const line = `${placePrefix}${s.name} - ${s.sprint_points} sprint points (Sprint stat: ${s.sprint_stat} TK_penalty: ${s.tk_penalty})`;
+          setSprintAnimMsgs(prev => [...prev, line]);
+          try { addLog(`runSprints: animated sprint for ${s.name} -> ${s.sprint_points}`); } catch (e) {}
+          // 0.1 seconds pause between rider reveals
+          await new Promise(r => setTimeout(r, 100));
+        }
+      }
+      else {
+        try { addLog('runSprints: no sprint stats found for group'); } catch (e) {}
+        setSprintAnimMsgs(prev => [...prev, 'No sprintable riders found.']);
+      }
+
+          // Persist finished riders into a dedicated finalStandings state
+          if (res && Array.isArray(res.finishedThisRun) && res.finishedThisRun.length > 0) {
+            setFinalStandings(prev => {
+              // Append new finished entries, avoid duplicates by rider name
+              const byName = new Map(prev.map(p => [p.name, p]));
+              for (const f of res.finishedThisRun) byName.set(f.name, f);
+              return Array.from(byName.values()).sort((a,b) => (a.pos || 9999) - (b.pos || 9999));
+            });
+          }
+          // After recording finalStandings, update game state with survivors
+          setCards(res.updatedCards);
+          setSprintResults(res.result);
+          // Prefer the pure-runner's explicit winner baseline when available.
+          // CRITICAL: latestPrelTime can ONLY decrease, never increase.
+          try {
+            const candidate = (typeof res.winner_prel_time === 'number' && res.winner_prel_time > 0)
+              ? res.winner_prel_time
+              : (typeof res.latestPt === 'number' ? res.latestPt : 6000);
+            setLatestPrelTime(prev => {
+              // Always take minimum, starting from 6000 if prev is invalid
+              const safePrev = (typeof prev === 'number' && prev > 0) ? prev : 6000;
+              const safeCandidate = (typeof candidate === 'number' && candidate > 0) ? candidate : 6000;
+              return Math.min(safePrev, safeCandidate);
+            });
+          } catch (e) {
+            // Fallback: only update if res.latestPt is smaller than current
+            try { 
+              setLatestPrelTime(prev => {
+                if (typeof res.latestPt !== 'number') return prev;
+                return Math.min(prev || 6000, res.latestPt);
+              });
+            } catch (e) {}
+          }
+          for (const l of res.logs || []) addLog(l);
+
+      // Remove the sprintGroup we just ran from the pending list so the
+      // UI no longer shows the "Sprint with group X" button.
+      // If sprintGroup is null we ran all detected groups -> clear all pending.
+      setSprintGroupsPending(prev => {
+        try {
+          if (sprintGroup === null) return [];
+          return (prev || []).filter(g => g !== sprintGroup);
+        } catch (e) {
+          return [];
+        }
+      });
+
+      return res;
+    } catch (e) {
+      addLog('runSprintsPure failed: ' + (e && e.message));
+    }
+  };
+
+  const HumanTurnInterface = ({ groupNum, riders, onSubmit }) => {
+  // Count how many riders are in the whole group (not only the human's riders)
+  // Attack is allowed as long as there are at least 3 riders in the group.
+  const ridersCount = Array.isArray(riders) ? riders.length : 0;
+  const totalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
+  const canAttack = totalGroupCount >= 3;
+  const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow', 'doublelead'
+  const [paceValue, setPaceValue] = useState(null); // 2-8
+  const [attackingRider, setAttackingRider] = useState(null); // rider name
+  const [attackCard, setAttackCard] = useState(null); // card object
+  const [paceLeader, setPaceLeader] = useState(null); // chosen leader when pacing
+  // For dobbeltføring
+  const [doubleLeadPace1, setDoubleLeadPace1] = useState(null);
+  const [doubleLeadPace2, setDoubleLeadPace2] = useState(null);
+  const [doubleLeadRider1, setDoubleLeadRider1] = useState(null);
+  const [doubleLeadRider2, setDoubleLeadRider2] = useState(null);
+  // Default to 'nochange' in choice-2 when a previous round-1 submission exists
+  useEffect(() => {
+    try {
+      const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+      const paceKey = `${groupNum}-Me`;
+      const meta = teamPaceMeta && teamPaceMeta[paceKey];
+      // Use the recorded teamPaces entry (round-1 submission) to decide
+      // whether we should default to 'nochange' when choice-2 opens. The
+      // `meta.prevPace` is only populated later when a round-2 submission
+      // happens, so checking teamPaces is the reliable indicator here.
+      if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
+        setTeamChoice(prev => prev === null ? 'nochange' : prev);
+      }
+    } catch (e) {}
+  }, [teamPaceRound, teamPaceMeta, teamPaces, groupNum]);
+  
+  // Compute playable pace values for a given rider name and rider object.
+  // Returns an array of integers (descending) from highest playable down to 2.
+  const computePlayablePaces = (name, rider) => {
+    if (!rider) return [];
+    const top4 = rider.cards.slice(0, Math.min(4, rider.cards.length));
+  const penalty = getPenalty(name, cards) || 0; // global/local penalty from top-4 TK-1
+    const possible = new Set();
+
+    // Try speeds from 8 down to 2 and test whether the rider can play a card that
+    // equals the target after applying penalty and using the correct flat/uphill
+    // value depending on sv for that speed.
+    for (let s = 8; s >= 2; s--) {
+      const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(s), track);
+      for (const c of top4) {
+        if (!c || !c.id) continue;
+        const cv = sv > 2 ? c.flat : c.uphill;
+        const effective = cv - penalty;
+        if (effective === s) {
+          possible.add(s);
+          break; // one matching card is enough
+        }
+      }
+    }
+
+    // Return as sorted array descending
+    return Array.from(possible).sort((a,b) => b - a);
+  };
+  // Return true if the given rider (top-4) can play the specific pace value
+  const canRiderPlayValue = (name, rider, pace) => {
+    if (!rider) return false;
+    const top4 = rider.cards.slice(0, Math.min(4, rider.cards.length));
+  const penalty = getPenalty(name, cards) || 0;
+    const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(pace), track);
+    for (const c of top4) {
+      if (!c || !c.id) continue;
+      const cv = sv > 2 ? c.flat : c.uphill;
+      if ((cv - penalty) === pace) return true;
+    }
+    return false;
+  };
+
+  // Return true if the given rider can play at least the given pace value
+  // (i.e. has a card in top-4 whose effective value >= pace). This is used
+  // when selecting a leader for a chosen pace: a leader who doesn't have the
+  // exact value may still lead if they can play a higher card (and thus meet
+  // the group's chosen speed by playing that higher card).
+  const canRiderPlayAtLeast = (name, rider, pace) => {
+    if (!rider) return false;
+    const top4 = rider.cards.slice(0, Math.min(4, rider.cards.length));
+    const penalty = getPenalty(name, cards) || 0;
+    for (const c of top4) {
+      if (!c || !c.id) continue;
+      const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(pace), track);
+      const cv = sv > 2 ? c.flat : c.uphill;
+      if ((cv - penalty) >= pace) return true;
+    }
+    return false;
+  };
+  const handleTeamChoice = (type, value = null) => {
+    // For 'pace' we don't set a pace value immediately; pace options depend on chosen leader
+    setTeamChoice(type);
+    setPaceValue(type === 'pace' ? null : value);
+    setAttackingRider(null);
+    setAttackCard(null);
+    setPaceLeader(null);
+  };
+
+  const canSubmit = () => {
+    if (!teamChoice) return false;
+    if (teamChoice === 'nochange') return true;
+    if (teamChoice === 'attack') {
+      return attackingRider !== null && attackCard !== null;
+    }
+    if (teamChoice === 'pace') {
+      // If user already chose a pace value, require a leader to be selected from
+      // the riders who can play that value. If no pace value chosen (user will
+      // pick leader first), require both leader and a chosen pace.
+      if (paceValue) return paceLeader !== null;
+      return paceLeader !== null && paceValue !== null;
+    }
+    if (teamChoice === 'doublelead') {
+      // Require both pace values, both riders, paces within 1, riders different
+      if (!doubleLeadPace1 || !doubleLeadPace2) return false;
+      if (Math.abs(doubleLeadPace1 - doubleLeadPace2) > 1) return false;
+      if (!doubleLeadRider1 || !doubleLeadRider2) return false;
+      if (doubleLeadRider1 === doubleLeadRider2) return false;
+      return true;
+    }
+    return true;
+  };
+
+  const handleSubmit = () => {
+    if (teamChoice === 'doublelead') {
+      const result = {
+        type: 'doublelead',
+        pace1: doubleLeadPace1,
+        pace2: doubleLeadPace2,
+        rider1: doubleLeadRider1,
+        rider2: doubleLeadRider2
+      };
+      onSubmit(result);
+    } else {
+      const result = {
+        type: teamChoice,
+        value: teamChoice === 'pace' ? (paceValue || 2) : paceValue,
+        attacker: attackingRider,
+        card: attackCard,
+        paceLeader
+      };
+      onSubmit(result);
+    }
+  };
+
+  return (
+    <div className="bg-blue-50 p-3 rounded border-2 border-blue-500">
+      <h4 className="font-bold mb-3">Your Team's Turn</h4>
+      {/* Choice-2 banner: show when the group is in round 2 (choice-2 open) */}
+      {(() => {
+        try {
+          const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+          if (currentRound === 2) {
+            const paceKey = `${groupNum}-Me`;
+            const meta = teamPaceMeta && teamPaceMeta[paceKey];
+            return (
+              <div className="mb-3 p-2 rounded bg-yellow-100 border border-yellow-300">
+                <div className="font-medium text-yellow-800">Choice-2 open for this group</div>
+                <div className="text-xs text-yellow-700">An attack was declared — all teams may revise their choice. Your previous choice will be replaced when you submit.</div>
+                {meta && meta.round === 1 && (
+                  <div className="text-xs text-gray-700 mt-1">You previously submitted in round 1: {teamPaces[paceKey] || 0} {meta.isAttack ? "(attack)" : ''}</div>
+                )}
+              </div>
+            );
+          }
+        } catch (e) {}
+        return null;
+      })()}
+      
+      {/* Team choice buttons */}
+      <div className="mb-4 p-3 bg-white rounded border">
+        <p className="text-sm font-semibold mb-2">Choose team action:</p>
+        <div className="flex gap-1 flex-wrap">
+          {(() => {
+            try {
+              const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+              const paceKey = `${groupNum}-Me`;
+              const meta = teamPaceMeta && teamPaceMeta[paceKey];
+              if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
+                return (
+                  <button
+                    onClick={() => handleTeamChoice('nochange')}
+                    className={`px-3 py-2 text-sm rounded ${teamChoice === 'nochange' ? 'bg-blue-600 text-white font-bold' : 'bg-blue-200 hover:bg-blue-300'}`}
+                  >
+                    No change
+                  </button>
+                );
+              }
+            } catch (e) {}
+            return null;
+          })()}
+          <button
+            onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
+            disabled={!canAttack}
+            title={!canAttack ? 'Angreb kræver mindst 3 ryttere i gruppen' : ''}
+            className={`px-3 py-2 text-sm rounded ${
+              teamChoice === 'attack'
+                ? 'bg-red-600 text-white font-bold'
+                : (!canAttack ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-red-200 hover:bg-red-300')
+            }`}
+          >
+            Angreb
+          </button>
+          
+          {dobbeltføring && riders.length >= 2 && (
+            <button
+              onClick={() => handleTeamChoice('doublelead')}
+              className={`px-3 py-2 text-sm rounded ${
+                teamChoice === 'doublelead'
+                  ? 'bg-purple-600 text-white font-bold'
+                  : 'bg-purple-200 hover:bg-purple-300'
+              }`}
+              title="To ryttere tager føring sammen for +1 speed bonus (koster 2 TK)"
+            >
+              Dobbeltføring
+            </button>
+          )}
+          
+          {(() => {
+            const paces = [8,7,6,5,4,3,2];
+
+            return paces.map(pace => {
+              let disabled = false;
+              let exactMatch = false; // someone has a card with effective value === pace
+              let greaterMatch = false; // someone has a card with effective value > pace
+
+              if (paceLeader) {
+                // Restrict checks to the chosen leader
+                try {
+                  const riderObj = riders.find(([n]) => n === paceLeader)[1];
+                  const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                  const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
+                  for (const c of top4) {
+                    const cardVal = svForLead > 2 ? c.flat : c.uphill;
+                    const effective = cardVal - localPenalty;
+                    if (effective === pace) exactMatch = true;
+                    if (effective > pace) greaterMatch = true;
+                  }
+                  // If neither exact nor greater exist, this pace is not playable by leader
+                  if (!exactMatch && !greaterMatch) disabled = true;
+                } catch (e) { disabled = true; }
+              } else {
+                // Team-level: check any rider
+                for (const [n, riderObj] of riders) {
+                  try {
+                    const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
+                    const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                    for (const c of top4) {
+                      const cardVal = slipstream > 2 ? c.flat : c.uphill;
+                      const effective = cardVal - localPenalty;
+                      if (effective === pace) exactMatch = true;
+                      if (effective > pace) greaterMatch = true;
+                    }
+                  } catch (e) { /* ignore rider errors */ }
+                }
+                if (!exactMatch && !greaterMatch) disabled = true;
+              }
+
+              // CSS decisions:
+              // - selected pace: full green
+              // - disabled: grey
+              // - exactMatch: full green (even if not selected)
+              // - greaterMatch (but not exact): green border
+              let cls;
+              if (teamChoice === 'pace' && paceValue === pace) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white font-bold';
+              } else if (disabled) {
+                cls = 'px-3 py-2 text-sm rounded bg-gray-200 text-gray-400 cursor-not-allowed';
+              } else if (exactMatch) {
+                cls = 'px-3 py-2 text-sm rounded bg-green-600 text-white';
+              } else if (greaterMatch) {
+                cls = 'px-3 py-2 text-sm rounded border border-green-600 bg-white text-green-700 hover:bg-green-50';
+              } else {
+                cls = 'px-3 py-2 text-sm rounded bg-green-200 hover:bg-green-300';
+              }
+
+              return (
+                <button
+                  key={pace}
+                  onClick={() => { setTeamChoice('pace'); setPaceValue(pace); setPaceLeader(null); }}
+                  disabled={disabled}
+                  className={cls}
+                >
+                  {pace}
+                </button>
+              );
+            });
+          })()}
+          
+          <button
+            onClick={() => handleTeamChoice('follow', 0)}
+            className={`px-3 py-2 text-sm rounded ${
+              teamChoice === 'follow'
+                ? 'bg-gray-600 text-white font-bold'
+                : 'bg-gray-300 hover:bg-gray-400'
+            }`}
+          >
+            0 (Følg)
+          </button>
+        </div>
+      </div>
+
+      {/* Attack selection */}
+      {teamChoice === 'attack' && (
+        <div className="mb-4 p-3 bg-red-50 rounded border border-red-300">
+          <p className="text-sm font-semibold mb-2">Vælg rytter der angriber:</p>
+          <div className="space-y-2 mb-3">
+            {riders.map(([name, rider]) => (
+              <button
+                key={name}
+                onClick={() => setAttackingRider(name)}
+                className={`w-full px-3 py-2 text-sm rounded text-left ${
+                  attackingRider === name
+                    ? 'bg-red-600 text-white font-bold'
+                    : 'bg-white hover:bg-red-100 border'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+
+          {attackingRider && (
+            <div className="mt-3 p-2 bg-white rounded border">
+              <p className="text-sm font-semibold mb-2">Vælg kort for {attackingRider}:</p>
+              <div className="grid grid-cols-4 gap-2">
+                {riders.find(([n]) => n === attackingRider)[1].cards.slice(0, 4).map((card, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setAttackCard(card)}
+                    className={`p-2 rounded text-xs ${
+                      attackCard === card
+                        ? 'bg-red-600 text-white font-bold'
+                        : 'bg-gray-100 hover:bg-red-100 border'
+                    }`}
+                  >
+                    <div className="font-bold">{card.id}</div>
+                    <div className="text-xs">{card.flat}|{card.uphill}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pace leader selection */}
+      {teamChoice === 'pace' && (
+        <div className="mb-4 p-3 bg-green-50 rounded border border-green-300">
+          <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (pace):</p>
+          <div className="space-y-2">
+                {riders.map(([name]) => (
+              <button
+                key={name}
+                onClick={() => {
+                  // When selecting a leader, ensure chosen pace still valid; otherwise clear
+                  setPaceLeader(name);
+                  if (paceValue) {
+                        const riderObj = riders.find(([n]) => n === name)[1];
+                        if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
+                  }
+                }}
+                className={`w-full px-3 py-2 text-sm rounded text-left ${
+                  paceLeader === name
+                    ? 'bg-green-600 text-white font-bold'
+                    : 'bg-white hover:bg-green-100 border'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 p-2 bg-white rounded border">
+            {paceValue ? (
+              <>
+                <p className="text-sm font-semibold mb-2">Ryttere der kan spille {paceValue}:</p>
+                <div className="space-y-2">
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).map(([n]) => (
+                    <button key={n} onClick={() => setPaceLeader(n)} className={`w-full px-3 py-2 text-sm rounded text-left ${paceLeader === n ? 'bg-green-600 text-white font-bold' : 'bg-white hover:bg-green-100 border'}`}>
+                      {n}
+                    </button>
+                  ))}
+                  {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).length === 0 && (
+                    <div className="text-xs text-gray-500">Ingen ryttere kan spille mindst {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (valgfrit - kan vælges senere):</p>
+                <div className="space-y-2">
+                  {riders.map(([name]) => (
+                    <button
+                      key={name}
+                      onClick={() => {
+                        setPaceLeader(name);
+                        if (paceValue) {
+                          const riderObj = riders.find(([n]) => n === name)[1];
+                          if (!canRiderPlayAtLeast(name, riderObj, paceValue)) setPaceValue(null);
+                        }
+                      }}
+                      className={`w-full px-3 py-2 text-sm rounded text-left ${
+                        paceLeader === name
+                          ? 'bg-green-600 text-white font-bold'
+                          : 'bg-white hover:bg-green-100 border'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Dobbeltføring selection */}
+      {teamChoice === 'doublelead' && (
+        <div className="mb-4 p-3 bg-purple-50 rounded border border-purple-300">
+          <p className="text-sm font-semibold mb-2 text-purple-800">Dobbeltføring (koster 2 TK)</p>
+          <p className="text-xs mb-3 text-purple-700">
+            Vælg to pace values (max 1 forskel) og to ryttere. Speed = max(pace1, pace2) + 1
+          </p>
+          
+          {/* Pace 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 1:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => (
+                <button
+                  key={pace}
+                  onClick={() => setDoubleLeadPace1(pace)}
+                  className={`px-3 py-2 text-sm rounded ${
+                    doubleLeadPace1 === pace
+                      ? 'bg-purple-600 text-white font-bold'
+                      : 'bg-purple-100 hover:bg-purple-200'
+                  }`}
+                >
+                  {pace}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pace 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 2:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => {
+                // Only show paces that are within 1 of pace1
+                const disabled = doubleLeadPace1 && Math.abs(pace - doubleLeadPace1) > 1;
+                return (
+                  <button
+                    key={pace}
+                    onClick={() => !disabled && setDoubleLeadPace2(pace)}
+                    disabled={disabled}
+                    className={`px-3 py-2 text-sm rounded ${
+                      doubleLeadPace2 === pace
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-purple-100 hover:bg-purple-200'
+                    }`}
+                  >
+                    {pace}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Speed preview */}
+          {doubleLeadPace1 && doubleLeadPace2 && Math.abs(doubleLeadPace1 - doubleLeadPace2) <= 1 && (
+            <div className="mb-3 p-2 bg-purple-100 rounded border border-purple-300">
+              <p className="text-sm font-bold text-purple-800">
+                Speed: max({doubleLeadPace1}, {doubleLeadPace2}) + 1 = {Math.max(doubleLeadPace1, doubleLeadPace2) + 1}
+              </p>
+            </div>
+          )}
+
+          {/* Rider 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const canPlay = !doubleLeadPace1 || canRiderPlayAtLeast(name, rider, doubleLeadPace1);
+                const disabled = !canPlay;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider1(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider1 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={!canPlay && doubleLeadPace1 ? `Kan ikke spille ${doubleLeadPace1}` : ''}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Rider 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const canPlay = !doubleLeadPace2 || canRiderPlayAtLeast(name, rider, doubleLeadPace2);
+                const isRider1 = name === doubleLeadRider1;
+                const disabled = !canPlay || isRider1;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider2(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider2 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={isRider1 ? 'Allerede valgt som rytter 1' : !canPlay && doubleLeadPace2 ? `Kan ikke spille ${doubleLeadPace2}` : ''}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-2 bg-yellow-50 border border-yellow-300 rounded">
+            <p className="text-xs text-yellow-800 font-semibold">⚠️ Koster 2 TK i alt (1 TK per rytter)</p>
+          </div>
+        </div>
+      )}
+
+      {/* Display all riders with their cards */}
+      <div className="mb-4">
+        <p className="text-sm font-semibold mb-2">Dine ryttere:</p>
+        {riders.map(([name, rider]) => (
+          <div key={name} className="mb-2 p-2 bg-white rounded border text-sm">
+            <div className="font-semibold mb-1">{name}</div>
+            <div className="grid grid-cols-4 gap-1">
+              {rider.cards.slice(0, 4).map((card, i) => {
+                const num = card.id.match(/\d+/)?.[0] || '?';
+                return (
+                <div key={i} className="bg-gray-100 p-1 rounded text-center text-xs">
+                  <div className="font-semibold lowercase">kort {num}: {card.flat}|{card.uphill}</div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={handleSubmit}
+        disabled={!canSubmit()}
+        className={`w-full py-2 rounded font-bold ${
+          canSubmit()
+            ? 'bg-blue-600 text-white hover:bg-blue-700'
+            : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+        }`}
+      >
+        Submit
+      </button>
+    </div>
+  );
+};
+
+  // --- Card selection UI for human riders when moving a group ---
+  const [cardSelectionOpen, setCardSelectionOpen] = useState(false);
+  const [cardSelections, setCardSelections] = useState({}); // { riderName: cardId }
+  const [fallBackOpen, setFallBackOpen] = useState(false);
+  const [fallRider, setFallRider] = useState(null);
+  const [fallTargetGroup, setFallTargetGroup] = useState(null);
+
+  // Prevent background scrolling when any modal (card select / fallback / draft) is open.
+  useEffect(() => {
+    try {
+      const anyModalOpen = !!(cardSelectionOpen || fallBackOpen || gameState === 'draft');
+      if (typeof document !== 'undefined' && document && document.body) {
+        document.body.style.overflow = anyModalOpen ? 'hidden' : '';
+      }
+    } catch (e) {}
+    return () => {
+      try { if (typeof document !== 'undefined' && document && document.body) document.body.style.overflow = ''; } catch (e) {}
+    };
+  }, [cardSelectionOpen, fallBackOpen, gameState]);
+
+  const openCardSelectionForGroup = (groupNum) => {
+    // Don't open card selection if pull-invest modal is already active
+    if (pullInvestGroup !== null) {
+      try { addLog(`Card selection blocked: pull-invest modal is active for group ${pullInvestGroup}`); } catch (e) {}
+      return;
+    }
+    // find human riders in the group
+    const humanRiders = Object.entries(cards).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
+    if (!humanRiders || humanRiders.length === 0) {
+      // nothing to do
+      confirmMove();
+      return;
+    }
+    // Prepare default selections (choose first top-4 or null)
+    const initial = {};
+    // Pre-select a valid card for leaders (must match the group's speed) or
+    // fallback to first top-4 for non-leaders.
+    humanRiders.forEach(name => {
+      const rider = cards[name] || { cards: [] };
+  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+  const isLeader = (rider.takes_lead || 0) === 1;
+  if (isLeader) {
+  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+        const targetVal = Math.round(groupSpeed || 0);
+        // prefer exact match, otherwise pick smallest card >= targetVal
+        let best = null;
+        let bestExcess = Infinity;
+        for (const c of top4) {
+          const cardVal = svForLead > 2 ? c.flat : c.uphill;
+          const eff = (cardVal - localPenalty);
+          if (eff === targetVal) { best = c; bestExcess = 0; break; }
+          if (eff >= targetVal) {
+            const excess = eff - targetVal;
+            if (excess < bestExcess) { best = c; bestExcess = excess; }
+          }
+        }
+        initial[name] = best ? best.id : null;
+      } else {
+        initial[name] = top4.length > 0 ? top4[0].id : null;
+      }
+    });
+    setCardSelections(initial);
+    setCardSelectionOpen(true);
+  };
+
+  const handleCardChoice = (riderName, cardId) => {
+    setCardSelections(prev => ({ ...prev, [riderName]: cardId }));
+  };
+
+  const submitCardSelections = () => {
+    // Apply selections into a fresh cards object and then call confirmMove after state update
+    const updated = JSON.parse(JSON.stringify(cards || {}));
+    for (const [riderName, cardId] of Object.entries(cardSelections || {})) {
+      if (!updated[riderName]) continue;
+      if (cardId === 'tk_extra 99') {
+        // inject a special tk_extra card at the front so the engine can find it
+        const existing = updated[riderName].cards || [];
+  // tk_extra should behave as the low-value special card (2|2) for movement
+  // while still keeping the descriptive id 'tk_extra 99' used in UI logs.
+  const synthetic = { id: 'tk_extra 99', flat: 2, uphill: 2 };
+        updated[riderName].cards = [synthetic, ...existing];
+        updated[riderName].planned_card_id = 'tk_extra 99';
+      } else if (typeof cardId === 'string') {
+        // set planned_card_id to the chosen id (should exist in hand)
+        updated[riderName].planned_card_id = cardId;
+        // Mark that this was a human-chosen card so the engine should honor it
+        // even if it doesn't exactly match the group's computed speed.
+        updated[riderName].human_planned = true;
+      }
+    }
+    // Close modal and set cards; then call confirmMove after a short delay so state is in sync
+    setCardSelectionOpen(false);
+    setCards(updated);
+    // Call confirmMove with the updated snapshot to avoid a race where
+    // React hasn't yet flushed `cards` to state when the engine reads it.
+    confirmMove(updated);
+  };
+
+  const confirmFallBack = () => {
+    if (!fallRider || fallTargetGroup === null) return;
+    const targetG = Number(fallTargetGroup);
+    const riderObj = cards[fallRider];
+    if (!riderObj) return;
+    // Only allow falling to a group strictly behind (higher group number)
+    if (!(targetG > (riderObj.group || 0))) {
+      addLog(`Invalid fall-back: ${fallRider} cannot fall to group ${targetG} (not behind)`);
+      setFallBackOpen(false);
+      setFallRider(null);
+      setFallTargetGroup(null);
+      return;
+    }
+
+    setCards(prev => {
+      const updated = { ...prev };
+      if (!updated[fallRider]) return prev;
+      // Determine the furthest forward position of the target group (max position)
+      const positions = Object.values(prev).filter(r => r.group === targetG && !r.finished).map(r => Number(r.position || 0));
+      const targetPos = positions.length > 0 ? Math.max(...positions) : 0;
+      updated[fallRider] = { ...updated[fallRider], group: targetG, position: targetPos };
+      return updated;
+    });
+    addLog(`Action: ${fallRider} fell back to group ${fallTargetGroup}`);
+    setFallBackOpen(false);
+    setFallRider(null);
+    setFallTargetGroup(null);
+    // clear any dice event once the user has applied the fall-back choice
+    try { setDiceEvent(null); setDiceMsg(null); } catch (e) {}
+  };
+
+  // Group UI removed per user request.
+
+  return (<>
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            {gameState === 'playing' ? (
+              <>
+                <h1 className="text-3xl font-bold">{trackName}</h1>
+                <div className="text-[11px] text-gray-600 mt-1">Level {level}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] text-gray-700 mt-1 font-medium">tror nedkørsel virker</div>
+                <h1 className="text-3xl font-bold">CYCL 2.0 TEST</h1>
+                <div className="text-[11px] text-gray-800 mt-1 font-medium">Nu kan man selv vælge hvilket kort man spiller</div>
+                <div className="text-[11px] text-green-700 mt-1">du kan angribe igen</div>
+                <div className="text-[11px] text-gray-600 mt-1 leading-tight">
+                  <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
+                </div>
+              </>
+            )}
+          </div>
+          <div>
+            <button onClick={() => setShowEngineUI(s => !s)} className="py-2 px-3 bg-indigo-600 text-white rounded">
+              {showEngineUI ? 'Hide Engine UI' : 'Show Engine UI'}
+            </button>
+          </div>
+        </div>
+        {showEngineUI && (
+          <div className="mb-6">
+            <EngineUI />
+          </div>
+        )}
+        {/* If there are pending sprint groups, show a prominent sprint button at the top */}
+        {gameState === 'playing' && sprintGroupsPending && sprintGroupsPending.length > 0 && (() => {
+          try {
+            const minG = Math.min(...sprintGroupsPending);
+            return (
+              <div className="mb-4">
+                <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); setSprintFocusGroup(minG); }} className="w-full bg-purple-600 text-white py-3 rounded-lg text-center font-semibold">
+                  Sprint with group {minG}
+                </button>
+              </div>
+            );
+          } catch (e) { return null; }
+        })()}
+        
+        {gameState === 'setup' && (
+          <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
+            <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium mb-1">Track</label>
+                <select value={trackName} onChange={(e) => setTrackName(e.target.value)} className="w-full px-2 py-1 border rounded">
+                  {Object.keys(tracks).map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              {/* Track preview: show color-coded fields for the selected track (up to the first F). */}
+              <div className="mt-3 bg-white p-3 rounded border">
+                <div className="text-sm font-semibold mb-2">Track preview</div>
+                  {(() => {
+                  const raw = getResolvedTrack() || '';
+                  const selected = raw ? raw.slice(0, (raw.indexOf('F') === -1 ? raw.length : raw.indexOf('F') + 1)) : '';
+                  const chars = (selected || '').split('');
+                  return (
+                    <div className="overflow-x-auto">
+                      <div className="flex items-center">
+                        {chars.map((t, i) => {
+                          if (t === '2') {
+                            // gradient from gray to red
+                            return (
+                              <div key={i} className="min-w-[4px] h-4 mr-0.5 bg-gradient-to-r from-gray-400 to-red-500" title={`${i+1}: ${t}`} />
+                            );
+                          }
+                          const cls = (() => {
+                            switch (t) {
+                              case '3': return 'bg-gray-400';
+                              case '1': return 'bg-red-500';
+                              case '0': return 'bg-pink-300';
+                              case 'F': return 'bg-yellow-400';
+                              case '_': return 'bg-blue-200';
+                              default: return 'bg-gray-300';
+                            }
+                          })();
+                          return <div key={i} className={`${cls} min-w-[4px] h-4 mr-0.5`} title={`${i+1}: ${t}`} />;
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Teams</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setNumberOfTeams(n)} className={`py-4 rounded text-lg font-semibold ${numberOfTeams===n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Spacer so main content is not hidden behind the fixed sticky track footer */}
+              <div style={{ height: '6.25rem' }} />
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Riders / Team</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[2,3,4].map(n => (
+                    <button key={n} onClick={() => setRidersPerTeam(n)} className={`py-4 rounded text-lg font-semibold ${ridersPerTeam===n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="block text-sm font-medium mb-2">Level</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    value={level}
+                    onChange={(e) => setLevel(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold">{level}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="block text-sm font-medium mb-2">Udbrydere: {numAttackers}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="4"
+                    value={numAttackers}
+                    onChange={(e) => setNumAttackers(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold">{numAttackers}</div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="block text-sm font-medium mb-2">Felter foran: {attackerLeadFields}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={attackerLeadFields}
+                    onChange={(e) => setAttackerLeadFields(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold">{attackerLeadFields}</div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>5</span>
+                  <span>10</span>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dobbeltføring}
+                    onChange={(e) => setDobbeltføring(e.target.checked)}
+                    className="w-5 h-5 cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Dobbeltføring</div>
+                    <div className="text-xs text-gray-600">To ryttere kan tage føring sammen for +1 speed bonus (koster 2 TK)</div>
+                  </div>
+                </label>
+              </div>
+                
+              
+              {/* Spacer so mobile users can scroll the level slider above the fixed footer */}
+              <div className="h-28 sm:h-32" />
+            </div>
+          </div>
+        )}
+        {gameState === 'setup' && (
+          <div className="fixed left-0 right-0 bottom-0 p-4 bg-white border-t shadow-lg">
+            <div className="max-w-7xl mx-auto px-4">
+              <button onClick={startDraft} className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3">
+                <Play size={20}/> Start Game
+              </button>
+            </div>
+          </div>
+        )}
+
+        {gameState === 'draft' && (
+          // On mobile we align modal to the top and allow inner scrolling so
+          // long content (pool + selections) is reachable. On larger screens
+          // keep centered behaviour.
+          <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto z-50" style={{ position: 'relative' }}>
+              {/* Track title + coloured track preview above the draft header */}
+              <div className="mb-3">
+                <div className="text-2xl font-extrabold mb-2">{trackName}</div>
+                <div className="text-sm overflow-x-auto p-2 bg-gray-50 rounded font-mono mb-2">
+                  {colourTrackTokens(track).map((t, i) => (
+                    <span key={i} className={t.className}>{t.char}</span>
+                  ))}
+                </div>
+              </div>
+
+              <h2 className="text-xl font-bold mb-2">Draft Riders</h2>
+              <p className="text-sm text-gray-600 mb-2">Teams: {numberOfTeams} × Riders/Team: {ridersPerTeam} =&nbsp;<strong>{numberOfTeams * ridersPerTeam}</strong> riders total</p>
+              {(() => {
+                try {
+                  const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
+                  if (humanPositions && humanPositions.length > 0) {
+                    return (
+                      <div>
+                        <div className="text-sm text-gray-700 mb-2">Your picks: <strong>{humanPositions.join(', ')}</strong></div>
+                        {/* Debug panel: shows pool/sequence info to diagnose mismatches */}
+                        <div className="text-xs text-gray-500 mb-2 bg-gray-50 p-2 rounded">
+                          <div>Pool total (draftPool.length): <strong>{Array.isArray(draftPool) ? draftPool.length : 0}</strong></div>
+                          <div>Remaining (draftRemaining.length): <strong>{Array.isArray(draftRemaining) ? draftRemaining.length : 0}</strong></div>
+                          <div>draftTotalPicks: <strong>{draftTotalPicks || 'n/a'}</strong></div>
+                          <div>humanPositions: <strong>{humanPositions.join(', ')}</strong></div>
+                          <div>draftPickSequence: <strong>{draftPickSequence ? draftPickSequence.join(', ') : 'n/a'}</strong></div>
+                        </div>
+                      </div>
+                    );
+                  }
+                } catch (e) {}
+                return null;
+              })()}
+              <div className="mb-3 text-sm">
+                {isDrafting ? (
+                  (() => {
+                    // Use the authoritative next-team calculation so the UI
+                    // remains consistent with the draft engine (avoids stale
+                    // draftCurrentPickIdx problems).
+                    const teamPicking = getNextDraftTeam(draftSelections, draftTeamsOrder) || (draftTeamsOrder.length > 0 ? draftTeamsOrder[draftCurrentPickIdx % draftTeamsOrder.length] : '-');
+                    const displayRound = draftRoundNum || (draftTeamsOrder && draftTeamsOrder.length > 0 ? Math.floor(draftSelections.length / draftTeamsOrder.length) + 1 : 1);
+                    return (<div>Picking: <strong>{teamPicking}</strong> (Round {displayRound})</div>);
+                  })()
+                ) : (
+                  <div className="text-gray-500">Draft not active</div>
+                )}
+              </div>
+
+              <div className="max-h-[48vh] sm:max-h-72 overflow-y-auto mb-4 grid grid-cols-2 gap-2">
+                {draftPool.map((r, i) => {
+                  // Authoritative next team for current pick (may consult draftPickSequence)
+                  const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
+                  // Only allow clicking when: drafting active, it's Me's turn, and
+                  // the rider is still present in the live remaining list.
+                  const inRemaining = Array.isArray(draftRemaining) && draftRemaining.some(rr => rr.NAVN === r.NAVN);
+                  const isClickable = isDrafting && currentPickingTeam === 'Me' && inRemaining;
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={!isClickable}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // If a recent touch event already handled this tap, ignore click
+                        const last = lastTouchHandledRef.current[r && r.NAVN];
+                        if (last && Date.now() - last < 700) {
+                          // ignore synthetic click after touch
+                          return;
+                        }
+                        const msg = `pool click ${r && r.NAVN} isClickable=${isClickable}`;
+                        console.debug(msg);
+                        setDraftDebugMsg(msg);
+                        if (isClickable) handleHumanPick(r);
+                        setTimeout(() => setDraftDebugMsg(null), 2000);
+                      }}
+                      // Touch handling: register start, track move, and only treat as
+                      // a tap on touchend when there was no significant movement.
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        const t = e.touches && e.touches[0];
+                        if (!t) return;
+                        touchInfoRef.current[r && r.NAVN] = { x: t.clientX, y: t.clientY, time: Date.now(), moved: false };
+                      }}
+                      onTouchMove={(e) => {
+                        const t = e.touches && e.touches[0];
+                        if (!t) return;
+                        const info = touchInfoRef.current[r && r.NAVN];
+                        if (!info) return;
+                        const dx = Math.abs(t.clientX - info.x);
+                        const dy = Math.abs(t.clientY - info.y);
+                        // treat small jitter as no-move; threshold 8px
+                        if (dx > 8 || dy > 8) info.moved = true;
+                      }}
+                      onTouchEnd={(e) => {
+                        e.stopPropagation();
+                        const info = touchInfoRef.current[r && r.NAVN];
+                        if (!info) return;
+                        const duration = Date.now() - info.time;
+                        const moved = info.moved;
+                        // cleanup
+                        delete touchInfoRef.current[r && r.NAVN];
+                        if (!moved && duration < 500 && isClickable) {
+                          // treat as tap
+                          lastTouchHandledRef.current[r && r.NAVN] = Date.now();
+                          const msg = `pool tap ${r && r.NAVN} isClickable=${isClickable}`;
+                          console.debug(msg);
+                          setDraftDebugMsg(msg);
+                          handleHumanPick(r);
+                          setTimeout(() => setDraftDebugMsg(null), 2000);
+                        } else {
+                          // likely a scroll gesture — ignore
+                          const msg = `scroll ignored ${r && r.NAVN}`;
+                          setDraftDebugMsg(msg);
+                          setTimeout(() => setDraftDebugMsg(null), 800);
+                        }
+                      }}
+                      className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
+                      style={{ zIndex: 60, pointerEvents: 'auto' }}
+                    >
+                      <div className="font-semibold flex items-center gap-1">
+                        <span>{r.NAVN}</span>
+                        <Info 
+                          size={14} 
+                          className="text-blue-500 hover:text-blue-700 cursor-pointer flex-shrink-0"
+                          data-rider={r.NAVN}
+                          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                          onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
+                        />
+                        {!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
+                      </div>
+                      {(() => {
+                        const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
+                        return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
+                      })()}
+                    </button>
+                  );
+                })}
+
+                {/* Small on-screen debug toast for mobile where console is hard to access */}
+                {draftDebugMsg && (
+                  <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-black text-white px-3 py-1 rounded text-xs z-[9999]">
+                    {draftDebugMsg}
+                  </div>
+                )}
+
+              </div>
+
+                <div className="mb-4">
+                <div className="text-sm font-semibold mb-2">Selections so far</div>
+                <div className="grid grid-cols-2 gap-2 max-h-[28vh] sm:max-h-32 overflow-y-auto">
+                  {(() => {
+                    // Build team list for display (use draftTeamsOrder when available)
+                    const teamsForDisplay = (draftTeamsOrder && draftTeamsOrder.length > 0) ? draftTeamsOrder : (() => {
+                      const arr = [];
+                      for (let i = 1; i < numberOfTeams; i++) arr.push(`Comp${i}`);
+                      arr.push('Me');
+                      return arr;
+                    })();
+
+                    return teamsForDisplay.map((t) => {
+                      const picks = draftSelections.filter(s => s.team === t).map(s => s.rider && s.rider.NAVN).filter(Boolean);
+                      return (
+                        <div key={t} className="p-2 bg-gray-50 rounded border text-sm">
+                          <div className="font-semibold">{t}</div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {picks.length > 0 ? (
+                              picks.map((name, idx) => (
+                                <span key={name + idx} className="inline-flex items-center gap-0.5">
+                                  <span>{name}</span>
+                                  <Info 
+                                    size={12} 
+                                    className="text-blue-500 hover:text-blue-700 cursor-pointer inline-block"
+                                    data-rider={name}
+                                    onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }}
+                                    onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }}
+                                  />
+                                  {idx < picks.length - 1 ? ', ' : ''}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-gray-400">(no picks yet)</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => { setGameState('setup'); setIsDrafting(false); }} className="px-4 py-2 rounded border">Back</button>
+                <button onClick={confirmDraftAndStart} className="px-4 py-2 rounded bg-green-600 text-white">Confirm & Start</button>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {gameState === 'playing' && (
+          // Render main game area first, and place the Status section below
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+
+              {/* Group chooser summary section (under the track) */}
+              <div className="bg-white rounded-lg shadow p-3 mb-3">
+                  <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-2xl font-extrabold">
+                      {sprintFocusGroup !== null ? (
+                        <div className="w-full">
+                          <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, sprintFocusGroup); setSprintFocusGroup(null); }} className="w-full bg-purple-600 text-white py-2 rounded font-semibold">Sprint with group {sprintFocusGroup}</button>
+                        </div>
+                      ) : (
+                        `Group ${currentGroup} moves.`
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-700 mt-1">{currentTeam}'s turn to choose</div>
+                    {/* Small, normal-font list of riders in the current group */}
+                    <div className="text-sm text-gray-700 mt-1">
+                      {(() => {
+                        try {
+                          const entries = Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished);
+                          if (entries.length === 0) return <span className="text-gray-400">(no riders)</span>;
+                          return entries.map(([n, r], idx) => (
+                            <span key={n} className="inline">
+                              <span data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} className="cursor-pointer hover:underline">{n}</span>
+                              <span className="text-xs text-gray-500">({r.team})</span>
+                              {idx < entries.length - 1 ? ', ' : ''}
+                            </span>
+                          ));
+                        } catch (e) { return null; }
+                      })()}
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-500">Phase: {movePhase}</div>
+                </div>
+
+                {/* If there is an active sprint animation, show it here and hide the usual status */}
+                {sprintAnimMsgs && sprintAnimMsgs.length > 0 ? (
+                  <div className="mt-3">
+                    <div className="p-3 bg-purple-50 border rounded">
+                      {sprintAnimMsgs.map((m, i) => (
+                        <div key={i} className={`${i === 0 ? 'text-sm font-semibold text-gray-800' : 'text-xs text-gray-700'} ${i === 0 ? 'mb-2' : 'mb-1'}`}>
+                          {m}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (() => {
+                  return (
+                    <div className="mt-3">
+                      <div className="text-sm font-semibold mb-2">Current chosen values</div>
+                      {/* Group-from-behind box: shows numeric distance to a moved group ahead or X */}
+                      {(() => {
+                        try {
+                          const groupNum = Number(currentGroup);
+                          const groupPositions = Object.values(cards).filter(r => r.group === groupNum && !r.finished).map(r => Number(r.position || 0));
+                          const groupPos = groupPositions.length > 0 ? Math.max(...groupPositions) : 0;
+                          const aheadMoved = Object.values(cards).filter(r => r.group > groupNum && !r.finished && Number(r.position) !== Number(r.old_position || r.position)).map(r => Number(r.position || 0));
+                          let display = 'X';
+                          if (aheadMoved && aheadMoved.length > 0) {
+                            const maxAheadPos = Math.max(...aheadMoved);
+                            if (maxAheadPos > groupPos) display = String(maxAheadPos - groupPos);
+                          }
+                          return (
+                            <div className="mb-2">
+                              <div className="inline-block p-2 bg-white rounded border text-sm">
+                                Group from behind: <strong>{display}</strong>
+                              </div>
+                            </div>
+                          );
+                        } catch (e) { return null; }
+                      })()}
+                      <div className="grid grid-cols-3 gap-2">
+                        {(teams || []).map((t) => {
+                          const paceKey = `${currentGroup}-${t}`;
+                          const meta = teamPaceMeta && teamPaceMeta[paceKey];
+                          const hasChosen = typeof meta !== 'undefined';
+                          const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === t && !r.finished);
+                          const value = hasChosen ? (teamPaces[paceKey] !== undefined ? teamPaces[paceKey] : 0) : null;
+                          // If a team declared an attack, try to include the attacker's chosen card
+                          const attackText = (() => {
+                            if (!(hasChosen && meta && meta.isAttack)) return null;
+                            if (!meta.attacker) return 'attacks';
+                            try {
+                              const attackerName = meta.attacker;
+                              const riderObj = cards[attackerName];
+                              let cardObj = null;
+                              if (riderObj) {
+                                // Prefer explicit attack_card (human attack) then planned_card_id
+                                if (riderObj.attack_card && typeof riderObj.attack_card === 'object') cardObj = riderObj.attack_card;
+                                else if (riderObj.planned_card_id && Array.isArray(riderObj.cards)) {
+                                  cardObj = riderObj.cards.find(c => c && c.id === riderObj.planned_card_id) || null;
+                                }
+                              }
+                              if (cardObj && typeof cardObj.flat !== 'undefined' && typeof cardObj.uphill !== 'undefined') {
+                                return `${attackerName} attacks with ${cardObj.flat}|${cardObj.uphill}`;
+                              }
+                              // If the attacker is an AI and we only have a numeric selected_value,
+                              // show that as value|value so the UI reports the effective attack value.
+                              if (riderObj && typeof riderObj.selected_value === 'number' && riderObj.selected_value > 0) {
+                                const v = Math.round(riderObj.selected_value);
+                                return `${attackerName} attacks with ${v}|${v}`;
+                              }
+                              // fallback: if we only have an id string somewhere, try to display it
+                              if (riderObj && riderObj.planned_card_id) return `${attackerName} attacks with ${riderObj.planned_card_id}`;
+                              return `${attackerName} attacks`;
+                            } catch (e) {
+                              return `${meta.attacker} attacks`;
+                            }
+                          })();
+
+                          return (
+                            <div key={t} className="p-2 rounded border">
+                              <div className="font-medium">{t}</div>
+                              <div className="mt-1">
+                                {!teamHasRiders ? (
+                                  <div className="text-lg font-bold">X</div>
+                                ) : hasChosen ? (
+                                  <div className="text-lg font-bold">{String(value)}</div>
+                                ) : (
+                                  <div className="text-lg font-bold">&nbsp;</div>
+                                )}
+                                {attackText && (
+                                  <div className="text-xs text-red-600 mt-1">{attackText}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="mt-3">
+                  {movePhase === 'input' && (
+                    (() => {
+                      // If it's the human's turn and human has riders in this group, show human interface
+                      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
+                      if (currentTeam === 'Me' && humanRiders.length > 0) {
+                        // Determine if choice-2 is open for this group and whether
+                        // the team previously attacked in round 1. If so, force
+                        // attack mode in the UI and prevent cancelling the attack.
+                        const isChoice2 = teamPaceRound && teamPaceRound[currentGroup] === 2;
+                        const paceKeyMe = `${currentGroup}-Me`;
+                        const metaMe = (teamPaceMeta && teamPaceMeta[paceKeyMe]) ? teamPaceMeta[paceKeyMe] : null;
+                        const attackedInChoice1 = !!(metaMe && metaMe.isAttack && metaMe.round === 1);
+                        const forcedAttacker = attackedInChoice1 ? (metaMe && metaMe.attacker) : null;
+
+                        return (
+                          (() => {
+                            // If a post-move pull-back session exists for a different group and there are attackers,
+                            // replace the human choice UI with the pull-back control so the competing team's choice
+                            // is locked until the pull-back is resolved.
+                            try {
+                              const pullInfo = postMoveInfo;
+                              const pullActive = !!(pullInfo && typeof pullInfo.groupMoved !== 'undefined');
+                              if (pullActive) {
+                                const g = pullInfo.groupMoved;
+                                const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                                const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                                const attackersExist = attackers && attackers.length > 0;
+                                if (attackersExist && g !== currentGroup) {
+                                  const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                                  const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                                  const sv = Number(slipstream || 0);
+                                  const canPull = attackers.some(([, r]) => {
+                                    const pos = Number(r.position || 0);
+                                    return pos > groupPos && (pos - groupPos) <= sv;
+                                  });
+
+                                  // Render pull-back controls for the human panel replacement
+                                  if (!canPull) {
+                                    const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                    const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="mb-1">
+                                                <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                              </div>
+                                        <div className="text-xs text-gray-600">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (
+                                                    <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
+                                                  )}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (pullConfirmGroup === g) {
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="flex justify-end items-center gap-2">
+                                          <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                          <button onClick={() => {
+                                            // Open invest-by-rider selector for the acting team, but only for human team
+                                            const team = currentTeam;
+                                              // If the human has eligible riders in this group, ask Me
+                                              const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                              if (humanHasRiders) {
+                                                addLog(`Opening pull-invest modal for Me group ${g}`);
+                                                setPullInvestGroup(g);
+                                                setPullInvestTeam('Me');
+                                                setPullInvestSelections([]);
+                                              } else {
+                                                // Otherwise process AI investments immediately for the acting team
+                                                processAutoInvests(g, { invested: false, rider: null, team });
+                                              }
+                                            setPullConfirmGroup(null);
+                                          }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                          <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, rider: null, team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                        </div>
+                                        <div className="text-xs text-gray-600 mt-1 text-right">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (<div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>)}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+
+                                  {
+                                    return (
+                                      <div className="flex flex-col items-end">
+                                        <div className="mb-1">
+                                            <button onClick={() => {
+                                              const team = currentTeam;
+                                              if (team === 'Me') {
+                                                addLog(`Opening pull-invest modal for ${team} group ${g}`);
+                                                setPullInvestGroup(g);
+                                                setPullInvestTeam(team);
+                                                setPullInvestSelections([]);
+                                              } else {
+                                                processAutoInvests(g, { invested: false, rider: null, team });
+                                              }
+                                            }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                          </div>
+                                        <div className="text-xs text-gray-600 mt-1 text-right">
+                                          {(() => {
+                                            try {
+                                              const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                              if (!outcome) return null;
+                                              return (
+                                                <>
+                                                  {currentTeam !== 'Me' && (<div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>)}
+                                                  <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                                </>
+                                              );
+                                            } catch (e) { return null; }
+                                          })()}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                }
+                              }
+                            } catch (e) { /* ignore and fall back to normal human UI */ }
+
+                            return (
+                              <HumanTurnInterface
+                                groupNum={currentGroup}
+                                riders={humanRiders}
+                                onSubmit={(choices) => handleHumanChoices(currentGroup, choices)}
+                                disableAttackUnlessChoice1={isChoice2}
+                                forcedAttacker={forcedAttacker}
+                                totalGroupCount={Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished).length}
+                              />
+                            );
+                          })()
+                        );
+                      }
+
+                      // Otherwise show AI Play button for the currentTeam (with feedback message)
+                      return (
+                        <div className="flex items-center justify-end gap-3">
+                          {aiMessage && (
+                            <div className="text-base font-bold text-gray-700">
+                              {aiMessage}
+                            </div>
+                          )}
+                          {(() => {
+                            const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentTeam && !r.finished);
+
+                            // If a post-move pull-back session exists for a different group and there are attackers,
+                            // replace/disable the normal choice button here so the competing team's choice is locked
+                            // until the pull-back is resolved.
+                            try {
+                              const pullInfo = postMoveInfo;
+                              const pullActive = !!(pullInfo && typeof pullInfo.groupMoved !== 'undefined');
+                              if (pullActive) {
+                                const g = pullInfo.groupMoved;
+                                const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                                const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                                const attackersExist = attackers && attackers.length > 0;
+
+                                // Only replace the button for other groups (the competing team's choice)
+                                if (attackersExist && g !== currentGroup) {
+                                  // Compute whether attackers are within SV relative to the group's main position
+                                  const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                                  const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                                  const sv = Number(slipstream || 0);
+                                  const canPull = attackers.some(([, r]) => {
+                                    const pos = Number(r.position || 0);
+                                    return pos > groupPos && (pos - groupPos) <= sv;
+                                  });
+
+                                  // Render the pull-back control in place of the team's choice button
+                                  return (
+                                    <div className="flex flex-col items-start">
+                                      <div className="flex items-center gap-2">
+                                        {!teamHasRiders ? (
+                                          <div className="text-sm italic text-gray-500">no riders in the group</div>
+                                        ) : (
+                                          canPull ? (
+                                            <button onClick={() => {
+                                              const team = currentTeam;
+                                              if (team === 'Me') {
+                                                  addLog(`Opening pull-invest modal for ${team} group ${g}`);
+                                                  setPullInvestGroup(g); setPullInvestTeam(team); setPullInvestSelections([]);
+                                                } else {
+                                                  processAutoInvests(g, { invested: false, rider: null, team });
+                                                }
+                                            }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                          ) : (
+                                            (() => {
+                                              if (!canPull) {
+                                                const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                                const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                                return (
+                                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">{label}</button>
+                                                );
+                                              }
+                                              if (pullConfirmGroup === g) {
+                                                return (
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                                    <button onClick={() => {
+                                                        // open invest selector for the acting team (only for Me)
+                                                        const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                                        if (humanHasRiders) {
+                                                          addLog(`Opening pull-invest modal for Me group ${g}`);
+                                                          setPullInvestGroup(g);
+                                                          setPullInvestTeam('Me');
+                                                        } else {
+                                                          processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                                        }
+                                                        setPullConfirmGroup(null);
+                                                      }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                                      <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, rider: null, team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                                  </div>
+                                                );
+                                              }
+                                              return (
+                                                <button onClick={() => {
+                                                  const team = currentTeam;
+                                                  if (team === 'Me') {
+                                                    setPullInvestGroup(g);
+                                                    setPullInvestTeam(team);
+                                                  } else {
+                                                    processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                                  }
+                                                }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                                              );
+                                            })()
+                                          )
+                                        )}
+                                      </div>
+                                      {/* prediction summary for this team and overall */}
+                                      <div className="text-xs text-gray-600 mt-1">
+                                        {(() => {
+                                          try {
+                                            const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                                            if (!outcome) return null;
+                                            return (
+                                              <>
+                                                {currentTeam !== 'Me' && (
+                                                  <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
+                                                )}
+                                                <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                              </>
+                                            );
+                                          } catch (e) { return null; }
+                                        })()}
+                                      </div>
+                                    </div>
+                                  );
+                                }
+                              }
+                            } catch (e) { /* ignore and fall back to normal rendering */ }
+
+                            return (
+                              <div className="flex items-center gap-2">
+                                {!teamHasRiders ? (
+                                  <div className="text-sm italic text-gray-500">no riders in the group</div>
+                                ) : (
+                                  <button
+                                    onClick={() => {
+                                      // Get previous pace from choice-1 so AI doesn't choose lower in choice-2
+                                      const paceKey = `${currentGroup}-${currentTeam}`;
+                                      const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+                                      const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+                                      const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+                                      const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+                                      const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
+                                      
+                                      const result = autoPlayTeam(currentGroup, currentTeam, currentRound === 2 ? prevPace : undefined);
+                                      const teamAtCall = currentTeam;
+                                      if (result) {
+                                        setCards(result.updatedCards);
+                                        const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
+                                        const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                        let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                        const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                        
+                                        // Enforce: in choice-2 AI may not lower their previously announced pace (safety check)
+                                        if (typeof prevPace !== 'undefined' && currentRound === 2 && aiTeamPace < prevPace) {
+                                          try { addLog(`${teamAtCall} (AI manual) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`); } catch (e) {}
+                                          aiTeamPace = prevPace;
+                                        }
+                                        
+                                        // Set a short-lived AI message for UX
+                                        const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
+                                        setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
+                                      } else {
+                                        const aiTeamPace = 0;
+                                        const aiIsAttack = false;
+                                        setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null);
+                                      }
+                                      setTimeout(() => { setAiMessage(''); }, 1500);
+                                    }}
+                                    className="px-3 py-2 bg-gray-700 text-white rounded"
+                                  >
+                                    {currentTeam + "'s choice"}
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()
+                  )}
+
+                  {/* When movePhase indicates cardSelection, show the Move Group controls here */}
+                  {movePhase === 'cardSelection' && (
+                    <div className="border-t pt-3 bg-green-50 p-3 rounded mt-3">
+                      <div className="mb-2 text-sm font-medium">
+                        Speed: <span className="font-bold">{groupSpeed}</span>, 
+                        SV: <span className={`font-bold ${isFlat ? 'text-gray-700' : 'text-red-600'}`}>{slipstream}</span>
+                      </div>
+                        <div className="flex justify-end">
+                        <button onClick={() => openCardSelectionForGroup(currentGroup)} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
+                          <ArrowRight size={14}/> Move Group
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
+                    <div className="mt-3 flex justify-end">
+                      {(() => {
+                        const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                        // If this is a Brosten track, require the user to press "Check if crash"
+                        // before offering the fallback/next round actions. If diceEvent exists
+                        // (user already checked), reveal the normal controls.
+                        if (isBrosten && !diceEvent) {
+                          return (
+                            <div className="flex items-center gap-3">
+                              <button onClick={checkCrash} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Check if crash</button>
+                              {diceMsg && (
+                                <div className="ml-2 text-sm text-gray-700">{diceMsg}</div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Default behaviour: show fallback + next round controls
+                        return (
+                          <div className="flex gap-2">
+                            <button onClick={() => setFallBackOpen(true)} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Let rider fall back</button>
+                            <button onClick={startNewRound} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
+                              <SkipForward size={14}/> Next Round
+                            </button>
+                          </div>
+                        );
+                      })()}
+
+                      {/* If a recent Brosten dice event happened show it here in a yellow panel */}
+                      {diceEvent && (
+                        <div className="mt-2 p-2 bg-yellow-50 border rounded text-sm ml-3">
+                          <div className="font-medium">{diceEvent.kind === 'puncture' ? 'Puncture' : 'Crash'}: {diceEvent.who} {diceEvent.oldPos}→{diceEvent.newPos}</div>
+                          <div className="text-xs text-gray-600">You may move riders back — press "Let rider fall back" to choose.</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {postMoveInfo && (
+                    <div className="mt-3 p-3 border rounded bg-yellow-50">
+                                      <div className="mb-2 text-sm font-medium">
+                                        {/* Show the group number and group stats at the top in bold */}
+                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={groupSpeed}, sv={slipstream})</div>
+                                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
+                          const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
+                          return (
+                          <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>
+                            {m.isLead ? (
+                              <strong className={`${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>{m.name} ({m.team})</strong>
+                            ) : (
+                              <span className={`${isAttacker ? 'font-semibold' : ''}`}>{m.name} ({m.team})</span>
+                            )}{' '}
+                            <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
+                            {/* Additional consequences for riders who took TK-1 or EC */}
+                            { (m.tkTaken || m.ecTaken) && (
+                              <div className="text-xs text-gray-700 ml-3">
+                                {(() => {
+                                  const parts = [];
+                                  if (m.tkTaken) parts.push(`${m.tkTaken} Tk-1`);
+                                  if (m.ecTaken) parts.push(`${m.ecTaken} EC`);
+                                  return `.... takes ${parts.join(' and ')}`;
+                                })()}
+                              </div>
+                            )}
+                          </div>
+                        );
+                        })}
+                      </div>
+                      {(() => {
+                        try {
+                          const g = postMoveInfo.groupMoved;
+                          const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                          return (
+                            outcome ? (
+                              <div className="mb-2 text-xs text-gray-700">
+                                {(teams || []).map(t => (
+                                  <div key={t}>{(outcome.perTeam && outcome.perTeam[t]) ? `${t} invests` : `${t} does not invest`}</div>
+                                ))}
+                                {outcome.perRider && outcome.perRider.length > 0 && (
+                                  <div className="mt-1">
+                                    {outcome.perRider.map((p, idx) => (
+                                      <div key={idx} className="text-xs text-gray-700">{p.team} invests, {p.rider} takes 1 TK-1</div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="mt-1 font-medium">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                                <div className="mt-2 flex justify-end">
+                                  <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
+                                </div>
+                              </div>
+                            ) : null
+                          );
+                        } catch (e) { return null; }
+                      })()}
+                      <div className="flex justify-end">
+                        {/* Offer pull-back action when attackers exist in the moved group */}
+                        {(() => {
+                          try {
+                            const g = postMoveInfo.groupMoved;
+                            const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                            const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                            const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                            const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                            if (!attackers || attackers.length === 0) {
+                              return (
+                                <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
+                              );
+                            }
+
+                            // Determine whether any attacker is within slipstream distance
+                            const sv = Number(slipstream || 0);
+                            const canPull = attackers.some(([, r]) => {
+                              const pos = Number(r.position || 0);
+                              return pos > groupPos && (pos - groupPos) <= sv;
+                            });
+
+                              if (!canPull) {
+                                const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                                const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                                return (
+                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                );
+                              }
+
+                            // If pullable, show confirmation controls (Yes/No) after an initial press
+                            if (pullConfirmGroup === g) {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                                  <button onClick={() => {
+                                    // Open invest selector for the acting team instead of immediately pulling
+                                    const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                    if (humanHasRiders) {
+                                      setPullInvestGroup(g);
+                                      setPullInvestTeam('Me');
+                                      setPullInvestSelections([]);
+                                    } else {
+                                      processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                    }
+                                    setPullConfirmGroup(null);
+                                  }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                                  <button onClick={() => { setPullConfirmGroup(null); processAutoInvests(g, { invested: false, riders: [], team: currentTeam }); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <button onClick={() => {
+                                const team = currentTeam;
+                                if (team === 'Me') {
+                                  addLog(`Opening pull-invest modal for ${team} group ${g}`);
+                                  setPullInvestGroup(g);
+                                  setPullInvestTeam(team);
+                                  setPullInvestSelections([]);
+                                } else {
+                                  processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                }
+                              }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                            );
+                          } catch (e) { return null; }
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Per-group panels removed per user request */}
+
+              {/* Card selection modal for human riders when moving a group */}
+              {cardSelectionOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                  <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: '6rem', zIndex: 99999 }}>
+                    <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
+                    <div className="text-sm text-gray-600 mb-3">
+                      Speed: <strong>{groupSpeed}</strong>, 
+                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream}</strong>
+                    </div>
+                    <div className="space-y-4 mb-4">
+                      {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
+                        <div key={name} className="p-3 border rounded">
+                          <div data-rider={name} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="font-semibold mb-2 cursor-pointer">{name}</div>
+                          <div className="grid grid-cols-4 gap-2">
+                            {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
+                              const isLeader = (rider.takes_lead || 0) === 1;
+                              const isDownhill = track[rider.position] === '_';
+                              let disabled = false;
+                              let title = '';
+                              try {
+                                if (isLeader) {
+                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
+                                  // Use rider's individual selected_value instead of groupSpeed for dobbeltføring
+                                  const targetVal = Math.round(rider.selected_value || groupSpeed || 0);
+                                  if ((cardVal - localPenalty) < targetVal) {
+                                    disabled = true;
+                                    title = `Must be ≥ ${targetVal}`;
+                                  }
+                                }
+                              } catch (e) { disabled = false; }
+                              // Determine state for this card: leader-disabled (grey), non-leader-danger (red), selected, or normal
+                              const isSelected = cardSelections[name] === c.id;
+                              let localDisabled = false;
+                              let danger = false;
+                              let titleText = title || '';
+                              try {
+                                if (isLeader) {
+                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(groupSpeed || 0), track);
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
+                                  // Use rider's individual selected_value instead of groupSpeed for dobbeltføring
+                                  const targetVal = Math.round(rider.selected_value || groupSpeed || 0);
+                                  if ((cardVal - localPenalty) < targetVal) {
+                                    localDisabled = true; // leader cannot play this card for the required pace
+                                    titleText = `Must be ≥ ${targetVal}`;
+                                  }
+                                } else {
+                                  // Non-leader: determine whether playing this card would cause rider to fall out
+                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
+                                  let cardVal = slipstream > 2 ? c.flat : c.uphill;
+                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
+                                  const effective = (cardVal - localPenalty);
+                                  const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
+                                  if (effective < minRequiredToFollow) {
+                                    danger = true; // would fall out of group
+                                    titleText = titleText || 'Would fall out of group if played';
+                                  }
+                                }
+                              } catch (e) { /* ignore */ }
+
+                              const btnClass = isSelected
+                                ? 'p-2 rounded text-sm border bg-blue-100 text-blue-900'
+                                : (localDisabled)
+                                  ? 'p-2 rounded text-sm border bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  : (danger)
+                                    ? 'p-2 rounded text-sm border border-red-600 bg-red-50 text-red-700'
+                                    : 'p-2 rounded text-sm border bg-white hover:bg-gray-50';
+
+                              return (
+                                <button key={c.id} type="button" title={titleText} onClick={() => !localDisabled && handleCardChoice(name, c.id)} disabled={localDisabled} className={btnClass}>
+                                  <div className={`font-bold ${danger ? 'text-red-700' : ''}`}>{c.id}</div>
+                                  <div className="text-base font-bold">
+                                    <span className="text-gray-700">{c.flat}</span>
+                                    |
+                                    <span className="text-red-600">{c.uphill}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                            {/* TK-extra option */}
+                            {(() => {
+                              const isLeader = (rider.takes_lead || 0) === 1;
+                              const disabled = !!isLeader; // disallow tk_extra for leaders
+                              return (
+                                <button type="button" onClick={() => !disabled && handleCardChoice(name, 'tk_extra 99')} disabled={disabled} className={`p-2 rounded text-sm border ${cardSelections[name] === 'tk_extra 99' ? 'bg-blue-600 text-white' : disabled ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}>
+                                  <div className="font-bold">tk_extra</div>
+                                  <div className="text-xs">2|2</div>
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => setCardSelectionOpen(false)} className="px-3 py-2 border rounded">Cancel</button>
+                      <button disabled={Object.values(cardSelections).length === 0 || Object.values(cardSelections).some(v => v === null)} onClick={submitCardSelections} className="px-4 py-2 bg-green-600 text-white rounded">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Fall-back modal: let one human rider fall back to a group behind them */}
+              {fallBackOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                  <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 pb-40 md:pb-6 max-h-[80vh] overflow-y-auto">
+                    <h3 className="text-lg font-bold mb-3">Let rider fall back</h3>
+                    <p className="text-sm text-gray-600 mb-3">Choose one of your riders and move them back to a group behind them.</p>
+                    <div className="mb-3">
+                      <label className="block text-sm font-medium mb-1">Which rider</label>
+                      <select value={fallRider || ''} onChange={e => { setFallRider(e.target.value || null); setFallTargetGroup(null); }} className="w-full p-2 border rounded">
+                        <option value="">-- select rider --</option>
+                        {Object.entries(cards).filter(([, r]) => r.team === 'Me' && !r.finished).map(([name, r]) => (
+                          <option key={name} value={name}>{name} (Group {r.group})</option>
+                        ))}
+                      </select>
+                    </div>
+                    {fallRider && (
+                      <div className="mb-3">
+                        <label className="block text-sm font-medium mb-1">Back to group (only groups behind the rider are allowed)</label>
+                        {(() => {
+                          const riderObj = cards[fallRider];
+                          const allGroups = Array.from(new Set(Object.values(cards).filter(rr => !rr.finished).map(rr => rr.group))).sort((a,b) => b - a);
+                          // groups behind the rider are those with a greater group number
+                          // (do NOT allow falling forward to groups with a lower group number)
+                          const behind = allGroups.filter(g => g > (riderObj ? riderObj.group : 0));
+                          if (behind.length === 0) return <div className="text-sm text-gray-500">No group is behind {fallRider}.</div>;
+                          return (
+                            <div className="space-y-2">
+                              {behind.map(g => (
+                                <label key={g} className={`p-2 border rounded flex items-start gap-3 ${Number(fallTargetGroup) === Number(g) ? 'bg-gray-100' : ''}`}>
+                                  <input type="radio" name="fallGroup" value={g} checked={Number(fallTargetGroup) === Number(g)} onChange={() => setFallTargetGroup(g)} />
+                                  <div className="text-sm">
+                                    <div className="font-semibold">Group {g}</div>
+                                    <div className="text-xs text-gray-600">Riders: {Object.entries(cards).filter(([,r]) => r.group === g && !r.finished).map(([n]) => n).join(', ')}</div>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-3">
+                      <button onClick={() => { setFallBackOpen(false); setFallRider(null); setFallTargetGroup(null); }} className="px-3 py-2 border rounded">Cancel</button>
+                      <button onClick={confirmFallBack} disabled={!fallRider || fallTargetGroup === null} className="px-4 py-2 bg-yellow-500 text-black rounded">Confirm</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pull-invest modal: choose which rider on the investing team receives TK-1 and performs the pull */}
+                      {pullInvestGroup !== null && (pullInvestTeam === 'Me' || pullInvestTeam === null) && (
+                (() => {
+                  try {
+                    const g = pullInvestGroup;
+                    const team = 'Me';
+                    // Compute group's main non-attacker position and only offer
+                    // candidates who are non-attackers at exactly the group position
+                    // (position == groupMainPos) and whose team doesn't have an attacker.
+                    const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                    const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
+                    const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
+                    
+                    // Find teams that have attackers
+                    const teamsWithAttackers = new Set(
+                      members
+                        .filter(([, r]) => (r.attacking_status || '') === 'attacker')
+                        .map(([, r]) => r.team)
+                    );
+                    
+                    const candidates = members.filter(([, r]) => 
+                      r.team === team && 
+                      (r.attacking_status || '') !== 'attacker' && 
+                      (Number(r.position) || 0) === groupMainPos &&
+                      !teamsWithAttackers.has(r.team)
+                    );
+                    return (
+                      <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-60">
+                        <div className="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 z-60">
+                          <h3 className="text-lg font-bold mb-2">Which rider invests? (Me) — candidates: "{candidates.length}"</h3>
+                          <div className="text-sm text-gray-600 mb-3">Choose one of your riders in group {g} (excluding attackers) to receive a TK-1 card on top of their hand, or choose "No investment".</div>
+                          <div className="space-y-2 mb-4">
+                            {candidates.length === 0 ? (
+                              <div className="text-sm text-gray-500">No eligible riders in this group for team {team}.</div>
+                            ) : (
+                              <div className="grid gap-2">
+                                {candidates.map(([name, r]) => {
+                                  const selections = pullInvestSelections || [];
+                                  const count = selections.filter(x => x === name).length;
+                                  const slotsLeft = Math.max(0, 2 - selections.length);
+                                  const invest1Selected = count >= 1;
+                                  const invest2Selected = count >= 2;
+                                  return (
+                                    <div key={name} className="p-2 border rounded flex items-center justify-between">
+                                      <div>
+                                        <div className="font-medium">{name}</div>
+                                        <div className="text-xs text-gray-500">Pos: {r.position}</div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button type="button" disabled={pullInvestButtonsDisabled} onClick={() => {
+                                          if (pullInvestButtonsDisabled) return;
+                                          setPullInvestButtonsDisabled(true);
+                                          setTimeout(() => setPullInvestButtonsDisabled(false), 300);
+                                          setPullInvestSelections(prev => {
+                                            const cur = prev ? [...prev] : [];
+                                            const existing = cur.indexOf(name);
+                                            if (existing !== -1) {
+                                              // remove one occurrence
+                                              cur.splice(existing, 1);
+                                              return cur;
+                                            }
+                                            // add one if room
+                                            if (cur.length < 2) return [...cur, name];
+                                            return cur;
+                                          });
+                                        }} className={`px-2 py-1 rounded border ${invest1Selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>+1</button>
+
+                                        <button type="button" disabled={pullInvestButtonsDisabled} onClick={() => {
+                                          if (pullInvestButtonsDisabled) return;
+                                          setPullInvestButtonsDisabled(true);
+                                          setTimeout(() => setPullInvestButtonsDisabled(false), 300);
+                                          setPullInvestSelections(prev => {
+                                            const cur = prev ? [...prev] : [];
+                                            const cnt = cur.filter(x => x === name).length;
+                                            if (cnt >= 2) {
+                                              // remove both occurrences
+                                              return cur.filter(x => x !== name);
+                                            }
+                                            // we need two slots to add two occurrences
+                                            if (cur.length === 0) return [name, name];
+                                            if (cur.length === 1 && cur[0] === name) return [name, name];
+                                            // not enough room to add two; do nothing
+                                            return cur;
+                                          });
+                                        }} className={`px-2 py-1 rounded border ${invest2Selected ? 'bg-yellow-100 border-yellow-500' : 'bg-white'}`}>+2</button>
+
+                                        <div className="text-sm text-gray-600">{invest2Selected ? 'Selected x2' : (invest1Selected ? 'Selected x1' : (selections.length >= 2 ? 'Max selected' : 'Select'))}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                <div className="text-xs text-gray-600">Selected: {(() => {
+                                      const sel = pullInvestSelections || [];
+                                      if (sel.length === 0) return 'none';
+                                      const counts = {};
+                                      for (const s of sel) counts[s] = (counts[s] || 0) + 1;
+                                      return Object.entries(counts).map(([n, c]) => c > 1 ? `${n} x${c}` : n).join(', ');
+                                    })()}</div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button disabled={pullInvestButtonsDisabled} onClick={() => {
+                                if (pullInvestButtonsDisabled) return;
+                                setPullInvestButtonsDisabled(true);
+                                setTimeout(() => setPullInvestButtonsDisabled(false), 500);
+                                // mark handled so auto-open doesn't reopen modal immediately
+                                try { pullInvestHandledRef.current.add(g); setTimeout(() => pullInvestHandledRef.current.delete(g), 5000); } catch (e) {}
+                                setPullInvestGroup(null);
+                                setPullInvestTeam(null);
+                                setPullInvestSelections([]);
+                                addLog(`Me chooses no investment (0 riders)`);
+                                processAutoInvests(g, { invested: false, riders: [], team: 'Me' });
+                              }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No investment</button>
+                            <button disabled={pullInvestButtonsDisabled || !(pullInvestSelections && pullInvestSelections.length > 0)} onClick={() => {
+                              if (pullInvestButtonsDisabled) return;
+                              setPullInvestButtonsDisabled(true);
+                              setTimeout(() => setPullInvestButtonsDisabled(false), 500);
+                              // mark handled so auto-open doesn't reopen modal immediately
+                              try { pullInvestHandledRef.current.add(g); setTimeout(() => pullInvestHandledRef.current.delete(g), 5000); } catch (e) {}
+                              const riders = pullInvestSelections || [];
+                              addLog(`Me chooses to invest ${riders.length} rider(s): ${riders.join(', ')}`);
+                              processAutoInvests(g, { invested: true, riders, team: 'Me' });
+                              setPullInvestGroup(null);
+                              setPullInvestTeam(null);
+                              setPullInvestSelections([]);
+                            }} className="px-3 py-2 bg-yellow-600 text-black rounded">Confirm investment</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  } catch (e) { return null; }
+                })()
+              )}
+
+              
+            </div>
+
+            {/* Sticky footer: minimizable */}
+            <div className="fixed left-0 right-0 bottom-0 bg-white border-t shadow-lg z-50">
+              <div className="max-w-7xl mx-auto px-3">
+                <div className="relative">
+                  {/* Toggle button to minimize/restore footer */}
+                  <button onClick={() => setFooterCollapsed(fc => !fc)} aria-label="Toggle footer" aria-expanded={!footerCollapsed} className="absolute -top-6 right-3 bg-white border rounded-full p-1 shadow hover:ring-2 hover:ring-green-300 transition-all" title="Toggle footer">
+                    <span className="text-sm" aria-hidden>{footerCollapsed ? '▲' : '▼'}</span>
+                  </button>
+
+                  <div className="py-2" style={{ overflow: 'hidden', transition: 'max-height 260ms ease', maxHeight: footerCollapsed ? 0 : '1000px' }} aria-hidden={footerCollapsed}>
+                    {/* Track row (restored) */}
+                    <div className="overflow-x-auto bg-gray-50 rounded p-1 mb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+                      <div style={{ display: 'flex', gap: 1, alignItems: 'stretch', height: 'auto', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const tokens = colourTrackTokens(track || '').map((t, i) => ({ ...t, idx: i }));
+                          const groupsList = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+
+                          // Compute the "main" position for each group. If some riders in
+                          // the group are attackers, compute the group's main position as
+                          // the max position among non-attacker riders so the group's GX
+                          // label is placed where the rest of the group is. If no
+                          // non-attackers exist, fall back to the max of all members.
+                          const groupMainPos = {};
+                          const groupMoved = {};
+                          for (const g of groupsList) {
+                            const members = Object.entries(cards).filter(([,r]) => r.group === g && !r.finished);
+                            const nonAttackers = members.filter(([,r]) => (r.attacking_status || '') !== 'attacker').map(([,r]) => r.position || 0);
+                            if (nonAttackers.length > 0) groupMainPos[g] = Math.max(...nonAttackers);
+                            else groupMainPos[g] = members.length ? Math.max(...members.map(([,r]) => r.position || 0)) : 0;
+                            // Determine whether the group moved this round by comparing
+                            // each member's position to their old_position. If any member
+                            // changed position, consider the group as moved.
+                            const moved = members.some(([,r]) => Number(r.position) !== Number(r.old_position || r.position));
+                            groupMoved[g] = moved;
+                          }
+
+                          const posToGroups = {};
+                          Object.entries(groupMainPos).forEach(([g, pos]) => { posToGroups[pos] = posToGroups[pos] || []; posToGroups[pos].push(Number(g)); });
+
+                          // Map attacker riders (those with attacking_status==='attacker')
+                          // to their landing positions so we can render their names on the
+                          // tile they ended up on while the round is in progress.
+                          const ridersAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (r && !r.finished && (r.attacking_status === 'attacker')) {
+                              const p = Number(r.position) || 0;
+                              ridersAtPos[p] = ridersAtPos[p] || [];
+                              ridersAtPos[p].push(name);
+                            }
+                          }
+                          // Map riders who fell out (couldn't follow the group's main speed)
+                          // These are non-attackers whose position is strictly less than
+                          // the group's main position. Render them on their own tile.
+                          const fallenAtPos = {};
+                          for (const [name, r] of Object.entries(cards)) {
+                            if (!r || r.finished) continue;
+                            if (r.attacking_status === 'attacker') continue; // already handled
+                            const g = r.group;
+                            const mainPos = typeof groupMainPos[g] !== 'undefined' ? Number(groupMainPos[g]) : null;
+                            const pos = Number(r.position) || 0;
+                            if (mainPos !== null && pos < mainPos) {
+                              fallenAtPos[pos] = fallenAtPos[pos] || [];
+                              fallenAtPos[pos].push(name);
+                            }
+                          }
+                          const firstNameShort = (full) => {
+                            if (!full || typeof full !== 'string') return full || '';
+                            const parts = full.trim().split(/\s+/);
+                            const first = parts[0] || '';
+                            return first.slice(0, 5);
+                          };
+
+                          const isSmall = (typeof window !== 'undefined') ? (window.innerWidth < 640) : false;
+                          // make tiles roughly twice as big
+                          const base = (isSmall ? 20 : 32) * 2;
+                          const w = Math.round(base * 0.8);
+                          const h = Math.round(w * 1.6);
+
+                          return tokens.map((t) => {
+                            const groupsHere = posToGroups[t.idx] || [];
+                            const char = t.char;
+                            const map = {
+                              '3': { bg: '#D1D5DB', text: '#111827' },
+                              '2': { bg: '#8B3A3A', text: '#FFFFFF' },
+                              '1': { bg: '#DC2626', text: '#FFFFFF' },
+                              '0': { bg: '#F9A8D4', text: '#111827' },
+                              '_': { bg: '#60A5FA', text: '#03133E' },
+                              'F': { bg: '#FACC15', text: '#111827' }
+                            };
+                            const styleColors = map[char] || { bg: '#F3F4F6', text: '#111827' };
+
+                            return (
+                              <div key={t.idx} data-idx={t.idx} className="flex flex-col items-center" style={{ width: w + 4, marginRight: 1, display: 'inline-flex' }}>
+                                <div title={`Field ${t.idx}: ${char}`} style={{ width: w, height: h, backgroundColor: styleColors.bg, color: styleColors.text }} className="rounded-sm relative flex-shrink-0 border">
+                                  {/* tile number: smaller, thin, positioned at the top */}
+                                  <div style={{ position: 'absolute', top: 4, left: 6, fontSize: isSmall ? '8px' : '10px', fontWeight: 300, lineHeight: 1, opacity: 0.95 }}>{t.idx}</div>
+                                  {/* If this is a Brosten track (trailing '*') show the small capacity % under the tile number for 0/1/2 tokens */}
+                                  {(() => {
+                                    try {
+                                      const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                                      if (!isBrosten) return null;
+                                      const ch = t.char;
+                                      if (ch !== '0' && ch !== '1' && ch !== '2') return null;
+                                      // For Brosten tracks we show a small capacity hint under
+                                      // tokens 0/1/2. Adjust distribution: make '2' 50%, '1' 33%
+                                      // and '0' 25% (user-requested change).
+                                      const label = (ch === '2') ? '50%' : (ch === '0' ? '25%' : '33%');
+                                      return (
+                                        <div style={{ position: 'absolute', top: isSmall ? 14 : 16, left: 6, fontSize: isSmall ? '7px' : '9px', lineHeight: 1, opacity: 0.9, color: styleColors.text }} className="pointer-events-none">{label}</div>
+                                      );
+                                    } catch (e) { return null; }
+                                  })()}
+                                  <div style={{ position: 'absolute', top: 3, right: 6 }} className="text-xs font-semibold" aria-hidden>{char}</div>
+                                  {(() => {
+                                    const attackersHere = ridersAtPos[t.idx] || [];
+                                    const fallenHere = fallenAtPos[t.idx] || [];
+                                    if (attackersHere.length > 0 || fallenHere.length > 0 || groupsHere.length > 0) {
+                                      return (
+                                        <div style={{ position: 'absolute', bottom: 6, left: 4, right: 4, textAlign: 'center' }}>
+                                          {/* Attackers (if any) — render above group labels */}
+                                          {attackersHere.length > 0 && attackersHere.map((n, i) => (
+                                            <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
+                                              <span>{firstNameShort(n)}</span>
+                                              <button
+                                                type="button"
+                                                className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
+                                                style={{ color: styleColors.text, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                                onClick={(e) => { 
+                                                  e.stopPropagation(); 
+                                                  e.preventDefault(); 
+                                                  setRiderTooltip({ name: n, x: e.clientX, y: e.clientY });
+                                                }}
+                                              >
+                                                <Info size={10} />
+                                              </button>
+                                            </div>
+                                          ))}
+
+                                          {/* Groups (if any) — render below attackers */}
+                                          {groupsHere.length > 0 && (() => {
+                                            const unmovedGroups = groupsHere.filter(g => !(groupMoved && typeof groupMoved[g] !== 'undefined') || groupMoved[g] === false);
+                                            const movedGroups = groupsHere.filter(g => (groupMoved && typeof groupMoved[g] !== 'undefined') && groupMoved[g] === true);
+                                            return (
+                                              <div>
+                                                {unmovedGroups.length > 0 && (
+                                                  <div style={{ display: 'block' }}>
+                                                    {unmovedGroups.map((g, idx) => (
+                                                      <div key={`u${g}`} className={`w-full px-1 py-0.5 rounded text-[10px] font-semibold bg-white border`} style={{ marginBottom: idx < unmovedGroups.length - 1 ? 4 : 0, fontSize: '0.9rem', fontWeight: 700, color: '#000' }}>{`G${g}`}</div>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                                {movedGroups.length > 0 && (
+                                                  <div style={{ display: 'block', marginTop: unmovedGroups.length > 0 ? 4 : 0 }}>
+                                                    {movedGroups.map((g, idx) => (
+                                                      <div key={`m${g}`} className={`px-1 py-0.5 rounded text-[10px] font-semibold`} style={{ marginBottom: idx < movedGroups.length - 1 ? 4 : 0, fontSize: '0.75rem', fontWeight: 700 }}>{`G${g}`}</div>
+                                                    ))}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
+
+                                          {/* Fallen riders (if any) — render below groups/attackers when present */}
+                                          {fallenHere.length > 0 && fallenHere.map((n, i) => (
+                                            <div key={`f${n}${i}`} style={{ marginTop: 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
+                                              <span>{firstNameShort(n)}</span>
+                                              <button
+                                                type="button"
+                                                className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
+                                                style={{ color: styleColors.text, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                                onClick={(e) => { 
+                                                  e.stopPropagation(); 
+                                                  e.preventDefault(); 
+                                                  setRiderTooltip({ name: n, x: e.clientX, y: e.clientY });
+                                                }}
+                                              >
+                                                <Info size={10} />
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+                    {/* Controls + groups below the track (condensed) */}
+                    {(() => {
+                      // Compute kilometers left from the furthest-forward rider
+                      const kmLeft = computeKmLeft(getResolvedTrack(), cards);
+                      return (
+                        <div className="mb-1 text-sm font-semibold"><strong>{`Km's left: ${kmLeft}`}</strong></div>
+                      );
+                    })()}
+                    <div className="mt-1 grid grid-cols-1 md:grid-cols-3 gap-2 items-start">
+                  <div className="md:col-span-1">
+                    {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                      <div className="mt-1 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                        <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
+                        {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
+                        {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
+                        {sprintAnimMsgs.slice(3).map((m, idx) => (
+                          <div key={idx} className="text-xs text-gray-800">{m}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <div className="text-sm text-gray-600 max-h-28 overflow-y-auto">
+                      {(() => {
+                        const groupsListLocal = Array.from(new Set(Object.values(cards).filter(r => !r.finished).map(r => r.group))).sort((a,b)=>a-b);
+                        if (groupsListLocal.length === 0) return <div className="text-xs text-gray-400">(none)</div>;
+                        return groupsListLocal.map(g => {
+                          const storedGap = (groupTimeGaps && typeof groupTimeGaps[g] === 'number') ? groupTimeGaps[g] : 0;
+                          const timeStr = convertToSeconds(storedGap);
+                          const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
+                          const namesStr = riders.join(', ');
+                          return (
+                            <div key={g} className="mb-0.5">
+                              <div className="flex items-center gap-3">
+                                <div className="font-medium text-sm">G{g} <span className="text-gray-500 text-xs">{timeStr}</span></div>
+                                <div className="flex-1 overflow-x-auto">
+                                  <div className="flex gap-2 items-center text-xs">
+                                      {riders.map(name => {
+                                        const team = (cards[name] && cards[name].team) || '';
+                                        const bg = (teamColors && teamColors[team]) || 'transparent';
+                                        const txt = (teamTextColors && teamTextColors[team]) || '#111827';
+                                        return (
+                                            <div key={name} className="whitespace-nowrap inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
+                                            <span>{abbrevFirstName(name)}</span>
+                                            <button
+                                              type="button"
+                                              className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100 border-0 bg-transparent p-0 m-0"
+                                              style={{ color: txt, pointerEvents: 'auto', display: 'inline-flex', alignItems: 'center' }}
+                                              onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                e.preventDefault(); 
+                                                setRiderTooltip({ name, x: e.clientX, y: e.clientY });
+                                              }}
+                                            >
+                                              <Info size={12} />
+                                            </button>
+                                            <span className="ml-1 text-[10px] text-opacity-80" style={{ color: txt === '#000000' ? '#444' : txt }}>{`(${team})`}</span>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+                </div>
+                  </div>
+
+                  {footerCollapsed && (
+                    <div className="py-2 flex items-center justify-center text-sm text-gray-700">Sticky footer minimized</div>
+                  )}
+
+                </div>
+              </div>
+            </div>
+
+            {/* Status section moved to bottom */}
+            <div>
+              <div className="bg-white rounded-lg shadow p-3">
+                <h2 className="text-lg font-bold mb-2"><Trophy size={18} className="inline"/>Status</h2>
+                <div className="space-y-1 text-sm">
+                  <p><strong>Round:</strong> {round}</p>
+                  <p><strong>Group:</strong> {currentGroup}</p>
+                  <p><strong>Team:</strong> {currentTeam}</p>
+                </div>
+                {/* Team rosters: show which riders each team currently has */}
+                <div className="mt-3">
+                  <h4 className="font-bold mb-2">Team Rosters</h4>
+                  <div className="text-sm space-y-2">
+                    {(() => {
+                      // collect team names from cards or fallback to generated teams
+                      const teamNames = teamBaseOrder && teamBaseOrder.length > 0 ? teamBaseOrder : Array.from(new Set(Object.values(cards).map(r => r.team))).filter(Boolean);
+                      if (!teamNames || teamNames.length === 0) return <div className="text-xs text-gray-500">No teams yet</div>;
+                      return teamNames.map(t => {
+                        const bg = teamColors[t] || 'white';
+                        const txt = teamTextColors[t] || '#111';
+                        return (
+                          <div key={t} className="p-2 rounded border" style={{ backgroundColor: bg, color: txt }}>
+                            <div className="font-semibold">{t}</div>
+                                  <div className="text-xs" style={{ color: txt === '#000000' ? '#111' : '#f0f0f0' }}>
+                              {Object.entries(cards).filter(([,r]) => r.team === t).map(([n], idx, arr) => (
+                                  <span key={n}>
+                                  <span data-rider={n} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t2 = e.changedTouches && e.changedTouches[0]; if (t2) { e.stopPropagation(); setRiderTooltip({ name: n, x: t2.clientX, y: t2.clientY }); } }} className="cursor-pointer">{n}</span>
+                                  {idx < arr.length - 1 ? ', ' : ''}
+                                </span>
+                              )) || <span className="text-gray-400">(no riders)</span>}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+                {((movePhase === 'roundComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
+                  const isBrosten = typeof track === 'string' && /\*$/.test(track);
+                  if (isBrosten && !diceEvent) {
+                    return (
+                      <div>
+                        <button onClick={checkCrash} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">Check if crash</button>
+                        {diceMsg && <div className="mt-2 text-sm text-gray-700">{diceMsg}</div>}
+                      </div>
+                    );
+                  }
+                  return (
+                    <>
+                      <button onClick={startNewRound} className="w-full mt-3 bg-green-600 text-white py-2 rounded flex items-center justify-center gap-2">
+                        <SkipForward size={14}/>Round {round + 1}
+                      </button>
+                      <button onClick={() => setFallBackOpen(true)} className="w-full mt-3 bg-yellow-500 text-black py-2 rounded flex items-center justify-center gap-2">
+                        Let rider fall back
+                      </button>
+                      {diceEvent && (
+                        <div className="mt-2 p-2 bg-yellow-50 border rounded text-sm">
+                          <div className="font-medium">{diceEvent.kind === 'puncture' ? 'Puncture' : 'Crash'}: {diceEvent.who} {diceEvent.oldPos}→{diceEvent.newPos}</div>
+                          <div className="text-xs text-gray-600">Use "Let rider fall back" to move riders back until you confirm.</div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {sprintAnimMsgs && sprintAnimMsgs.length > 0 && (
+                  <div className="mt-3">
+                    <div className="mt-2 p-2 bg-purple-50 border rounded text-xs max-h-20 overflow-y-auto">
+                      <div className="text-sm text-gray-800 font-bold">{sprintAnimMsgs[0]}</div>
+                      {sprintAnimMsgs[1] && <div className="mt-1 text-xs text-gray-800">{sprintAnimMsgs[1]}</div>}
+                      {sprintAnimMsgs.length > 2 && <div style={{ height: 8 }} />}
+                      {sprintAnimMsgs.slice(3).map((m, idx) => (
+                        <div key={idx} className="text-xs text-gray-800">{m}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Back to Setup button removed per user request */}
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-3 rounded text-base font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
+                  Eliminate rider
+                </button>
+                {/* Mobile floating button for easy activation on phones */}
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="lg:hidden fixed bottom-6 right-4 z-50 bg-red-600 text-white p-3 rounded-full shadow-lg" aria-label="Eliminate riders (mobile)">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"></path><path d="M8 6v14"></path><path d="M16 6v14"></path><path d="M10 6v14"></path></svg>
+                </button>
+                
+                {/* Mobile debug toggle button */}
+                <div className="lg:hidden mt-3 px-3">
+                  <button onClick={() => setShowDebugMobile(s => !s)} className="w-full py-2 bg-yellow-500 text-black rounded">
+                    {showDebugMobile ? 'Hide Debug' : 'Show Debug'}
+                  </button>
+                </div>
+
+                <div className={`${showDebugMobile ? '' : 'hidden lg:block'} bg-gray-900 text-green-400 rounded-lg shadow p-4 mt-6 font-mono text-xs max-h-96 overflow-y-auto`}>
+                  {/* Eliminate modal */}
+                  {eliminateOpen && (
+                    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-start sm:items-center justify-center p-4" onClick={() => setEliminateOpen(false)}>
+                      <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-4" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-lg font-bold mb-3">Eliminate riders</h3>
+                        <div className="text-sm text-gray-600 mb-2">Select riders to remove from the current game. Default: none selected.</div>
+                        <div className="flex gap-2 mb-2">
+                          <button type="button" onClick={() => { const map = {}; Object.keys(cards).forEach(k => map[k] = true); setEliminateSelection(map); }} className="px-2 py-1 bg-gray-200 rounded">Select all</button>
+                          <button type="button" onClick={() => { const map = {}; Object.keys(cards).forEach(k => map[k] = false); setEliminateSelection(map); }} className="px-2 py-1 bg-gray-200 rounded">Deselect all</button>
+                        </div>
+                        <div className="max-h-64 overflow-y-auto mb-3 border rounded p-2">
+                          {Object.keys(cards).length === 0 ? (<div className="text-sm text-gray-500">No riders available</div>) : Object.keys(cards).map((n) => (
+                            <label key={n} className="flex items-center gap-2 mb-1">
+                              <input type="checkbox" checked={!!eliminateSelection[n]} onChange={(e) => setEliminateSelection(prev => ({ ...prev, [n]: !!e.target.checked }))} />
+                              <span className="text-sm">{n}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setEliminateOpen(false)} className="px-3 py-1 rounded border">Cancel</button>
+                          <button type="button" onClick={() => {
+                            const selected = Object.entries(eliminateSelection).filter(([,v]) => v).map(([k]) => k);
+                            if (selected.length > 0) {
+                              setCards(prev => { const copy = { ...prev }; selected.forEach(n => delete copy[n]); return copy; });
+                              try { addLog(`Eliminated riders: ${selected.join(', ')}`); } catch (e) {}
+                            }
+                            setEliminateOpen(false);
+                            setEliminateSelection({});
+                          }} className="px-3 py-1 rounded bg-red-600 text-white">Confirm</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <h3 className="text-lg font-bold mb-3 text-white">🐛 DEBUG: All Rider Dictionaries</h3>
+                  <div className="space-y-4">
+                      {Object.entries(cards).map(([name, rider]) => (
+                      <div key={name} className="border border-green-600 rounded p-3 bg-gray-800">
+                        <h4 data-rider={name} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="text-yellow-400 font-bold mb-2 cursor-pointer">{name}</h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          {Object.entries(rider).filter(([k]) => k !== 'cards' && k !== 'discarded').map(([key, value]) => (
+                            <div key={key} className="flex">
+                              <span className="text-blue-400 w-32">{key}:</span>
+                              <span className="text-green-300">
+                                {typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(3)) : String(value)}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex col-span-2">
+                            <span className="text-blue-400 w-32">cards:</span>
+                            <span className="text-green-300">{rider.cards.length} cards</span>
+                          </div>
+                          <div className="col-span-2 ml-32 text-green-300 text-xs">
+                            {rider.cards.map((c, i) => {
+                              const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
+                              return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
+                            })}
+                          </div>
+                          <div className="flex col-span-2">
+                            <span className="text-blue-400 w-32">discarded:</span>
+                            <span className="text-green-300">{rider.discarded.length} cards</span>
+                          </div>
+                          <div className="col-span-2 ml-32 text-green-300 text-xs">
+                            {rider.discarded.map((c, i) => {
+                              const num = (c.id && c.id.match(/\d+/)) ? c.id.match(/\d+/)[0] : '?';
+                              return (<div key={i}>{i+1}. Kort {num}: {c.flat}|{c.uphill}</div>);
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              
+                {/* Final standings */}
+                <div className="bg-white rounded-lg shadow p-3 mt-3">
+                  <h3 className="font-bold mb-2">Final Standings</h3>
+                  <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
+                  {(() => {
+                    // Merge finished riders recorded in `cards` (if any) and
+                    // the accumulated `finalStandings` we persist when sprints
+                    // happen. This ensures final placements are visible even
+                    // after we remove finished riders from the live `cards`.
+                    const fromCards = Object.entries(cards)
+                      .filter(([, r]) => typeof r.result === 'number' && r.result < 1000)
+                      .map(([name, r]) => ({ pos: r.result, name, team: r.team, timeSec: (typeof r.time_after_winner === 'number' ? r.time_after_winner : null) }));
+                    const fromState = Array.isArray(finalStandings) ? finalStandings.map(f => ({ pos: f.pos, name: f.name, team: f.team, timeSec: f.timeSec })) : [];
+                    const mergedByName = new Map();
+                    for (const e of [...fromState, ...fromCards]) {
+                      mergedByName.set(e.name, e);
+                    }
+                    // Build an array and sort by time-after-winner (ascending).
+                    // Missing timeSec values are treated as very large so they land at the end.
+                    const mergedArr = Array.from(mergedByName.values()).sort((a, b) => {
+                      const ta = (typeof a.timeSec === 'number') ? a.timeSec : 1e9;
+                      const tb = (typeof b.timeSec === 'number') ? b.timeSec : 1e9;
+                      if (ta !== tb) return ta - tb;
+                      const pa = (typeof a.pos === 'number') ? a.pos : 9999;
+                      const pb = (typeof b.pos === 'number') ? b.pos : 9999;
+                      if (pa !== pb) return pa - pb;
+                      return (a.name || '').localeCompare(b.name || '');
+                    });
+                    // Re-assign consecutive positions 1..N to avoid duplicates
+                    const merged = mergedArr.map((e, idx) => ({ ...e, pos: idx + 1 }));
+                    if (merged.length === 0) return <div className="text-sm text-gray-500">No finishers yet</div>;
+                    return (
+                      <div className="text-sm space-y-1">
+                        {merged.map((r) => (
+                          <div key={r.name} className="flex justify-between">
+                            <div>{r.pos}. {r.team === 'Me' ? (<strong>{r.name}</strong>) : r.name} <span className="text-xs text-gray-500">({r.team})</span></div>
+                            <div className="text-xs text-green-600">{typeof r.timeSec === 'number' ? convertToSeconds(r.timeSec) : '-'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div className="bg-white rounded-lg shadow p-3 mt-3 max-h-96 overflow-y-auto">
+                <h3 className="font-bold mb-2"><FileText size={16} className="inline"/>Log</h3>
+                <div className="text-xs space-y-1">
+                  {logs.slice(-100).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+    {/* Rider tooltip */}
+    {riderTooltip && (typeof window !== 'undefined') && (() => {
+      // Try to find rider in cards first, then in allRiders
+      let r = (cards && cards[riderTooltip.name]) ? cards[riderTooltip.name] : null;
+      if (!r && allRiders) {
+        r = allRiders.find(rider => rider.NAVN === riderTooltip.name);
+      }
+      if (!r) return null; // Rider not found
+      const mod = computeModifiedBJERG(r, track);
+      const boxW = 260;
+      const boxH = 110;
+      const left = Math.min(Math.max(8, (riderTooltip.x || 0) + 8), (window.innerWidth - boxW - 8));
+      const top = Math.min(Math.max(8, (riderTooltip.y || 0) + 8), (window.innerHeight - boxH - 8));
+      
+      // Get values - try lowercase first (from cards), then uppercase (from allRiders)
+      const fladValue = r.flad || r.FLAD || '';
+      const sprintValue = r.sprint || r.SPRINT || '';
+      
+      return (
+        <div style={{ position: 'fixed', left, top, width: boxW, backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10, zIndex: 2000, boxShadow: '0 6px 24px rgba(0,0,0,0.12)' }} onClick={(e) => { e.stopPropagation(); setRiderTooltip(null); }}>
+          <div className="font-semibold text-sm mb-1">{riderTooltip.name}</div>
+          <div className="text-xs text-gray-600 mb-1">FLAD: {fladValue}</div>
+          <div className="text-xs text-gray-600 mb-1">{mod.label}: {mod.modifiedBJERG}</div>
+          <div className="text-xs text-gray-600">SPRINT: {sprintValue}</div>
+        </div>
+      );
+    })()}
+  </> );
+};
+
+export default CyclingGame;
