@@ -3615,9 +3615,9 @@ const checkCrash = () => {
           <div className="mb-3 p-2 bg-white rounded border">
             <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
             <div className="space-y-2">
-              {riders.filter(([name, rider]) => rider.team === 'Me' || !rider.team).map(([name, rider]) => {
+              {riders.map(([name, rider]) => {
                 const hasTK = (rider.tk || 0) >= 1;
-                const canPlay = doubleLeadPace1 && canRiderPlayAtLeast(name, rider, doubleLeadPace1);
+                const canPlay = !doubleLeadPace1 || canRiderPlayAtLeast(name, rider, doubleLeadPace1);
                 const disabled = !hasTK || !canPlay;
                 return (
                   <button
@@ -3631,7 +3631,7 @@ const checkCrash = () => {
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : 'bg-white hover:bg-purple-100 border'
                     }`}
-                    title={!hasTK ? 'Ingen TK tilbage' : !canPlay ? `Kan ikke spille ${doubleLeadPace1}` : ''}
+                    title={!hasTK ? 'Ingen TK tilbage' : !canPlay && doubleLeadPace1 ? `Kan ikke spille ${doubleLeadPace1}` : ''}
                   >
                     {name} (TK: {rider.tk || 0})
                   </button>
@@ -3644,9 +3644,9 @@ const checkCrash = () => {
           <div className="mb-3 p-2 bg-white rounded border">
             <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
             <div className="space-y-2">
-              {riders.filter(([name, rider]) => rider.team === 'Me' || !rider.team).map(([name, rider]) => {
+              {riders.map(([name, rider]) => {
                 const hasTK = (rider.tk || 0) >= 1;
-                const canPlay = doubleLeadPace2 && canRiderPlayAtLeast(name, rider, doubleLeadPace2);
+                const canPlay = !doubleLeadPace2 || canRiderPlayAtLeast(name, rider, doubleLeadPace2);
                 const isRider1 = name === doubleLeadRider1;
                 const disabled = !hasTK || !canPlay || isRider1;
                 return (
@@ -3661,7 +3661,7 @@ const checkCrash = () => {
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : 'bg-white hover:bg-purple-100 border'
                     }`}
-                    title={isRider1 ? 'Allerede valgt som rytter 1' : !hasTK ? 'Ingen TK tilbage' : !canPlay ? `Kan ikke spille ${doubleLeadPace2}` : ''}
+                    title={isRider1 ? 'Allerede valgt som rytter 1' : !hasTK ? 'Ingen TK tilbage' : !canPlay && doubleLeadPace2 ? `Kan ikke spille ${doubleLeadPace2}` : ''}
                   >
                     {name} (TK: {rider.tk || 0})
                   </button>
