@@ -95,6 +95,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
+  const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
+  const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
+  
+  // Update numAttackers default when numberOfTeams or ridersPerTeam changes
+  useEffect(() => {
+    const totalRiders = numberOfTeams * ridersPerTeam;
+    const defaultAttackers = Math.ceil(totalRiders / 10);
+    setNumAttackers(Math.min(defaultAttackers, 4)); // cap at 4
+  }, [numberOfTeams, ridersPerTeam]);
+  
   const [cards, setCards] = useState({});
   const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
   const [round, setRound] = useState(0);
@@ -981,7 +991,7 @@ return { pace, updatedCards };
   for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
 
   const total = numberOfTeams * ridersPerTeam;
-  const breakawayCount = total > 9 ? 2 : 1;
+  const breakawayCount = Math.min(numAttackers, total); // use slider value, capped at total riders
 
   // Build selectedRidersWithTeam depending on drafted argument
   let selectedRidersWithTeam = [];
@@ -1122,7 +1132,7 @@ return { pace, updatedCards };
     }
 
     cardsObj[rider.NAVN] = {
-      position: isBreakaway ? 5 : 0,
+      position: isBreakaway ? attackerLeadFields : 0,
       cards: generateCards(modifiedRider, isBreakaway),
       discarded: [],
       group: isBreakaway ? 1 : 2,
@@ -3620,7 +3630,7 @@ const checkCrash = () => {
             ) : (
               <>
                 <div className="text-[11px] text-gray-700 mt-1 font-medium">tror nedkørsel virker</div>
-                <h1 className="text-3xl font-bold">CYCL 1.1.</h1>
+                <h1 className="text-3xl font-bold">CYCL 2.0 TEST</h1>
                 <div className="text-[11px] text-gray-800 mt-1 font-medium">Nu kan man selv vælge hvilket kort man spiller</div>
                 <div className="text-[11px] text-green-700 mt-1">du kan angribe igen</div>
                 <div className="text-[11px] text-gray-600 mt-1 leading-tight">
@@ -3736,8 +3746,50 @@ const checkCrash = () => {
                   />
                   <div className="w-12 text-right font-bold">{level}</div>
                 </div>
-                
               </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="block text-sm font-medium mb-2">Udbrydere: {numAttackers}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="4"
+                    value={numAttackers}
+                    onChange={(e) => setNumAttackers(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold">{numAttackers}</div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="block text-sm font-medium mb-2">Felter foran: {attackerLeadFields}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={attackerLeadFields}
+                    onChange={(e) => setAttackerLeadFields(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold">{attackerLeadFields}</div>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>5</span>
+                  <span>10</span>
+                </div>
+              </div>
+                
+              
               {/* Spacer so mobile users can scroll the level slider above the fixed footer */}
               <div className="h-28 sm:h-32" />
             </div>
