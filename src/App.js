@@ -97,7 +97,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
-  const [dobbeltføring, setDobbeltføring] = useState(false); // enable double-leading mechanic
+  const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
   
   // Update numAttackers default when numberOfTeams or ridersPerTeam changes
   useEffect(() => {
@@ -3615,7 +3615,7 @@ const checkCrash = () => {
           <div className="mb-3 p-2 bg-white rounded border">
             <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
             <div className="space-y-2">
-              {riders.map(([name, rider]) => {
+              {riders.filter(([name, rider]) => rider.team === 'Me' || !rider.team).map(([name, rider]) => {
                 const hasTK = (rider.tk || 0) >= 1;
                 const canPlay = doubleLeadPace1 && canRiderPlayAtLeast(name, rider, doubleLeadPace1);
                 const disabled = !hasTK || !canPlay;
@@ -3644,7 +3644,7 @@ const checkCrash = () => {
           <div className="mb-3 p-2 bg-white rounded border">
             <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
             <div className="space-y-2">
-              {riders.map(([name, rider]) => {
+              {riders.filter(([name, rider]) => rider.team === 'Me' || !rider.team).map(([name, rider]) => {
                 const hasTK = (rider.tk || 0) >= 1;
                 const canPlay = doubleLeadPace2 && canRiderPlayAtLeast(name, rider, doubleLeadPace2);
                 const isRider1 = name === doubleLeadRider1;
