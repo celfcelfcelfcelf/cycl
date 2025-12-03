@@ -3711,7 +3711,7 @@ const checkCrash = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Teams</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {[2,3,4,5].map(n => (
+                  {[2,3,4,5,6,7].map(n => (
                     <button key={n} onClick={() => setNumberOfTeams(n)} className={`py-4 rounded text-lg font-semibold ${numberOfTeams===n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {n}
                     </button>
@@ -3725,7 +3725,7 @@ const checkCrash = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Riders / Team</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[2,3,4].map(n => (
+                  {[2,3,4,5].map(n => (
                     <button key={n} onClick={() => setRidersPerTeam(n)} className={`py-4 rounded text-lg font-semibold ${ridersPerTeam===n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {n}
                     </button>
