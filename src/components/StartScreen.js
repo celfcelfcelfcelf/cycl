@@ -126,7 +126,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       <div className="max-w-3xl mx-auto bg-white rounded-xl p-6 shadow">
-        <h1 className="text-center text-xl font-semibold mb-4">Cycling Game Setup</h1>
+        <h1 className="text-center text-xl font-semibold mb-4">Cycling Game Setup [VERSION 2.0]</h1>
 
   <div className="flex flex-col md:flex-row md:gap-4 gap-3 mb-4">
           <div className="flex-1">

@@ -2293,6 +2293,31 @@ const handleHumanChoices = (groupNum, choice) => {
     
     addLog(`Me: hastighed ${choice.value}`);
     
+  } else if (choice.type === 'doublelead') {
+    // Two riders lead together
+    const rider1 = choice.rider1;
+    const rider2 = choice.rider2;
+    const pace1 = choice.pace1;
+    const pace2 = choice.pace2;
+    
+    humanRiders.forEach(name => {
+      if (name === rider1) {
+        updatedCards[name].selected_value = pace1;
+        updatedCards[name].takes_lead = 1;
+        updatedCards[name].attacking_status = 'no';
+      } else if (name === rider2) {
+        updatedCards[name].selected_value = pace2;
+        updatedCards[name].takes_lead = 1;
+        updatedCards[name].attacking_status = 'no';
+      } else {
+        updatedCards[name].selected_value = 0;
+        updatedCards[name].takes_lead = 0;
+        updatedCards[name].attacking_status = 'no';
+      }
+    });
+    
+    addLog(`Me: dobbeltføring ${rider1}(${pace1}), ${rider2}(${pace2})`);
+    
   } else if (choice.type === 'follow') {
     // All riders follow
     humanRiders.forEach(name => {
@@ -2311,7 +2336,16 @@ const handleHumanChoices = (groupNum, choice) => {
   const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(name => updatedCards[name].selected_value || 0));
   const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
   const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
-  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName);
+  
+  // Build doubleLead object if this is a doublelead choice
+  const doubleLead = choice.type === 'doublelead' ? {
+    pace1: choice.pace1,
+    pace2: choice.pace2,
+    rider1: choice.rider1,
+    rider2: choice.rider2
+  } : null;
+  
+  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName, doubleLead);
 };
 
 const confirmMove = (cardsSnapshot) => {
@@ -3097,11 +3131,16 @@ const checkCrash = () => {
   const ridersCount = Array.isArray(riders) ? riders.length : 0;
   const totalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
   const canAttack = totalGroupCount >= 3;
-  const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow'
+  const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow', 'doublelead'
   const [paceValue, setPaceValue] = useState(null); // 2-8
   const [attackingRider, setAttackingRider] = useState(null); // rider name
   const [attackCard, setAttackCard] = useState(null); // card object
   const [paceLeader, setPaceLeader] = useState(null); // chosen leader when pacing
+  // For dobbeltføring
+  const [doubleLeadPace1, setDoubleLeadPace1] = useState(null);
+  const [doubleLeadPace2, setDoubleLeadPace2] = useState(null);
+  const [doubleLeadRider1, setDoubleLeadRider1] = useState(null);
+  const [doubleLeadRider2, setDoubleLeadRider2] = useState(null);
   // Default to 'nochange' in choice-2 when a previous round-1 submission exists
   useEffect(() => {
     try {
@@ -3198,18 +3237,41 @@ const checkCrash = () => {
       if (paceValue) return paceLeader !== null;
       return paceLeader !== null && paceValue !== null;
     }
+    if (teamChoice === 'doublelead') {
+      // Require both pace values, both riders, paces within 1, riders different, both have TK
+      if (!doubleLeadPace1 || !doubleLeadPace2) return false;
+      if (Math.abs(doubleLeadPace1 - doubleLeadPace2) > 1) return false;
+      if (!doubleLeadRider1 || !doubleLeadRider2) return false;
+      if (doubleLeadRider1 === doubleLeadRider2) return false;
+      const r1 = riders.find(([n]) => n === doubleLeadRider1)?.[1];
+      const r2 = riders.find(([n]) => n === doubleLeadRider2)?.[1];
+      if (!r1 || !r2) return false;
+      if ((r1.tk || 0) < 1 || (r2.tk || 0) < 1) return false;
+      return true;
+    }
     return true;
   };
 
   const handleSubmit = () => {
-    const result = {
-      type: teamChoice,
-      value: teamChoice === 'pace' ? (paceValue || 2) : paceValue,
-      attacker: attackingRider,
-      card: attackCard,
-      paceLeader
-    };
-    onSubmit(result);
+    if (teamChoice === 'doublelead') {
+      const result = {
+        type: 'doublelead',
+        pace1: doubleLeadPace1,
+        pace2: doubleLeadPace2,
+        rider1: doubleLeadRider1,
+        rider2: doubleLeadRider2
+      };
+      onSubmit(result);
+    } else {
+      const result = {
+        type: teamChoice,
+        value: teamChoice === 'pace' ? (paceValue || 2) : paceValue,
+        attacker: attackingRider,
+        card: attackCard,
+        paceLeader
+      };
+      onSubmit(result);
+    }
   };
 
   return (
@@ -3270,6 +3332,20 @@ const checkCrash = () => {
           >
             Angreb
           </button>
+          
+          {dobbeltføring && riders.length >= 2 && (
+            <button
+              onClick={() => handleTeamChoice('doublelead')}
+              className={`px-3 py-2 text-sm rounded ${
+                teamChoice === 'doublelead'
+                  ? 'bg-purple-600 text-white font-bold'
+                  : 'bg-purple-200 hover:bg-purple-300'
+              }`}
+              title="To ryttere tager føring sammen for +1 speed bonus (koster 2 TK)"
+            >
+              Dobbeltføring
+            </button>
+          )}
           
           {(() => {
             const paces = [8,7,6,5,4,3,2];
@@ -3467,6 +3543,135 @@ const checkCrash = () => {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Dobbeltføring selection */}
+      {teamChoice === 'doublelead' && (
+        <div className="mb-4 p-3 bg-purple-50 rounded border border-purple-300">
+          <p className="text-sm font-semibold mb-2 text-purple-800">Dobbeltføring (koster 2 TK)</p>
+          <p className="text-xs mb-3 text-purple-700">
+            Vælg to pace values (max 1 forskel) og to ryttere. Speed = max(pace1, pace2) + 1
+          </p>
+          
+          {/* Pace 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 1:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => (
+                <button
+                  key={pace}
+                  onClick={() => setDoubleLeadPace1(pace)}
+                  className={`px-3 py-2 text-sm rounded ${
+                    doubleLeadPace1 === pace
+                      ? 'bg-purple-600 text-white font-bold'
+                      : 'bg-purple-100 hover:bg-purple-200'
+                  }`}
+                >
+                  {pace}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Pace 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 2:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => {
+                // Only show paces that are within 1 of pace1
+                const disabled = doubleLeadPace1 && Math.abs(pace - doubleLeadPace1) > 1;
+                return (
+                  <button
+                    key={pace}
+                    onClick={() => !disabled && setDoubleLeadPace2(pace)}
+                    disabled={disabled}
+                    className={`px-3 py-2 text-sm rounded ${
+                      doubleLeadPace2 === pace
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-purple-100 hover:bg-purple-200'
+                    }`}
+                  >
+                    {pace}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Speed preview */}
+          {doubleLeadPace1 && doubleLeadPace2 && Math.abs(doubleLeadPace1 - doubleLeadPace2) <= 1 && (
+            <div className="mb-3 p-2 bg-purple-100 rounded border border-purple-300">
+              <p className="text-sm font-bold text-purple-800">
+                Speed: max({doubleLeadPace1}, {doubleLeadPace2}) + 1 = {Math.max(doubleLeadPace1, doubleLeadPace2) + 1}
+              </p>
+            </div>
+          )}
+
+          {/* Rider 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const hasTK = (rider.tk || 0) >= 1;
+                const canPlay = doubleLeadPace1 && canRiderPlayAtLeast(name, rider, doubleLeadPace1);
+                const disabled = !hasTK || !canPlay;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider1(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider1 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={!hasTK ? 'Ingen TK tilbage' : !canPlay ? `Kan ikke spille ${doubleLeadPace1}` : ''}
+                  >
+                    {name} (TK: {rider.tk || 0})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Rider 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const hasTK = (rider.tk || 0) >= 1;
+                const canPlay = doubleLeadPace2 && canRiderPlayAtLeast(name, rider, doubleLeadPace2);
+                const isRider1 = name === doubleLeadRider1;
+                const disabled = !hasTK || !canPlay || isRider1;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider2(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider2 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={isRider1 ? 'Allerede valgt som rytter 1' : !hasTK ? 'Ingen TK tilbage' : !canPlay ? `Kan ikke spille ${doubleLeadPace2}` : ''}
+                  >
+                    {name} (TK: {rider.tk || 0})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-2 bg-yellow-50 border border-yellow-300 rounded">
+            <p className="text-xs text-yellow-800 font-semibold">⚠️ Koster 2 TK i alt (1 TK per rytter)</p>
           </div>
         </div>
       )}
