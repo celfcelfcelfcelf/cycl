@@ -97,6 +97,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
+  const [dobbeltføring, setDobbeltføring] = useState(false); // enable double-leading mechanic
   
   // Update numAttackers default when numberOfTeams or ridersPerTeam changes
   useEffect(() => {
@@ -1720,7 +1721,8 @@ return { pace, updatedCards };
     return teams[startIdx % teams.length];
   };
 
-  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null) => {
+  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null) => {
+    // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -1775,7 +1777,21 @@ return { pace, updatedCards };
   // Capture previous pace (from round 1) before overwriting so we can
   // later decide whether choice-2 actually changed the announced speed.
   const prevPaceForThisTeam = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
-  const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
+  
+  // Handle dobbeltføring: if doubleLead is provided and values are within 1, apply +1 bonus
+  let finalPace = parseInt(pace);
+  let isDoubleLead = false;
+  if (dobbeltføring && doubleLead && doubleLead.pace1 && doubleLead.pace2) {
+    const p1 = parseInt(doubleLead.pace1);
+    const p2 = parseInt(doubleLead.pace2);
+    if (Math.abs(p1 - p2) <= 1) {
+      finalPace = Math.max(p1, p2) + 1;
+      isDoubleLead = true;
+      addLog(`${submittingTeam} dobbeltføring: ${p1},${p2} → speed ${finalPace}`);
+    }
+  }
+  
+  const newTeamPaces = { ...teamPaces, [paceKey]: finalPace };
   setTeamPaces(newTeamPaces);
   // If this is a round-2 resubmission and the team previously declared an
   // attack in round-1, enforce that the attacker remains attacker.
@@ -1820,7 +1836,12 @@ return { pace, updatedCards };
   // If this is a round-2 revise and we have a previous pace from round-1,
   // record it so downstream logic can determine whether the team's pace
   // actually changed during choice-2 (we only apply EC penalty when it did).
-  const metaEntry = { isAttack: effectiveIsAttack, attacker: effectiveAttacker, round: currentRound };
+  const metaEntry = { 
+    isAttack: effectiveIsAttack, 
+    attacker: effectiveAttacker, 
+    round: currentRound,
+    doubleLead: isDoubleLead ? doubleLead : null
+  };
   if (currentRound === 2 && typeof prevPaceForThisTeam !== 'undefined') metaEntry.prevPace = prevPaceForThisTeam;
   const newMeta = { ...teamPaceMeta, [paceKey]: metaEntry };
   setTeamPaceMeta(newMeta);
@@ -3787,6 +3808,21 @@ const checkCrash = () => {
                   <span>5</span>
                   <span>10</span>
                 </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dobbeltføring}
+                    onChange={(e) => setDobbeltføring(e.target.checked)}
+                    className="w-5 h-5 cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Dobbeltføring</div>
+                    <div className="text-xs text-gray-600">To ryttere kan tage føring sammen for +1 speed bonus (koster 2 TK)</div>
+                  </div>
+                </label>
               </div>
                 
               
