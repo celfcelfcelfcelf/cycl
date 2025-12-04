@@ -97,6 +97,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
+  const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
   
   // Update numAttackers default when numberOfTeams or ridersPerTeam changes
   useEffect(() => {
@@ -123,6 +124,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
+  const dobbeltføringLeadersRef = useRef([]);
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
   const abbrevFirstName = (fullName) => {
     if (!fullName || typeof fullName !== 'string') return fullName || '';
@@ -192,7 +194,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       let sumL = 0;
       for (let k = 0; k < 15; k++) sumL += l[k] || 0;
       
-      // Try both lowercase and uppercase field names (cards use lowercase, allRiders use uppercase)
+      // Try both lowercase and uppercase field names (cards use lowercase, ridersData use uppercase)
       const brostenField = Number(riderObj.brosten || riderObj.BROSTEN) || 0;
       const brostensbakkeField = Number(riderObj.brostensbakke || riderObj.BROSTENSBAKKE) || 0;
       const bjergField = Number(riderObj.bjerg || riderObj.BJERG) || 0;
@@ -729,10 +731,18 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Check if any attacker is within slipstream range
       const trackStr = getResolvedTrack();
       const sv = getSlipstreamValue(groupMainPos, groupMainPos + 8, trackStr);
-      const canPull = attackers.some(([, r]) => {
+      
+      addLog(`🔍 Pull-back check: group ${g}, groupMainPos=${groupMainPos}, sv=${sv}, attackers=${attackers.length}`);
+      
+      const canPull = attackers.some(([name, r]) => {
         const pos = Number(r.position || 0);
-        return pos > groupMainPos && (pos - groupMainPos) <= sv;
+        const dist = pos - groupMainPos;
+        const withinRange = pos > groupMainPos && dist <= sv;
+        addLog(`🔍 Attacker ${name}: pos=${pos}, dist=${dist}, withinRange=${withinRange}`);
+        return withinRange;
       });
+      
+      addLog(`🔍 canPull=${canPull}`);
       
       // Only auto-open if attackers are within range
       if (!canPull) return;
@@ -965,13 +975,80 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
   }
 
+  // AI dobbeltføring: If dobbeltføring setting is on and we have 2+ non-finished riders,
+  // check if manual dobbeltføring is advantageous (two own riders with paces within 1).
+  let doubleLead = null;
+  if (dobbeltføring) {
+    try {
+      // Find non-finished, non-attacker riders with selected_value > 0
+      const leadCandidates = teamRiders
+        .filter(([name]) => {
+          const r = updatedCards[name];
+          return !r.finished && r.attacking_status !== 'attacker' && r.selected_value > 0;
+        })
+        .map(([name]) => ({ name, pace: Math.round(updatedCards[name].selected_value) }))
+        .sort((a, b) => b.pace - a.pace); // Sort descending by pace
+
+      if (leadCandidates.length >= 2) {
+        // Find the two highest paces that are within 1 of each other
+        let rider1 = null, rider2 = null, pace1 = 0, pace2 = 0;
+        for (let i = 0; i < leadCandidates.length - 1; i++) {
+          const c1 = leadCandidates[i];
+          const c2 = leadCandidates[i + 1];
+          if (Math.abs(c1.pace - c2.pace) <= 1) {
+            rider1 = c1.name;
+            rider2 = c2.name;
+            pace1 = c1.pace;
+            pace2 = c2.pace;
+            break;
+          }
+        }
+
+        if (rider1 && rider2) {
+          // Check terrain: dobbeltføring only allowed on flat (3-fields)
+          // and the bonus field must also be flat
+          const groupPos = updatedCards[rider1].position;
+          const currentField = track[groupPos];
+          const slipstream = (currentField && currentField.startsWith('3-')) ? 3 : 1;
+          
+          if (slipstream === 3) {
+            // Calculate max allowed pace for dobbeltføring
+            const maxSpeed = getDobbeltføringMaxSpeed(groupNum);
+            const doubleSpeed = Math.max(pace1, pace2) + 1;
+            
+            if (doubleSpeed <= maxSpeed) {
+              // Dobbeltføring is valid and beneficial
+              doubleLead = { rider1, rider2, pace1, pace2 };
+              pace = doubleSpeed;
+              
+              // Mark both riders to take lead
+              updatedCards[rider1] = { ...updatedCards[rider1], takes_lead: 1, selected_value: pace1 };
+              updatedCards[rider2] = { ...updatedCards[rider2], takes_lead: 1, selected_value: pace2 };
+              
+              // Clear other riders
+              for (const [name] of teamRiders) {
+                if (name !== rider1 && name !== rider2) {
+                  updatedCards[name] = { ...updatedCards[name], takes_lead: 0, selected_value: 0 };
+                }
+              }
+              
+              addLog(`${teamName} AI dobbeltføring: ${rider1}(${pace1}), ${rider2}(${pace2}) → speed ${doubleSpeed}`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      addLog(`AI dobbeltføring error: ${e.message}`);
+    }
+  }
+
   const msg = pace === 0 ? `${currentTeam}: 0` : `${currentTeam}: ${pace}`;
   // Show a short-lived AI message for UX, but avoid adding a log here because
   // the definitive submission (and its log) is created by handlePaceSubmit.
   setAiMessage(msg);
 
 // Return data i stedet for at kalde handlePaceSubmit direkte
-return { pace, updatedCards };
+return { pace, updatedCards, doubleLead };
 };
 
   // For Brosten tracks the UI offers an explicit "Check if crash" button
@@ -1252,7 +1329,11 @@ return { pace, updatedCards };
         let aiTeamPace = 0;
         let aiIsAttack = false;
         let aiAttackerName = null;
+        let aiDoubleLead = null;
         if (res) {
+          // Extract doubleLead if present
+          if (res.doubleLead) aiDoubleLead = res.doubleLead;
+          
           // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
           // fall back to inferring from the per-rider selected_value in updatedCards.
           if (typeof res.pace === 'number') aiTeamPace = Math.round(res.pace || 0);
@@ -1279,7 +1360,7 @@ return { pace, updatedCards };
           }
         }
 
-        handlePaceSubmit(groupNum, aiTeamPace, t, aiIsAttack, aiAttackerName);
+        handlePaceSubmit(groupNum, aiTeamPace, t, aiIsAttack, aiAttackerName, aiDoubleLead);
         // small delay so logs and UI update smoothly
         await new Promise(r => setTimeout(r, 90));
       }
@@ -1720,7 +1801,8 @@ return { pace, updatedCards };
     return teams[startIdx % teams.length];
   };
 
-  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null) => {
+  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null) => {
+    // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -1775,7 +1857,30 @@ return { pace, updatedCards };
   // Capture previous pace (from round 1) before overwriting so we can
   // later decide whether choice-2 actually changed the announced speed.
   const prevPaceForThisTeam = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
-  const newTeamPaces = { ...teamPaces, [paceKey]: parseInt(pace) };
+  
+  // Handle dobbeltføring: if doubleLead is provided and values are within 1, apply +1 bonus
+  let finalPace = parseInt(pace);
+  let isDoubleLead = false;
+  if (dobbeltføring && doubleLead && doubleLead.pace1 && doubleLead.pace2) {
+    const p1 = parseInt(doubleLead.pace1);
+    const p2 = parseInt(doubleLead.pace2);
+    if (Math.abs(p1 - p2) <= 1) {
+      finalPace = Math.max(p1, p2) + 1;
+      isDoubleLead = true;
+      addLog(`${submittingTeam} dobbeltføring: ${p1},${p2} → speed ${finalPace}`);
+      
+      // Mark the two riders as dobbeltføring leaders so they get extra TK
+      const rider1 = doubleLead.rider1;
+      const rider2 = doubleLead.rider2;
+      if (rider1 && rider2) {
+        const existingLeaders = dobbeltføringLeadersRef.current || [];
+        dobbeltføringLeadersRef.current = [...existingLeaders, rider1, rider2];
+        addLog(`🔍 DEBUG: Manual dobbeltføring - marking ${rider1}, ${rider2} as leaders`);
+      }
+    }
+  }
+  
+  const newTeamPaces = { ...teamPaces, [paceKey]: finalPace };
   setTeamPaces(newTeamPaces);
   // If this is a round-2 resubmission and the team previously declared an
   // attack in round-1, enforce that the attacker remains attacker.
@@ -1820,7 +1925,12 @@ return { pace, updatedCards };
   // If this is a round-2 revise and we have a previous pace from round-1,
   // record it so downstream logic can determine whether the team's pace
   // actually changed during choice-2 (we only apply EC penalty when it did).
-  const metaEntry = { isAttack: effectiveIsAttack, attacker: effectiveAttacker, round: currentRound };
+  const metaEntry = { 
+    isAttack: effectiveIsAttack, 
+    attacker: effectiveAttacker, 
+    round: currentRound,
+    doubleLead: isDoubleLead ? doubleLead : null
+  };
   if (currentRound === 2 && typeof prevPaceForThisTeam !== 'undefined') metaEntry.prevPace = prevPaceForThisTeam;
   const newMeta = { ...teamPaceMeta, [paceKey]: metaEntry };
   setTeamPaceMeta(newMeta);
@@ -2005,6 +2115,77 @@ return { pace, updatedCards };
     // Ensure a minimum group speed of 2 (UI-level guard). Downhill override below
     speed = Math.max(2, speed);
     if (track[groupPos] === '_') speed = Math.max(5, speed);
+    
+    // Check for dobbeltføring: if 2+ teams have pace values within 1 of each other
+    // AND the terrain is flat enough (only 3-fields until next numbered field)
+    // THEN apply +1 bonus to speed and mark the two leading riders to pay 2 TK each
+    let dobbeltføringApplied = false;
+    let dobbeltføringLeaders = [];
+    if (dobbeltføring) {
+      try {
+        // Find teams with non-zero pace values
+        const teamsWithPace = Object.entries(teamPacesForGroup)
+          .filter(([t, p]) => p > 0)
+          .sort((a, b) => b[1] - a[1]); // sort by pace descending
+        
+        if (teamsWithPace.length >= 2) {
+          const topPace = teamsWithPace[0][1];
+          const secondPace = teamsWithPace[1][1];
+          
+          // Check if top two paces are within 1 of each other
+          if (Math.abs(topPace - secondPace) <= 1) {
+            // Check terrain: count 3-fields from next position until next numbered field
+            // We count from groupPos+1 because we're checking where the group will MOVE to
+            let flatDistance = 0;
+            if (track[groupPos] === '3') {
+              for (let i = groupPos + 1; i < track.length; i++) {
+                const ch = track[i];
+                if (ch === '0' || ch === '1' || ch === '2') break;
+                if (ch === '3') flatDistance++;
+                else if (ch === '_') continue;
+                else if (ch === 'F' || ch === 'B' || ch === '*') break;
+                else break;
+              }
+            }
+            
+            // Apply dobbeltføring if terrain allows it
+            // speed will be increased by +1, so final speed must fit within flatDistance
+            if (flatDistance > 0 && (speed + 1) <= flatDistance) {
+              speed = speed + 1;
+              dobbeltføringApplied = true;
+              
+              // Find the leading riders from the top 2 teams (max 2 leaders)
+              const team1 = teamsWithPace[0][0];
+              const team2 = teamsWithPace[1][0];
+              
+              const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
+              
+              // Find rider taking lead from team1
+              const team1Riders = groupRidersAll.filter(([, r]) => r.team === team1 && r.takes_lead > 0);
+              if (team1Riders.length > 0) {
+                team1Riders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+                dobbeltføringLeaders.push(team1Riders[0][0]);
+              }
+              
+              // Find rider taking lead from team2
+              const team2Riders = groupRidersAll.filter(([, r]) => r.team === team2 && r.takes_lead > 0);
+              if (team2Riders.length > 0) {
+                team2Riders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+                dobbeltføringLeaders.push(team2Riders[0][0]);
+              }
+              
+              addLog(`⚡ Dobbeltføring! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (før: ${speed-1}). Førere: ${dobbeltføringLeaders.join(', ')}`);
+              
+              // Store leaders in ref for use in confirmMove
+              dobbeltføringLeadersRef.current = dobbeltføringLeaders;
+            }
+          }
+        }
+      } catch (e) {
+        addLog(`Error checking dobbeltføring: ${e.message}`);
+      }
+    }
+    
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
     setSlipstream(getEffectiveSV(sv, speed));
@@ -2272,6 +2453,31 @@ const handleHumanChoices = (groupNum, choice) => {
     
     addLog(`Me: hastighed ${choice.value}`);
     
+  } else if (choice.type === 'doublelead') {
+    // Two riders lead together
+    const rider1 = choice.rider1;
+    const rider2 = choice.rider2;
+    const pace1 = choice.pace1;
+    const pace2 = choice.pace2;
+    
+    humanRiders.forEach(name => {
+      if (name === rider1) {
+        updatedCards[name].selected_value = pace1;
+        updatedCards[name].takes_lead = 1;
+        updatedCards[name].attacking_status = 'no';
+      } else if (name === rider2) {
+        updatedCards[name].selected_value = pace2;
+        updatedCards[name].takes_lead = 1;
+        updatedCards[name].attacking_status = 'no';
+      } else {
+        updatedCards[name].selected_value = 0;
+        updatedCards[name].takes_lead = 0;
+        updatedCards[name].attacking_status = 'no';
+      }
+    });
+    
+    addLog(`Me: dobbeltføring ${rider1}(${pace1}), ${rider2}(${pace2})`);
+    
   } else if (choice.type === 'follow') {
     // All riders follow
     humanRiders.forEach(name => {
@@ -2290,7 +2496,16 @@ const handleHumanChoices = (groupNum, choice) => {
   const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(name => updatedCards[name].selected_value || 0));
   const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
   const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
-  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName);
+  
+  // Build doubleLead object if this is a doublelead choice
+  const doubleLead = choice.type === 'doublelead' ? {
+    pace1: choice.pace1,
+    pace2: choice.pace2,
+    rider1: choice.rider1,
+    rider2: choice.rider2
+  } : null;
+  
+  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName, doubleLead);
 };
 
 const confirmMove = (cardsSnapshot) => {
@@ -2310,13 +2525,35 @@ const confirmMove = (cardsSnapshot) => {
   // Opret en kopi af hele cards-objektet som vi opdaterer
   const updatedCards = { ...preCards };
 
+  // FIRST: Clear dobbeltføring_leader flags ONLY for riders in the current group
+  // (to prevent flags from previous group movements affecting this group)
+  for (const name of names) {
+    if (updatedCards[name] && updatedCards[name].dobbeltføring_leader === true) {
+      updatedCards[name] = { ...updatedCards[name], dobbeltføring_leader: false };
+    }
+  }
+
+  // THEN: Mark NEW dobbeltføring leaders for THIS group's movement
+  const leadersToMark = dobbeltføringLeadersRef.current || [];
+  if (leadersToMark.length > 0) {
+    addLog(`🔍 DEBUG: Marking ${leadersToMark.length} dobbeltføring leaders: ${leadersToMark.join(', ')}`);
+    for (const leaderName of leadersToMark) {
+      if (updatedCards[leaderName]) {
+        updatedCards[leaderName] = { ...updatedCards[leaderName], dobbeltføring_leader: true };
+        addLog(`🔍 DEBUG: Set dobbeltføring_leader=true on ${leaderName}`);
+      }
+    }
+    // Clear the ref after using it
+    dobbeltføringLeadersRef.current = [];
+  }
+
   // Capture old positions and planned cards for all riders in this group
   const oldPositions = {};
   const plannedCards = {};
   names.forEach(n => {
-    oldPositions[n] = Number(preCards[n] && preCards[n].position ? preCards[n].position : 0);
+    oldPositions[n] = Number(updatedCards[n] && updatedCards[n].position ? updatedCards[n].position : 0);
     // prefer planned_card_id, fallback to attack_card (object) or undefined
-    plannedCards[n] = (preCards[n] && (preCards[n].planned_card_id || (preCards[n].attack_card && preCards[n].attack_card.id))) || null;
+    plannedCards[n] = (updatedCards[n] && (updatedCards[n].planned_card_id || (updatedCards[n].attack_card && updatedCards[n].attack_card.id))) || null;
   });
   
   // First phase: move non-attackers (regular riders) — delegated to pure helper
@@ -2427,7 +2664,7 @@ const confirmMove = (cardsSnapshot) => {
           // Add the penalty card to discarded so existing post-move diff
           // logic picks it up (confirmMove compares pre/post discarded/cards)
           if (!Array.isArray(updatedCards[n].discarded)) updatedCards[n].discarded = [];
-          updatedCards[n].discarded = [...updatedCards[n].discarded, { id: 'kort: 16' }];
+          updatedCards[n].discarded = [...updatedCards[n].discarded, { id: 'kort: 16', flat: 2, uphill: 2 }];
           try { addLog(`Penalty applied: ${n} receives kort: 16 for leading after choice-2`); } catch (e) {}
         }
       } catch (e) {}
@@ -3076,11 +3313,16 @@ const checkCrash = () => {
   const ridersCount = Array.isArray(riders) ? riders.length : 0;
   const totalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
   const canAttack = totalGroupCount >= 3;
-  const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow'
+  const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow', 'doublelead'
   const [paceValue, setPaceValue] = useState(null); // 2-8
   const [attackingRider, setAttackingRider] = useState(null); // rider name
   const [attackCard, setAttackCard] = useState(null); // card object
   const [paceLeader, setPaceLeader] = useState(null); // chosen leader when pacing
+  // For dobbeltføring
+  const [doubleLeadPace1, setDoubleLeadPace1] = useState(null);
+  const [doubleLeadPace2, setDoubleLeadPace2] = useState(null);
+  const [doubleLeadRider1, setDoubleLeadRider1] = useState(null);
+  const [doubleLeadRider2, setDoubleLeadRider2] = useState(null);
   // Default to 'nochange' in choice-2 when a previous round-1 submission exists
   useEffect(() => {
     try {
@@ -3155,6 +3397,55 @@ const checkCrash = () => {
     }
     return false;
   };
+  
+  // Check if dobbeltføring is allowed based on terrain
+  // Returns the maximum allowed speed (distance to next numbered field) if allowed, 0 otherwise
+  // Dobbeltføring is only allowed when:
+  // 1. Current position is on a 3-field (flat terrain)
+  // 2. All fields until the next numbered field (0,1,2) are also 3-fields
+  const getDobbeltføringMaxSpeed = () => {
+    if (!riders || riders.length === 0) return 0;
+    try {
+      // Use the first rider's position as group position
+      const groupPos = riders[0][1].position;
+      if (typeof groupPos !== 'number' || groupPos < 0 || groupPos >= track.length) return 0;
+      
+      // Check current field - must be '3'
+      if (track[groupPos] !== '3') return 0;
+      
+      // Find distance to next numbered field (0, 1, or 2)
+      // Count only '3' fields (flat terrain) from the NEXT position
+      // We start from groupPos+1 because we count the fields we'll MOVE to
+      let distance = 0;
+      for (let i = groupPos + 1; i < track.length; i++) {
+        const ch = track[i];
+        if (ch === '0' || ch === '1' || ch === '2') {
+          // Found next numbered field - stop counting
+          break;
+        }
+        if (ch === '3') {
+          distance++;
+        } else if (ch === '_') {
+          // Skip underscores (nedkørsler) - they don't count towards distance
+          continue;
+        } else if (ch === 'F' || ch === 'B' || ch === '*') {
+          // Reached end marker
+          break;
+        } else {
+          // Non-flat terrain in the stretch - not allowed
+          return 0;
+        }
+      }
+      
+      // Return max pace value allowed for dobbeltføring
+      // Since speed = max(pace1, pace2) + 1, the resulting speed must fit in distance
+      // Example: 4 flat fields ahead → max pace 3 → speed 3+1=4 ✓
+      return distance > 0 ? distance - 1 : 0;
+    } catch (e) {
+      return 0;
+    }
+  };
+  
   const handleTeamChoice = (type, value = null) => {
     // For 'pace' we don't set a pace value immediately; pace options depend on chosen leader
     setTeamChoice(type);
@@ -3177,18 +3468,37 @@ const checkCrash = () => {
       if (paceValue) return paceLeader !== null;
       return paceLeader !== null && paceValue !== null;
     }
+    if (teamChoice === 'doublelead') {
+      // Require both pace values, both riders, paces within 1, riders different
+      if (!doubleLeadPace1 || !doubleLeadPace2) return false;
+      if (Math.abs(doubleLeadPace1 - doubleLeadPace2) > 1) return false;
+      if (!doubleLeadRider1 || !doubleLeadRider2) return false;
+      if (doubleLeadRider1 === doubleLeadRider2) return false;
+      return true;
+    }
     return true;
   };
 
   const handleSubmit = () => {
-    const result = {
-      type: teamChoice,
-      value: teamChoice === 'pace' ? (paceValue || 2) : paceValue,
-      attacker: attackingRider,
-      card: attackCard,
-      paceLeader
-    };
-    onSubmit(result);
+    if (teamChoice === 'doublelead') {
+      const result = {
+        type: 'doublelead',
+        pace1: doubleLeadPace1,
+        pace2: doubleLeadPace2,
+        rider1: doubleLeadRider1,
+        rider2: doubleLeadRider2
+      };
+      onSubmit(result);
+    } else {
+      const result = {
+        type: teamChoice,
+        value: teamChoice === 'pace' ? (paceValue || 2) : paceValue,
+        attacker: attackingRider,
+        card: attackCard,
+        paceLeader
+      };
+      onSubmit(result);
+    }
   };
 
   return (
@@ -3249,6 +3559,23 @@ const checkCrash = () => {
           >
             Angreb
           </button>
+          
+          {(() => {
+            const maxDobbeltSpeed = getDobbeltføringMaxSpeed();
+            return dobbeltføring && riders.length >= 2 && maxDobbeltSpeed > 0 && (
+              <button
+                onClick={() => handleTeamChoice('doublelead')}
+                className={`px-3 py-2 text-sm rounded ${
+                  teamChoice === 'doublelead'
+                    ? 'bg-purple-600 text-white font-bold'
+                    : 'bg-purple-200 hover:bg-purple-300'
+                }`}
+                title={`To ryttere tager føring sammen for +1 speed bonus (koster 2 TK). Max speed: ${maxDobbeltSpeed}`}
+              >
+                Dobbeltføring
+              </button>
+            );
+          })()}
           
           {(() => {
             const paces = [8,7,6,5,4,3,2];
@@ -3450,24 +3777,184 @@ const checkCrash = () => {
         </div>
       )}
 
-      {/* Display all riders with their cards */}
-      <div className="mb-4">
-        <p className="text-sm font-semibold mb-2">Dine ryttere:</p>
-        {riders.map(([name, rider]) => (
-          <div key={name} className="mb-2 p-2 bg-white rounded border text-sm">
-            <div className="font-semibold mb-1">{name}</div>
-            <div className="grid grid-cols-4 gap-1">
-              {rider.cards.slice(0, 4).map((card, i) => {
-                const num = card.id.match(/\d+/)?.[0] || '?';
+      {/* Dobbeltføring selection */}
+      {teamChoice === 'doublelead' && (
+        <div className="mb-4 p-3 bg-purple-50 rounded border border-purple-300">
+          <p className="text-sm font-semibold mb-2 text-purple-800">Dobbeltføring (koster 2 TK)</p>
+          <p className="text-xs mb-3 text-purple-700">
+            Vælg to pace values (max 1 forskel) og to ryttere. Speed = max(pace1, pace2) + 1
+          </p>
+          
+          {(() => {
+            const maxSpeed = getDobbeltføringMaxSpeed();
+            const flatFields = maxSpeed + 1; // maxSpeed is distance-1, so actual flat fields is maxSpeed+1
+            return maxSpeed > 0 && (
+              <div className="mb-3 p-2 bg-yellow-100 rounded border border-yellow-300">
+                <p className="text-xs text-yellow-800">
+                  ⚠️ Kun {flatFields} 3-felter frem til næste talfelt. Max pace: {maxSpeed}
+                </p>
+              </div>
+            );
+          })()}
+          
+          {/* Pace 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 1:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => {
+                const maxSpeed = getDobbeltføringMaxSpeed();
+                const disabled = pace > maxSpeed;
                 return (
-                <div key={i} className="bg-gray-100 p-1 rounded text-center text-xs">
-                  <div className="font-semibold lowercase">kort {num}: {card.flat}|{card.uphill}</div>
-                </div>
+                  <button
+                    key={pace}
+                    onClick={() => !disabled && setDoubleLeadPace1(pace)}
+                    disabled={disabled}
+                    className={`px-3 py-2 text-sm rounded ${
+                      doubleLeadPace1 === pace
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-purple-100 hover:bg-purple-200'
+                    }`}
+                  >
+                    {pace}
+                  </button>
                 );
               })}
             </div>
           </div>
-        ))}
+
+          {/* Pace 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Pace værdi 2:</p>
+            <div className="flex gap-1 flex-wrap">
+              {[8,7,6,5,4,3,2].map(pace => {
+                const maxSpeed = getDobbeltføringMaxSpeed();
+                // Disabled if: 1) pace > maxSpeed, or 2) not within 1 of pace1
+                const disabled = pace > maxSpeed || (doubleLeadPace1 && Math.abs(pace - doubleLeadPace1) > 1);
+                return (
+                  <button
+                    key={pace}
+                    onClick={() => !disabled && setDoubleLeadPace2(pace)}
+                    disabled={disabled}
+                    className={`px-3 py-2 text-sm rounded ${
+                      doubleLeadPace2 === pace
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-purple-100 hover:bg-purple-200'
+                    }`}
+                  >
+                    {pace}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Speed preview */}
+          {doubleLeadPace1 && doubleLeadPace2 && Math.abs(doubleLeadPace1 - doubleLeadPace2) <= 1 && (
+            <div className="mb-3 p-2 bg-purple-100 rounded border border-purple-300">
+              <p className="text-sm font-bold text-purple-800">
+                Speed: max({doubleLeadPace1}, {doubleLeadPace2}) + 1 = {Math.max(doubleLeadPace1, doubleLeadPace2) + 1}
+              </p>
+            </div>
+          )}
+
+          {/* Rider 1 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const canPlay = !doubleLeadPace1 || canRiderPlayAtLeast(name, rider, doubleLeadPace1);
+                const disabled = !canPlay;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider1(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider1 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={!canPlay && doubleLeadPace1 ? `Kan ikke spille ${doubleLeadPace1}` : ''}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Rider 2 selection */}
+          <div className="mb-3 p-2 bg-white rounded border">
+            <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
+            <div className="space-y-2">
+              {riders.map(([name, rider]) => {
+                const canPlay = !doubleLeadPace2 || canRiderPlayAtLeast(name, rider, doubleLeadPace2);
+                const isRider1 = name === doubleLeadRider1;
+                const disabled = !canPlay || isRider1;
+                return (
+                  <button
+                    key={name}
+                    onClick={() => !disabled && setDoubleLeadRider2(name)}
+                    disabled={disabled}
+                    className={`w-full px-3 py-2 text-sm rounded text-left ${
+                      doubleLeadRider2 === name
+                        ? 'bg-purple-600 text-white font-bold'
+                        : disabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-white hover:bg-purple-100 border'
+                    }`}
+                    title={isRider1 ? 'Allerede valgt som rytter 1' : !canPlay && doubleLeadPace2 ? `Kan ikke spille ${doubleLeadPace2}` : ''}
+                  >
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-2 bg-yellow-50 border border-yellow-300 rounded">
+            <p className="text-xs text-yellow-800 font-semibold">⚠️ Koster 2 TK i alt (1 TK per rytter)</p>
+          </div>
+        </div>
+      )}
+
+      {/* Display all riders with their cards */}
+      <div className="mb-4">
+        <p className="text-sm font-semibold mb-2">Dine ryttere:</p>
+        {riders.map(([name, rider]) => {
+          // Check if this rider is taking lead and with what value
+          const isLeading = rider.takes_lead > 0;
+          const leadValue = isLeading ? rider.selected_value : null;
+          
+          return (
+            <div key={name} className="mb-2 p-2 bg-white rounded border text-sm">
+              <div className="font-semibold mb-1">
+                {name}
+                {isLeading && leadValue && (
+                  <span className="ml-2 text-xs font-normal text-green-700">
+                    (Leads, {leadValue})
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                {rider.cards.slice(0, 4).map((card, i) => {
+                  const num = card.id.match(/\d+/)?.[0] || '?';
+                  return (
+                  <div key={i} className="bg-gray-100 p-1 rounded text-center text-xs">
+                    <div className="font-semibold lowercase">kort {num}: {card.flat}|{card.uphill}</div>
+                  </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <button
@@ -3788,6 +4275,21 @@ const checkCrash = () => {
                   <span>10</span>
                 </div>
               </div>
+
+              <div className="mt-4 p-3 bg-white rounded border">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dobbeltføring}
+                    onChange={(e) => setDobbeltføring(e.target.checked)}
+                    className="w-5 h-5 cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Dobbeltføring</div>
+                    <div className="text-xs text-gray-600">To ryttere kan tage føring sammen for +1 speed bonus (koster 2 TK)</div>
+                  </div>
+                </label>
+              </div>
                 
               
               {/* Spacer so mobile users can scroll the level slider above the fixed footer */}
@@ -4095,6 +4597,13 @@ const checkCrash = () => {
                           const hasChosen = typeof meta !== 'undefined';
                           const teamHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === t && !r.finished);
                           const value = hasChosen ? (teamPaces[paceKey] !== undefined ? teamPaces[paceKey] : 0) : null;
+                          
+                          // Check if this is a dobbeltføring submission
+                          const isDoubleLead = meta && meta.doubleLead;
+                          const displayValue = isDoubleLead 
+                            ? `${meta.doubleLead.pace1},${meta.doubleLead.pace2}`
+                            : String(value);
+                          
                           // If a team declared an attack, try to include the attacker's chosen card
                           const attackText = (() => {
                             if (!(hasChosen && meta && meta.isAttack)) return null;
@@ -4134,7 +4643,7 @@ const checkCrash = () => {
                                 {!teamHasRiders ? (
                                   <div className="text-lg font-bold">X</div>
                                 ) : hasChosen ? (
-                                  <div className="text-lg font-bold">{String(value)}</div>
+                                  <div className="text-lg font-bold">{displayValue}</div>
                                 ) : (
                                   <div className="text-lg font-bold">&nbsp;</div>
                                 )}
@@ -4449,6 +4958,7 @@ const checkCrash = () => {
                                         const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
                                         let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                         const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                        const aiDoubleLead = result.doubleLead || null;
                                         
                                         // Enforce: in choice-2 AI may not lower their previously announced pace (safety check)
                                         if (typeof prevPace !== 'undefined' && currentRound === 2 && aiTeamPace < prevPace) {
@@ -4459,12 +4969,12 @@ const checkCrash = () => {
                                         // Set a short-lived AI message for UX
                                         const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                                         setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName, aiDoubleLead);
                                       } else {
                                         const aiTeamPace = 0;
                                         const aiIsAttack = false;
                                         setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null, null);
                                       }
                                       setTimeout(() => { setAiMessage(''); }, 1500);
                                     }}
@@ -4675,9 +5185,21 @@ const checkCrash = () => {
                       SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream}</strong>
                     </div>
                     <div className="space-y-4 mb-4">
-                      {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => (
-                        <div key={name} className="p-3 border rounded">
-                          <div data-rider={name} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="font-semibold mb-2 cursor-pointer">{name}</div>
+                      {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => {
+                        // Check if this rider is taking lead and with what value
+                        const isLeading = rider.takes_lead > 0;
+                        const leadValue = isLeading ? rider.selected_value : null;
+                        
+                        return (
+                          <div key={name} className="p-3 border rounded">
+                            <div data-rider={name} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="font-semibold mb-2 cursor-pointer">
+                              {name}
+                              {isLeading && leadValue && (
+                                <span className="ml-2 text-xs font-normal text-green-700">
+                                  (Leads, {leadValue})
+                                </span>
+                              )}
+                            </div>
                           <div className="grid grid-cols-4 gap-2">
                             {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
                               const isLeader = (rider.takes_lead || 0) === 1;
@@ -4691,7 +5213,8 @@ const checkCrash = () => {
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   let cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   if (isDownhill) cardVal = Math.max(cardVal, 5);
-                                  const targetVal = Math.round(groupSpeed || 0);
+                                  // Use rider's individual selected_value instead of groupSpeed for dobbeltføring
+                                  const targetVal = Math.round(rider.selected_value || groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
                                     disabled = true;
                                     title = `Must be ≥ ${targetVal}`;
@@ -4710,7 +5233,8 @@ const checkCrash = () => {
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
                                   let cardVal = svForLead > 2 ? c.flat : c.uphill;
                                   if (isDownhill) cardVal = Math.max(cardVal, 5);
-                                  const targetVal = Math.round(groupSpeed || 0);
+                                  // Use rider's individual selected_value instead of groupSpeed for dobbeltføring
+                                  const targetVal = Math.round(rider.selected_value || groupSpeed || 0);
                                   if ((cardVal - localPenalty) < targetVal) {
                                     localDisabled = true; // leader cannot play this card for the required pace
                                     titleText = `Must be ≥ ${targetVal}`;
@@ -4762,7 +5286,8 @@ const checkCrash = () => {
                             })()}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="flex justify-end gap-3">
                       <button onClick={() => setCardSelectionOpen(false)} className="px-3 py-2 border rounded">Cancel</button>
@@ -5456,10 +5981,10 @@ const checkCrash = () => {
     </div>
     {/* Rider tooltip */}
     {riderTooltip && (typeof window !== 'undefined') && (() => {
-      // Try to find rider in cards first, then in allRiders
+      // Try to find rider in cards first, then in ridersData
       let r = (cards && cards[riderTooltip.name]) ? cards[riderTooltip.name] : null;
-      if (!r && allRiders) {
-        r = allRiders.find(rider => rider.NAVN === riderTooltip.name);
+      if (!r && ridersData) {
+        r = ridersData.find(rider => rider.NAVN === riderTooltip.name);
       }
       if (!r) return null; // Rider not found
       const mod = computeModifiedBJERG(r, track);
@@ -5468,7 +5993,7 @@ const checkCrash = () => {
       const left = Math.min(Math.max(8, (riderTooltip.x || 0) + 8), (window.innerWidth - boxW - 8));
       const top = Math.min(Math.max(8, (riderTooltip.y || 0) + 8), (window.innerHeight - boxH - 8));
       
-      // Get values - try lowercase first (from cards), then uppercase (from allRiders)
+      // Get values - try lowercase first (from cards), then uppercase (from ridersData)
       const fladValue = r.flad || r.FLAD || '';
       const sprintValue = r.sprint || r.SPRINT || '';
       

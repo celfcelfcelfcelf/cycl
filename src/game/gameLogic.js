@@ -835,7 +835,13 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const chosenValue = rider.selected_value || 0;
     const penalty = getPenalty(name, updatedCards);
 
-    const isLeadRider = chosenValue > 0 && chosenValue === groupSpeed;
+    // Check if this rider is a dobbeltføring leader
+    const isDobbeltføringLeader = rider.dobbeltføring_leader === true;
+    
+    // Determine if this rider takes lead:
+    // - If dobbeltføring_leader flag is set, they take lead (even if chosenValue < groupSpeed)
+    // - Otherwise, normal rule: chosenValue === groupSpeed
+    const isLeadRider = isDobbeltføringLeader || (chosenValue > 0 && chosenValue === groupSpeed);
 
     // Choose card
     let chosenCard = null;
@@ -1009,13 +1015,18 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     // add EC / TK-1 handling simplified
     let ecs = 0;
     const cardNum = parseInt(chosenCard.id.match(/\d+/)?.[0] || '15');
+    const hasTK1 = (chosenCard.id && chosenCard.id.startsWith('TK-1')) || (cardNum >= 1 && cardNum <= 2);
+    
+    logs.push(`🔍 ${name} DEBUG TK: isLeadRider=${isLeadRider}, isDobbeltføringLeader=${isDobbeltføringLeader}, hasTK1=${hasTK1}, chosenValue=${chosenValue}, groupSpeed=${groupSpeed}`);
+    
     if (isLeadRider) ecs = 1;
     if (cardNum >= 3 && cardNum <= 5) ecs += 1;
-    const hasTK1 = (chosenCard.id && chosenCard.id.startsWith('TK-1')) || (cardNum >= 1 && cardNum <= 2);
+    
     if (hasTK1) {
       updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
       logs.push(`${name} (${rider.team}): +TK-1 added to top of hand`);
     }
+    
     const exhaustionCards = [];
     for (let i = 0; i < ecs; i++) exhaustionCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     const totalEx = exhaustionCards.length + (hasTK1 ? 1 : 0);
