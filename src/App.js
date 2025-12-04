@@ -93,7 +93,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   });
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
-  const [ridersPerTeam, setRidersPerTeam] = useState(3);
+  const [ridersPerTeam, setRidersPerTeam] = useState(1);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
@@ -4212,7 +4212,7 @@ const checkCrash = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Riders / Team</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[2,3,4,5].map(n => (
+                  {[1,2,3,4,5].map(n => (
                     <button key={n} onClick={() => setRidersPerTeam(n)} className={`py-4 rounded text-lg font-semibold ${ridersPerTeam===n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {n}
                     </button>
@@ -4286,7 +4286,6 @@ const checkCrash = () => {
                   />
                   <div>
                     <div className="text-sm font-medium">Dobbeltføring</div>
-                    <div className="text-xs text-gray-600">To ryttere kan tage føring sammen for +1 speed bonus (koster 2 TK)</div>
                   </div>
                 </label>
               </div>
