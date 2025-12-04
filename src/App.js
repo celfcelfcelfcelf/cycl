@@ -5016,27 +5016,27 @@ const checkCrash = () => {
                                   <button
                                     onClick={async () => {
                                       // Check if Me has riders in this group
-                                      const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === g && r.team === 'Me' && !r.finished);
+                                      const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
                                       
                                       // If no human riders, auto-play all AI teams sequentially
                                       if (!humanHasRiders) {
                                         const teamsInGroup = Object.entries(cards)
-                                          .filter(([, r]) => r.group === g && !r.finished)
+                                          .filter(([, r]) => r.group === currentGroup && !r.finished)
                                           .map(([, r]) => r.team);
                                         const uniqueTeams = Array.from(new Set(teamsInGroup));
                                         
                                         for (const team of uniqueTeams) {
-                                          const paceKey = `${g}-${team}`;
+                                          const paceKey = `${currentGroup}-${team}`;
                                           const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
                                           const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
                                           const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
                                           const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
-                                          const currentRound = (teamPaceRound && teamPaceRound[g]) ? teamPaceRound[g] : 1;
+                                          const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
                                           
-                                          const result = autoPlayTeam(g, team, currentRound === 2 ? prevPace : undefined);
+                                          const result = autoPlayTeam(currentGroup, team, currentRound === 2 ? prevPace : undefined);
                                           if (result) {
                                             setCards(result.updatedCards);
-                                            const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === g && r.team === team).map(([n, r]) => ({ name: n, ...r }));
+                                            const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === team).map(([n, r]) => ({ name: n, ...r }));
                                             const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
                                             let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                             const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
@@ -5047,9 +5047,9 @@ const checkCrash = () => {
                                             }
                                             
                                             const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
-                                            handlePaceSubmit(g, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead);
+                                            handlePaceSubmit(currentGroup, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead);
                                           } else {
-                                            handlePaceSubmit(g, 0, team, false, null, null);
+                                            handlePaceSubmit(currentGroup, 0, team, false, null, null);
                                           }
                                           await new Promise(r => setTimeout(r, 100));
                                         }
