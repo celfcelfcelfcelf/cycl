@@ -728,16 +728,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const nonAttackerPositions = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position) || 0);
       const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : (members.length > 0 ? Math.max(...members.map(([,r]) => Number(r.position) || 0)) : 0);
       
-      // Check if any attacker is within slipstream range
-      const trackStr = getResolvedTrack();
-      const sv = getSlipstreamValue(groupMainPos, groupMainPos + 8, trackStr);
+      // Use the SV from the actual move (stored in postMoveInfo), not recalculated
+      const sv = (p.sv !== undefined) ? p.sv : 0;
       
       addLog(`🔍 Pull-back check: group ${g}, groupMainPos=${groupMainPos}, sv=${sv}, attackers=${attackers.length}`);
       
       const canPull = attackers.some(([name, r]) => {
         const pos = Number(r.position || 0);
         const dist = pos - groupMainPos;
-        const withinRange = pos > groupMainPos && dist <= sv;
+        const withinRange = pos > groupMainPos && groupMainPos + sv >= pos;
         addLog(`🔍 Attacker ${name}: pos=${pos}, dist=${dist}, withinRange=${withinRange}`);
         return withinRange;
       });
@@ -2236,11 +2235,85 @@ return { pace, updatedCards, doubleLead };
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
       if (chosenTeam) {
-        // Assign exactly one lead from chosenTeam: pick the rider (prefer non-attacker)
-        // with the lowest win_chance. Clear takes_lead/selected_value for all others.
-        setCards(prev => {
-          const updated = { ...prev };
-          const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
+        // Special handling for manual dobbeltføring: both riders are already marked as leaders
+        const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cards[name] && cards[name].group === groupNum);
+        
+        if (manualDobbeltføringLeaders.length === 2) {
+          // For manual dobbeltføring, both riders are already leaders - just set their takes_lead and planned cards
+          setCards(prev => {
+            const updated = { ...prev };
+            const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
+            
+            // Clear takes_lead for all riders first
+            for (const r of groupRiders) {
+              updated[r.name] = { ...updated[r.name], takes_lead: 0 };
+            }
+            
+            // Set takes_lead and planned card for both dobbeltføring leaders
+            for (const leaderName of manualDobbeltføringLeaders) {
+              const leadR = updated[leaderName];
+              const leaderSelectedValue = leadR.selected_value || 0;
+              
+              let planned = null;
+              const top4Before = leadR.cards.slice(0, Math.min(4, leadR.cards.length));
+              const svAfter = getSlipstreamValue(leadR.position, leadR.position + Math.floor(leaderSelectedValue), track);
+              const targetNumeric = Math.round(leaderSelectedValue);
+              const localPenalty = top4Before.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
+
+              // Find best card (same logic as single leader)
+              let bestNum = -1;
+              for (const c of top4Before) {
+                if (!c || !c.id) continue;
+                if (c.id.startsWith('TK-1')) continue;
+                const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '15');
+                const cardValue = svAfter > 2 ? c.flat : c.uphill;
+                if ((cardValue - localPenalty) >= targetNumeric) {
+                  if (cardNum > bestNum) { planned = c.id; bestNum = cardNum; }
+                }
+              }
+
+              if (!planned) {
+                const nonTKExists = top4Before.some(c => c && c.id && !c.id.startsWith('TK-1'));
+                if (!nonTKExists) {
+                  for (const c of top4Before) {
+                    if (!c || !c.id) continue;
+                    const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '15');
+                    const cardValue = svAfter > 2 ? c.flat : c.uphill;
+                    if (cardValue === targetNumeric) {
+                      if (cardNum > bestNum) { planned = c.id; bestNum = cardNum; }
+                    }
+                  }
+                }
+              }
+
+              if (!planned && top4Before.length > 0) {
+                for (const c of top4Before) {
+                  if (!c || !c.id) continue;
+                  const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '15');
+                  if (!c.id.startsWith('TK-1')) {
+                    if (cardNum > bestNum) { planned = c.id; bestNum = cardNum; }
+                  }
+                }
+                if (!planned) {
+                  for (const c of top4Before) {
+                    if (!c || !c.id) continue;
+                    const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '15');
+                    if (cardNum > bestNum) { planned = c.id; bestNum = cardNum; }
+                  }
+                }
+              }
+
+              updated[leaderName] = { ...leadR, takes_lead: 1, planned_card_id: planned };
+              addLog(`${leaderName} (${leadR.team}) assigned as dobbeltføring leader for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
+            }
+            
+            return updated;
+          });
+        } else {
+          // Normal single leader assignment
+          setCards(prev => {
+            const updated = { ...prev };
+            const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
 
             // Determine candidates from chosenTeam that have selected_value equal
             // to the group's speed. Prefer non-attacking riders first.
@@ -2330,10 +2403,11 @@ return { pace, updatedCards, doubleLead };
             }
 
             updated[bestName] = { ...leadR, takes_lead: 1, selected_value: leaderSelectedValue, planned_card_id: planned };
-          addLog(`${bestName} (${chosenTeam}) assigned as lead for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
+            addLog(`${bestName} (${chosenTeam}) assigned as lead for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
 
-          return updated;
-        });
+            return updated;
+          });
+        }
       }
     }
 
@@ -2760,7 +2834,7 @@ const confirmMove = (cardsSnapshot) => {
       }
     }
 
-    setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved });
+    setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved, sv: slipstream });
   } catch (e) {}
 
   // After moving this group, compute remaining (non-finished) groups.
@@ -4940,8 +5014,49 @@ const checkCrash = () => {
                                   <div className="text-sm italic text-gray-500">no riders in the group</div>
                                 ) : (
                                   <button
-                                    onClick={() => {
-                                      // Get previous pace from choice-1 so AI doesn't choose lower in choice-2
+                                    onClick={async () => {
+                                      // Check if Me has riders in this group
+                                      const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === g && r.team === 'Me' && !r.finished);
+                                      
+                                      // If no human riders, auto-play all AI teams sequentially
+                                      if (!humanHasRiders) {
+                                        const teamsInGroup = Object.entries(cards)
+                                          .filter(([, r]) => r.group === g && !r.finished)
+                                          .map(([, r]) => r.team);
+                                        const uniqueTeams = Array.from(new Set(teamsInGroup));
+                                        
+                                        for (const team of uniqueTeams) {
+                                          const paceKey = `${g}-${team}`;
+                                          const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+                                          const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+                                          const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+                                          const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+                                          const currentRound = (teamPaceRound && teamPaceRound[g]) ? teamPaceRound[g] : 1;
+                                          
+                                          const result = autoPlayTeam(g, team, currentRound === 2 ? prevPace : undefined);
+                                          if (result) {
+                                            setCards(result.updatedCards);
+                                            const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === g && r.team === team).map(([n, r]) => ({ name: n, ...r }));
+                                            const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                            let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                            const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+                                            const aiDoubleLead = result.doubleLead || null;
+                                            
+                                            if (typeof prevPace !== 'undefined' && currentRound === 2 && aiTeamPace < prevPace) {
+                                              aiTeamPace = prevPace;
+                                            }
+                                            
+                                            const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
+                                            handlePaceSubmit(g, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead);
+                                          } else {
+                                            handlePaceSubmit(g, 0, team, false, null, null);
+                                          }
+                                          await new Promise(r => setTimeout(r, 100));
+                                        }
+                                        return;
+                                      }
+                                      
+                                      // Original single-team logic for when human has riders
                                       const paceKey = `${currentGroup}-${currentTeam}`;
                                       const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
                                       const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;

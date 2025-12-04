@@ -1398,6 +1398,24 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
+    // Attackers must never play TK-1 cards - they should use high-value cards (1-7)
+    // If chooseCardToPlay returned a TK-1, find a non-TK card from hand
+    if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
+      const nonTKCards = (rider.cards || []).filter(c => c && c.id && !c.id.startsWith('TK-1'));
+      if (nonTKCards.length > 0) {
+        // Pick the highest value card for attacker
+        const svCheck = getSlipstreamValue(rider.position, rider.position + 10, track);
+        let bestCard = nonTKCards[0];
+        let bestVal = svCheck > 2 ? bestCard.flat : bestCard.uphill;
+        for (const c of nonTKCards) {
+          const val = svCheck > 2 ? c.flat : c.uphill;
+          if (val > bestVal) { bestCard = c; bestVal = val; }
+        }
+        chosenCard = bestCard;
+        logs.push(`${name}: Attacker replacing TK-1 with best available card ${bestCard.id}`);
+      }
+    }
+
     if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const svCheck = getSlipstreamValue(rider.position, rider.position + Math.floor(targetNumeric), track);
