@@ -93,7 +93,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   });
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
-  const [ridersPerTeam, setRidersPerTeam] = useState(1);
+  const [ridersPerTeam, setRidersPerTeam] = useState(3);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
@@ -5008,6 +5008,9 @@ const checkCrash = () => {
                               }
                             } catch (e) { /* ignore and fall back to normal rendering */ }
 
+                            // Check if human has riders in this group (used for button logic)
+                            const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
+
                             return (
                               <div className="flex items-center gap-2">
                                 {!teamHasRiders ? (
@@ -5015,9 +5018,6 @@ const checkCrash = () => {
                                 ) : (
                                   <button
                                     onClick={async () => {
-                                      // Check if Me has riders in this group
-                                      const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
-                                      
                                       // If no human riders, auto-play all AI teams sequentially
                                       if (!humanHasRiders) {
                                         const teamsInGroup = Object.entries(cards)
@@ -5025,7 +5025,9 @@ const checkCrash = () => {
                                           .map(([, r]) => r.team);
                                         const uniqueTeams = Array.from(new Set(teamsInGroup));
                                         
-                                        for (const team of uniqueTeams) {
+                                        // Auto-play each team
+                                        for (let i = 0; i < uniqueTeams.length; i++) {
+                                          const team = uniqueTeams[i];
                                           const paceKey = `${currentGroup}-${team}`;
                                           const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
                                           const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
@@ -5047,12 +5049,22 @@ const checkCrash = () => {
                                             }
                                             
                                             const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
+                                            addLog(`${team} chose ${aiTeamPace}`);
                                             handlePaceSubmit(currentGroup, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead);
                                           } else {
+                                            addLog(`${team} chose 0`);
                                             handlePaceSubmit(currentGroup, 0, team, false, null, null);
                                           }
-                                          await new Promise(r => setTimeout(r, 100));
+                                          
+                                          // Small delay between teams for visual feedback
+                                          if (i < uniqueTeams.length - 1) {
+                                            await new Promise(r => setTimeout(r, 100));
+                                          }
                                         }
+                                        
+                                        // After last team submission, wait briefly then auto-trigger card selection
+                                        await new Promise(r => setTimeout(r, 200));
+                                        openCardSelectionForGroup(currentGroup);
                                         return;
                                       }
                                       
@@ -5094,7 +5106,7 @@ const checkCrash = () => {
                                     }}
                                     className="px-3 py-2 bg-gray-700 text-white rounded"
                                   >
-                                    {currentTeam + "'s choice"}
+                                    {humanHasRiders ? (currentTeam + "'s choice") : "Play Group"}
                                   </button>
                                 )}
                               </div>
