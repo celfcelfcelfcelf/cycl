@@ -113,6 +113,38 @@ export const getWinChance = (rider, sum, factor, sprintWeight) => {
   return (1 - sprintWeight) * rider.win_chance_wo_sprint + sprintWeight * rider.sprint_chance;
 };
 
+// GC (General Classification) functions for stage races
+export const getEMoveLeftGC = (rider, stages) => {
+  const eMoveLeftArray = [];
+  for (const stage of stages) {
+    const track = stage.track;
+    const groupSize = 8;
+    const lengthLeft = track.indexOf('F');
+    const diffLeft = 2 - getWeightedValue(track);
+    const avSpeed = 5 - 0.15 * (diffLeft * (70 - rider.bjerg));
+    const trackValue = 100 * 0.2 + 0.8 * (100 - getValue(track));
+    const movesLeft = lengthLeft / (avSpeed + 0.001 * trackValue * Math.pow(groupSize, 0.5));
+    eMoveLeftArray.push(movesLeft);
+  }
+  return eMoveLeftArray;
+};
+
+export const getFavoritPointsGC = (rider) => {
+  return 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / 60));
+};
+
+export const getTotalMovesLeftGC = (cards, factor) => {
+  let sum = 0;
+  for (const rider of Object.values(cards)) {
+    sum += Math.pow(rider.favorit_points_gc, factor);
+  }
+  return sum;
+};
+
+export const getWinChanceGC = (rider, factor, sum) => {
+  return 100 * (Math.pow(rider.favorit_points_gc, factor) / sum);
+};
+
 export const getPullValue = (paces, sv) => {
   if (!paces || paces.length === 0) return [0, 0];
   const maxPace = Math.max(...paces.map(p => Number(p) || 0));
@@ -471,7 +503,63 @@ export const humanResponsibility = (group, humanTeams, groupSize, teamsInGroup, 
   return Math.max(...responses);
 };
 
-export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = false, write = false, attackersInTurn = [], logger = () => {}, rng = Math.random) => {
+// GC version of humanResponsibility - uses win_chance_gc for stage races
+export const humanResponsibilityGC = (group, humanTeams, groupSize, teamsInGroup, numberOfTeams, lenLeft, cards) => {
+  const responses = [];
+
+  for (const team of humanTeams) {
+    let chanceTL = 0;
+    let probFront = 0, probTeamFront = 0, probGroup = 0;
+    let probTeamBack = 0, probTeamGroup = 0, probBack = 0;
+    let teamMembersInGroup = 0;
+    
+    for (const rider2 of Object.values(cards)) {
+      if (rider2.finished) continue;
+      if (rider2.group === group) {
+        if (rider2.team.includes(team)) {
+          probTeamGroup += (rider2.win_chance_gc || 0) / 100;
+          probGroup += (rider2.win_chance_gc || 0) / 100;
+          teamMembersInGroup++;
+        } else {
+          probGroup += (rider2.win_chance_gc || 0) / 100;
+        }
+      }
+
+      if (rider2.group < group) {
+        if (rider2.team.includes(team)) {
+          probTeamFront += (rider2.win_chance_gc || 0) / 100;
+          probFront += (rider2.win_chance_gc || 0) / 100;
+        } else {
+          probFront += (rider2.win_chance_gc || 0) / 100;
+        }
+      }
+
+      if (rider2.group > group) {
+        if (rider2.team.includes(team)) {
+          probTeamBack += (rider2.win_chance_gc || 0) / 100;
+          probBack += (rider2.win_chance_gc || 0) / 100;
+        } else {
+          probBack += (rider2.win_chance_gc || 0) / 100;
+        }
+      }
+    }
+
+    const probTeamGroupShare = probTeamGroup / Math.max(1e-9, probGroup);
+    const frontOwnTeamSh = probTeamFront / (probFront + 0.1);
+
+    if (probTeamGroupShare > frontOwnTeamSh) {
+      chanceTL = Math.pow((probTeamGroupShare - probTeamFront) * numberOfTeams, 2);
+      chanceTL = chanceTL * ((teamMembersInGroup) / (groupSize / teamsInGroup));
+      chanceTL = chanceTL * Math.pow(Math.max(1 / numberOfTeams, probFront - probTeamFront * numberOfTeams, probBack - probTeamBack * numberOfTeams) * numberOfTeams, 2);
+    }
+
+    responses.push(chanceTL);
+  }
+
+  return Math.max(...responses);
+};
+
+export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = false, write = false, attackersInTurn = [], logger = () => {}, rng = Math.random, isStageRace = false) => {
   const rider = cardsState[riderName];
   if (!rider) return 0;
   
@@ -629,6 +717,106 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
       if (write) { logger && logger(`TLFC ADJUST ${riderName}: maxChosen=${maxChosen} denom=${denom} -> chance_tl=${chance_tl.toFixed(6)}`); }
     } catch (e) {}
 
+    // Stage race GC blending: combine regular chance_tl (33%) with GC-based chance_tl_gc (67%)
+    if (isStageRace) {
+      let chance_tl_gc = 0;
+      
+      // Calculate GC probabilities using win_chance_gc
+      let prob_front_gc = 0, prob_team_front_gc = 0, prob_group_gc = 0;
+      let prob_team_back_gc = 0, prob_team_group_gc = 0, prob_back_gc = 0;
+      let team_members_in_group_gc = 0;
+
+      for (const r of Object.values(cardsState)) {
+        if (r.finished) continue;
+        
+        if (r.attacking_status === 'attacker') {
+          if (r.team === team) {
+            prob_team_front_gc += (r.win_chance_gc || 0) / 100;
+            prob_front_gc += (r.win_chance_gc || 0) / 100;
+          } else {
+            prob_front_gc += (r.win_chance_gc || 0) / 100;
+          }
+          continue;
+        }
+
+        if (r.group === group) {
+          if (r.team === team) {
+            prob_team_group_gc += (r.win_chance_gc || 0) / 100;
+            prob_group_gc += (r.win_chance_gc || 0) / 100;
+            team_members_in_group_gc++;
+          } else {
+            prob_group_gc += (r.win_chance_gc || 0) / 100;
+          }
+        }
+        if (r.group < group) {
+          if (r.team === team) {
+            prob_team_front_gc += (r.win_chance_gc || 0) / 100;
+            prob_front_gc += (r.win_chance_gc || 0) / 100;
+          } else {
+            prob_front_gc += (r.win_chance_gc || 0) / 100;
+          }
+        }
+        if (r.group > group) {
+          if (r.team === team) {
+            prob_team_back_gc += (r.win_chance_gc || 0) / 100;
+            prob_back_gc += (r.win_chance_gc || 0) / 100;
+          } else {
+            prob_back_gc += (r.win_chance_gc || 0) / 100;
+          }
+        }
+      }
+
+      const helping_team_gc = prob_team_group_gc / Math.max(1e-9, (rider.win_chance_gc || 0) / 100);
+      const captain_gc = helping_team_gc < team_members_in_group_gc ? 1 : 0;
+      const prob_team_group_share_gc = (prob_team_group_gc - 0.1 * (rider.win_chance_gc || 0) / 100) / Math.max(1e-9, prob_group_gc);
+      const front_own_team_sh_gc = prob_team_front_gc / (prob_front_gc + 0.1);
+
+      if (prob_team_group_share_gc > front_own_team_sh_gc) {
+        chance_tl_gc = Math.pow((prob_team_group_share_gc - prob_team_front_gc) * numberOfTeams, 2);
+
+        if (rider.attacking_status === 'attacked') {
+          let chance_tl2_gc = chance_tl_gc * (25 / Math.max(1, lenLeft));
+          let favort = 0;
+          for (const ar of (attackersInTurn || [])) favort += (cardsState[ar]?.favorit || 0);
+          chance_tl2_gc = chance_tl2_gc * Math.max(1, favort / 5);
+          chance_tl_gc = Math.max(chance_tl2_gc, chance_tl_gc);
+        }
+
+        chance_tl_gc = chance_tl_gc * ((helping_team_gc - 0.5 * captain_gc) / Math.max(1, team_members_in_group_gc));
+
+        if (sv < 2 && (rider.bjerg || 0) > 71) {
+          let chance_tl2_gc = chance_tl_gc * ((rider.bjerg || 0) - 72);
+          chance_tl2_gc = chance_tl2_gc * (10 / Math.max(1, lenLeft));
+          chance_tl2_gc = chance_tl2_gc * Math.pow(1 / Math.max(1, bestSelCard), 0.5);
+          chance_tl_gc = Math.max(chance_tl2_gc, chance_tl_gc);
+        }
+
+        chance_tl_gc = chance_tl_gc * ((team_members_in_group_gc - captain_gc) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
+        chance_tl_gc = chance_tl_gc * Math.pow(Math.max(1 / numberOfTeams, prob_front_gc - prob_team_front_gc * numberOfTeams, prob_back_gc - prob_team_back_gc * numberOfTeams) * numberOfTeams, 2);
+        chance_tl_gc = chance_tl_gc * Math.pow(1 - (rider.fatigue || 0), 0.5);
+        chance_tl_gc = chance_tl_gc * Math.pow(Math.min(1, 7 / Math.max(1, bestSelCard)), 2);
+        chance_tl_gc = chance_tl_gc * Math.pow(60 / Math.max(1, lenLeft), 0.5);
+        const human_gc = humanResponsibilityGC(group, ['Me'], groupSize, teamsInGroup, numberOfTeams, lenLeft, cardsState);
+        chance_tl_gc = chance_tl_gc / Math.max(1, Math.pow(human_gc, 0.5));
+
+        try {
+          const chosenSpeeds_gc = (groupRiders || []).map(r => Math.round(r.selected_value || 0)).filter(v => v > 0);
+          const maxChosen_gc = chosenSpeeds_gc.length > 0 ? Math.max(...chosenSpeeds_gc) : 0;
+          const denom_gc = Math.max(2, maxChosen_gc);
+          chance_tl_gc = chance_tl_gc / denom_gc;
+        } catch (e) {}
+      }
+
+      // Blend: 1/3 regular + 2/3 GC
+      const chance_tl_original = chance_tl;
+      chance_tl = chance_tl * 0.3333 + chance_tl_gc * 0.6667;
+      if (write) { 
+        try { 
+          logger(`TLFC GC-BLEND ${riderName}: original=${chance_tl_original.toFixed(4)} gc=${chance_tl_gc.toFixed(4)} blended=${chance_tl.toFixed(4)}`); 
+        } catch(e) {} 
+      }
+    }
+
     if (!floating) {
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
       if (rng() < prob) {
@@ -644,6 +832,154 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
     if (write) { logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 0`); }
   } catch(e) {}
+  return 0;
+};
+
+// GC version of takesLeadFC - uses win_chance_gc for stage races
+export const takesLeadFCGC = (riderName, cardsState, trackStr, numberOfTeams, floating = false, write = false, attackersInTurn = [], logger = () => {}, rng = Math.random) => {
+  const rider = cardsState[riderName];
+  if (!rider) return 0;
+  
+  // Attackers always take lead
+  if (rider.attacking_status === 'attacker') return 1;
+
+  const group = rider.group;
+  const groupRiders = Object.values(cardsState).filter(r => r.group === group && !r.finished);
+  const groupSize = groupRiders.length;
+  const teamsInGroup = new Set(groupRiders.map(r => r.team)).size;
+  const lenLeft = trackStr.indexOf('F') - rider.position;
+  let bestSelCard = 100;
+
+  const team = rider.team;
+  const teamMembersInGroupCount = groupRiders.filter(r => r.team === team).length;
+  const ratio = teamMembersInGroupCount / Math.max(1, groupSize);
+  const sv = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
+
+  if (write) { try { logger(`TLFC-GC START ${riderName} group=${group} groupSize=${groupSize} ratio=${ratio.toFixed(3)} sv=${sv}`); } catch (e) {} }
+
+  if (ratio === 1) {
+    if (!floating) return 1; else return 6;
+  }
+
+  for (const card of (rider.cards || []).slice(0, 4)) {
+    const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
+    bestSelCard = Math.min(bestSelCard, cardNum);
+  }
+
+  // Calculate probabilities using win_chance_gc
+  let prob_front = 0, prob_team_front = 0, prob_group = 0;
+  let prob_team_back = 0, prob_team_group = 0, prob_back = 0;
+  let team_members_in_group = 0;
+
+  for (const r of Object.values(cardsState)) {
+    if (r.finished) continue;
+    
+    // Treat explicit attackers as being "in front"
+    if (r.attacking_status === 'attacker') {
+      if (r.team === team) {
+        prob_team_front += (r.win_chance_gc || 0) / 100;
+        prob_front += (r.win_chance_gc || 0) / 100;
+      } else {
+        prob_front += (r.win_chance_gc || 0) / 100;
+      }
+      continue;
+    }
+
+    if (r.group === group) {
+      if (r.team === team) {
+        prob_team_group += (r.win_chance_gc || 0) / 100;
+        prob_group += (r.win_chance_gc || 0) / 100;
+        team_members_in_group++;
+      } else {
+        prob_group += (r.win_chance_gc || 0) / 100;
+      }
+    }
+    if (r.group < group) {
+      if (r.team === team) {
+        prob_team_front += (r.win_chance_gc || 0) / 100;
+        prob_front += (r.win_chance_gc || 0) / 100;
+      } else {
+        prob_front += (r.win_chance_gc || 0) / 100;
+      }
+    }
+    if (r.group > group) {
+      if (r.team === team) {
+        prob_team_back += (r.win_chance_gc || 0) / 100;
+        prob_back += (r.win_chance_gc || 0) / 100;
+      } else {
+        prob_back += (r.win_chance_gc || 0) / 100;
+      }
+    }
+  }
+
+  const helping_team = prob_team_group / Math.max(1e-9, (rider.win_chance_gc || 0) / 100);
+  const captain = helping_team < team_members_in_group ? 1 : 0;
+  const prob_team_group_share = (prob_team_group - 0.1 * (rider.win_chance_gc || 0) / 100) / Math.max(1e-9, prob_group);
+  const front_own_team_sh = prob_team_front / (prob_front + 0.1);
+
+  let chance_tl = 0;
+
+  if (prob_team_group_share > front_own_team_sh) {
+    // Base chance: team strength in group vs front
+    chance_tl = Math.pow((prob_team_group_share - prob_team_front) * numberOfTeams, 2);
+
+    // Boost if rider was attacked
+    if (rider.attacking_status === 'attacked') {
+      let chance_tl2 = chance_tl * (25 / Math.max(1, lenLeft));
+      let favort = 0;
+      for (const ar of (attackersInTurn || [])) favort += (cardsState[ar]?.favorit || 0);
+      chance_tl2 = chance_tl2 * Math.max(1, favort / 5);
+      chance_tl = Math.max(chance_tl2, chance_tl);
+    }
+
+    // Adjust for helping team (domestique factor)
+    chance_tl = chance_tl * ((helping_team - 0.5 * captain) / Math.max(1, team_members_in_group));
+
+    // Captain on hills late in race
+    if (sv < 2 && (rider.bjerg || 0) > 71) {
+      let chance_tl2 = chance_tl * ((rider.bjerg || 0) - 72);
+      chance_tl2 = chance_tl2 * (10 / Math.max(1, lenLeft));
+      chance_tl2 = chance_tl2 * Math.pow(1 / Math.max(1, bestSelCard), 0.5);
+      chance_tl = Math.max(chance_tl2, chance_tl);
+    }
+
+    // More teammates = higher chance
+    chance_tl = chance_tl * ((team_members_in_group - captain) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
+    
+    // Danger from front or back
+    chance_tl = chance_tl * Math.pow(Math.max(1 / numberOfTeams, prob_front - prob_team_front * numberOfTeams, prob_back - prob_team_back * numberOfTeams) * numberOfTeams, 2);
+    
+    // Fatigue and card quality
+    chance_tl = chance_tl * Math.pow(1 - (rider.fatigue || 0), 0.5);
+    chance_tl = chance_tl * Math.pow(Math.min(1, 7 / Math.max(1, bestSelCard)), 2);
+    
+    // Distance left
+    chance_tl = chance_tl * Math.pow(60 / Math.max(1, lenLeft), 0.5);
+    
+    // Human responsibility
+    const human = humanResponsibility(group, ['Me'], groupSize, teamsInGroup, numberOfTeams, lenLeft, cardsState);
+    chance_tl = chance_tl / Math.max(1, Math.pow(human, 0.5));
+
+    // Reduce based on already chosen speeds in group
+    try {
+      const chosenSpeeds = (groupRiders || []).map(r => Math.round(r.selected_value || 0)).filter(v => v > 0);
+      const maxChosen = chosenSpeeds.length > 0 ? Math.max(...chosenSpeeds) : 0;
+      const denom = Math.max(2, maxChosen);
+      chance_tl = chance_tl / denom;
+    } catch (e) {}
+
+    if (!floating) {
+      const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
+      if (rng() < prob) {
+        if (write) { try { logger(`TLFC-GC DECIDE ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 1`); } catch(e) {} }
+        return 1;
+      }
+    } else {
+      return chance_tl;
+    }
+  }
+
+  if (write) { try { logger(`TLFC-GC END ${riderName} -> RETURNS 0`); } catch(e) {} }
   return 0;
 };
 
@@ -1089,9 +1425,89 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
   return { updatedCards, groupsNewPositions, logs };
 };
 
+// Prepare riders for the next stage in a stage race
+// Resets position/group, reissues cards, removes half of TK/TK-1 cards (rounded down)
+export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rng = Math.random) => {
+  const updatedCards = {};
+  const logs = [];
+  
+  for (const [name, rider] of Object.entries(cardsObj)) {
+    // Find rider in original data to regenerate cards
+    const originalRider = riderData.find(r => r.NAVN === name);
+    if (!originalRider) {
+      logs.push(`Warning: Could not find original data for ${name}`);
+      continue;
+    }
+    
+    // Determine if this rider should be an attacker (preserve their attacking_status if it was 'attacker')
+    const wasAttacker = rider.attacking_status === 'attacker';
+    
+    // Count existing TK-1 and exhaustion cards
+    const allCards = [...(rider.cards || []), ...(rider.discarded || [])];
+    const tk1Cards = allCards.filter(c => c.id === 'TK-1: 99');
+    const exhaustionCards = allCards.filter(c => c.id === 'kort: 16');
+    
+    const totalTK = tk1Cards.length + exhaustionCards.length;
+    const halfTK = Math.floor(totalTK / 2);
+    
+    logs.push(`${name}: Total TK=${totalTK}, keeping half=${halfTK}`);
+    
+    // Generate fresh cards for the rider
+    const freshCards = generateCards(originalRider, wasAttacker);
+    
+    // Add back half of the TK cards (rounded down)
+    const cardsToAdd = [];
+    let addedTK1 = 0;
+    let addedExhaustion = 0;
+    
+    // Prioritize TK-1 first, then exhaustion
+    for (let i = 0; i < halfTK; i++) {
+      if (addedTK1 < tk1Cards.length) {
+        cardsToAdd.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+        addedTK1++;
+      } else if (addedExhaustion < exhaustionCards.length) {
+        cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        addedExhaustion++;
+      }
+    }
+    
+    // Combine fresh cards with kept TK cards and shuffle
+    const allNewCards = [...freshCards, ...cardsToAdd];
+    // Shuffle using Fisher-Yates
+    for (let i = allNewCards.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [allNewCards[i], allNewCards[j]] = [allNewCards[j], allNewCards[i]];
+    }
+    
+    logs.push(`${name}: Added ${addedTK1} TK-1 and ${addedExhaustion} exhaustion cards`);
+    
+    updatedCards[name] = {
+      ...rider,
+      position: wasAttacker ? attackerLeadFields : 0,
+      old_position: wasAttacker ? attackerLeadFields : 0,
+      group: wasAttacker ? 1 : 2,
+      cards: allNewCards,
+      discarded: [],
+      finished: false,
+      prel_time: 10000,
+      time_after_winner: 10000,
+      result: 1000,
+      ranking: 0,
+      takes_lead: 0,
+      selected_value: -1,
+      fatigue: cardsToAdd.length / allNewCards.length, // Recalculate fatigue based on TK ratio
+      penalty: 0,
+      // Preserve GC stats: gc_time, prize_money, points
+      // These are already in rider object and will be kept
+    };
+  }
+  
+  return { updatedCards, logs };
+};
+
 // Pure runSprints implementation extracted from App.js.
 // Returns { updatedCards, result, latestPt, logs }
-export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0, sprintResults = [], latestPrel = 0, rng = Math.random) => {
+export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0, sprintResults = [], latestPrel = 0, rng = Math.random, isStageRace = false) => {
   const logs = [];
   const sprintGroups = sprintGroup !== null ? [sprintGroup] : detectSprintGroups(cardsObj, trackStr);
   if (!sprintGroups || sprintGroups.length === 0) return { updatedCards: cardsObj, result: sprintResults, latestPt: latestPrel, logs };
@@ -1169,7 +1585,9 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
           const finalPrel = (minBased !== null) ? Math.max(minBased, candidatePrel) : candidatePrel;
 
           if (!(typeof r.prel_time === 'number' && r.prel_time !== 10000)) {
-            updatedCards[riderName] = { ...r, prel_time: finalPrel };
+            // Update gc_time for stage races: gc_time = gc_time + prel_time
+            const updatedGcTime = (typeof r.gc_time === 'number' ? r.gc_time : 0) + finalPrel;
+            updatedCards[riderName] = { ...r, prel_time: finalPrel, gc_time: updatedGcTime };
             assignedPrel.add(riderName);
             latestPt = Math.max(latestPt, finalPrel);
             try {
@@ -1310,7 +1728,32 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       const timeSec = taf;
       const finishedEntry = { pos: overallPos, name: rName, time: convertToSeconds(timeSec), timeSec, team: rObj.team };
       finishedThisRun.push(finishedEntry);
-      updatedCards[rName] = { ...rObj, ranking: placeCounter, finished: true, result: overallPos };
+      
+      // Stage race bonuses: prize money, time bonuses, and points for top finishers
+      let prizeMoney = (typeof rObj.prize_money === 'number' ? rObj.prize_money : 0);
+      let gcTime = (typeof rObj.gc_time === 'number' ? rObj.gc_time : 0);
+      let points = (typeof rObj.points === 'number' ? rObj.points : 0);
+      
+      if (overallPos === 1) {
+        prizeMoney += 5000;
+        gcTime -= 10; // 10 second time bonus
+        points += 20;
+      } else if (overallPos === 2) {
+        prizeMoney += 1000;
+        gcTime -= 6; // 6 second time bonus
+        points += 15;
+      } else if (overallPos === 3) {
+        gcTime -= 4; // 4 second time bonus
+        points += 10;
+      } else if (overallPos === 4) {
+        points += 6;
+      } else if (overallPos === 5) {
+        points += 3;
+      } else if (overallPos === 6) {
+        points += 1;
+      }
+      
+      updatedCards[rName] = { ...rObj, ranking: placeCounter, finished: true, result: overallPos, prize_money: prizeMoney, gc_time: gcTime, points: points };
     }
   }
 
@@ -1321,12 +1764,15 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       const lines = finishedThisRun.map(f => `${f.pos}. ${f.name}${f.team ? ' (' + f.team + ')' : ''} - ${f.time}`);
       const finalStandingsText = `FINAL STANDINGS:\n${lines.join('\n')}`;
       logs.push(finalStandingsText);
-      const survivors = Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
+      // In stage races, keep all riders (including finished ones) for next stage
+      // In single races, filter out finished riders
+      const survivors = isStageRace ? updatedCards : Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
       return { updatedCards: survivors, result, latestPt, logs, winner_prel_time, finalStandingsText, finishedThisRun };
     }
   } catch (e) {}
 
-  const survivors = Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
+  // In stage races, keep all riders; in single races, filter out finished riders
+  const survivors = isStageRace ? updatedCards : Object.fromEntries(Object.entries(updatedCards).filter(([k, v]) => !v.finished));
   return { updatedCards: survivors, result, latestPt, logs, winner_prel_time, finishedThisRun: [] };
 };
 

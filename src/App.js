@@ -11,6 +11,10 @@ import {
   getTotalMovesLeft,
   getWinChanceWoSprint,
   getWinChance,
+  getEMoveLeftGC,
+  getFavoritPointsGC,
+  getTotalMovesLeftGC,
+  getWinChanceGC,
   getPenalty,
   getFatigue,
   detectSprintGroups,
@@ -22,7 +26,8 @@ import {
   computeInitialStats,
   computeNonAttackerMoves,
   runSprintsPure,
-  computeAttackerMoves
+  computeAttackerMoves,
+  prepareNextStage
 } from './game/gameLogic';
 import { enforceBrosten } from './game/engine';
 import EngineUI from './EngineUI';
@@ -65,7 +70,7 @@ const tracks = {
   'Tour Down Under (24, E2 - Norwood-Lobethal)': '11113333333333333333333333223333333331111333333233333FFFFFFFF',
   'Volta a la Comunitat Valenciana (23, E5 / Paterna - Valencia)': '11111111111111_______333333333333333333333333333333333FFFFFFFFF',
   'Utsunomiya Japan Cup Road Race': '_333333222221_333333222221_333333222221_333333222221_333333FFFFFFFFF',
-  'random': 'random'
+  'Saint-Julien-en-Saint-Alban  ›  Berre lÉtang': '333333333333333333333333333333333333333321_33333333333333333333FFFFFFFF'
 };
 
 // ========== MAIN COMPONENT ==========
@@ -94,6 +99,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
+  const [numberOfStages, setNumberOfStages] = useState(3); // number of stages (1-5)
+  const [selectedStages, setSelectedStages] = useState([]); // array of {name, track} for multi-stage races
+  const [currentStageIndex, setCurrentStageIndex] = useState(0); // which stage we're currently on
+  const isStageRace = numberOfStages > 1; // boolean: true if stage race, false if single stage
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
@@ -108,6 +117,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   
   const [cards, setCards] = useState({});
   const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
+  const [showClassifications, setShowClassifications] = useState(false); // modal for GC/prize/points
+  const [finalBonusesAwarded, setFinalBonusesAwarded] = useState(false); // track if final bonuses were awarded
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
   const [teams, setTeams] = useState([]);
@@ -292,9 +303,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const rng2 = seededRng(hashString(seedBase + ':b'));
       const rng3 = seededRng(hashString(seedBase + ':d'));
       const rngCoin = seededRng(hashString(seedBase + ':c'));
-      const res1 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng1);
-      const res2 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng2);
-      const res3 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng3);
+      const res1 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng1, isStageRace);
+      const res2 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng2, isStageRace);
+      const res3 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng3, isStageRace);
       // Count successes and log them for diagnostics
       const succ = (res1 === 1 ? 1 : 0) + (res2 === 1 ? 1 : 0) + (res3 === 1 ? 1 : 0);
       // Require three consecutive takesLeadFC successes (3/3) before a coin flip allows investment
@@ -585,6 +596,56 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   useEffect(() => {
     if (trackName !== 'random' && chosenRandomTrack) setChosenRandomTrack(null);
   }, [trackName]);
+  
+  // Award final bonuses when last stage is complete
+  useEffect(() => {
+    if (!isStageRace || finalBonusesAwarded) return;
+    
+    const allRidersFinished = Object.values(cards).length > 0 && Object.values(cards).every(r => r.finished);
+    const isLastStage = currentStageIndex === numberOfStages - 1;
+    
+    if (allRidersFinished && isLastStage) {
+      const updatedCards = { ...cards };
+      
+      // Get GC classification (sorted by gc_time)
+      const gcRanking = Object.entries(updatedCards)
+        .map(([name, r]) => ({ name, gc_time: typeof r.gc_time === 'number' ? r.gc_time : Infinity }))
+        .sort((a, b) => a.gc_time - b.gc_time);
+      
+      // Get Points classification (sorted by points)
+      const pointsRanking = Object.entries(updatedCards)
+        .map(([name, r]) => ({ name, points: typeof r.points === 'number' ? r.points : 0 }))
+        .sort((a, b) => b.points - a.points);
+      
+      // Award GC bonuses
+      if (gcRanking.length > 0 && gcRanking[0].gc_time !== Infinity) {
+        const gc1 = gcRanking[0].name;
+        updatedCards[gc1].prize_money = (updatedCards[gc1].prize_money || 0) + 20000;
+        addLog(`🏆 GC Winner: ${gc1} receives 20,000 prize money!`);
+      }
+      if (gcRanking.length > 1 && gcRanking[1].gc_time !== Infinity) {
+        const gc2 = gcRanking[1].name;
+        updatedCards[gc2].prize_money = (updatedCards[gc2].prize_money || 0) + 12000;
+        addLog(`🥈 GC 2nd: ${gc2} receives 12,000 prize money!`);
+      }
+      if (gcRanking.length > 2 && gcRanking[2].gc_time !== Infinity) {
+        const gc3 = gcRanking[2].name;
+        updatedCards[gc3].prize_money = (updatedCards[gc3].prize_money || 0) + 8000;
+        addLog(`🥉 GC 3rd: ${gc3} receives 8,000 prize money!`);
+      }
+      
+      // Award Points classification bonus
+      if (pointsRanking.length > 0 && pointsRanking[0].points > 0) {
+        const points1 = pointsRanking[0].name;
+        updatedCards[points1].prize_money = (updatedCards[points1].prize_money || 0) + 7000;
+        addLog(`🟢 Points Winner: ${points1} receives 7,000 prize money!`);
+      }
+      
+      setCards(updatedCards);
+      setFinalBonusesAwarded(true);
+      addLog('=== STAGE RACE COMPLETE - FINAL BONUSES AWARDED ===');
+    }
+  }, [cards, isStageRace, currentStageIndex, numberOfStages, finalBonusesAwarded]);
 
   // Colour helpers: generate random team background colour (HSL) and pick
   // readable text colour (black/white) with a contrast check. If neither
@@ -814,7 +875,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Pass the app logger into takesLeadFC so its internal debug/probability
   // messages are routed to the game log (previously the logger param was
   // omitted and so no TLFC logs were emitted).
-  updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, false, [], addLog);
+  updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, false, [], addLog, Math.random, isStageRace);
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.
@@ -1057,10 +1118,13 @@ return { pace, updatedCards, doubleLead };
   // Accept an optional `drafted` argument which can be either:
   // - an array of { rider, team } objects (from an interactive draft), or
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
-  const initializeGame = (drafted = null) => {
+  const initializeGame = (drafted = null, stagesArray = null) => {
   // Prepare selectedTrack and track state
   const selectedTrack = getResolvedTrack();
   setTrack(selectedTrack);
+  
+  // Use provided stagesArray or fall back to selectedStages state
+  const stagesToUse = stagesArray || selectedStages;
 
   // build team list
   const teamList = ['Me'];
@@ -1233,13 +1297,90 @@ return { pace, updatedCards, doubleLead };
       sprint_chance: 10,
       takes_lead: 0,
       attacking_status: 'no',
-      selected_value: -1
+      selected_value: -1,
+      gc_time: 0,
+      prize_money: 0,
+      points: 0,
+      e_moves_left_total: 0,
+      e_moves_left_gc_array: [],
+      win_chance_stages_array: [],
+      favorit_points_gc: 1,
+      win_chance_gc: 10,
+      XprizeMoney: 0
     };
   });
   
   // compute initial per-rider stats (moved to shared game logic)
   computeInitialStats(cardsObj, selectedTrack, 0, numberOfTeams);
   // computeInitialStats mutates cardsObj in-place and returns helper values
+  
+  console.log(`Draft initialization: isStageRace=${isStageRace}, numberOfStages=${numberOfStages}, stagesToUse.length=${stagesToUse.length}`);
+  
+  // Compute GC stats for stage races
+  if (isStageRace && stagesToUse.length > 0) {
+    console.log('Starting GC calculations...');
+    // Pre-compute win_chance for ALL stages
+    const winChanceStagesArrays = {};
+    
+    for (let stageIdx = 0; stageIdx < stagesToUse.length; stageIdx++) {
+      const stage = stagesToUse[stageIdx];
+      
+      // Create temporary cards object for this stage calculation
+      const tempCards = {};
+      for (const riderName in cardsObj) {
+        tempCards[riderName] = { ...cardsObj[riderName], position: 0 };
+      }
+      
+      // Compute stats for this stage
+      computeInitialStats(tempCards, stage.track, 0, numberOfTeams);
+      
+      // Store win_chance for this stage
+      for (const riderName in tempCards) {
+        if (!winChanceStagesArrays[riderName]) {
+          winChanceStagesArrays[riderName] = [];
+        }
+        winChanceStagesArrays[riderName].push(tempCards[riderName].win_chance);
+      }
+    }
+    
+    // Assign win_chance_stages_array to each rider
+    for (const riderName in cardsObj) {
+      cardsObj[riderName].win_chance_stages_array = winChanceStagesArrays[riderName] || [];
+      console.log(`${riderName}: win_chance_stages_array set to ${JSON.stringify(cardsObj[riderName].win_chance_stages_array)}`);
+    }
+    
+    // Now compute e_moves_left_gc_array and GC stats
+    for (const riderName in cardsObj) {
+      const rider = cardsObj[riderName];
+      
+      // Pre-compute e_moves_left for ALL stages (only once at draft)
+      rider.e_moves_left_gc_array = getEMoveLeftGC(rider, stagesToUse);
+      
+      // Calculate e_moves_left_total using pre-computed array
+      const futureStages = rider.e_moves_left_gc_array.slice(currentStageIndex + 1);
+      const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+      rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
+      
+      // Calculate GC favorit points
+      rider.favorit_points_gc = getFavoritPointsGC(rider);
+    }
+    
+    // Calculate GC win chances with correct formula: 17 - 0.6 * round + 7 * (numberOfStages - currentStageIndex - 1)
+    const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - currentStageIndex - 1);
+    const totalPointsGC = getTotalMovesLeftGC(cardsObj, factorGC);
+    
+    for (const riderName in cardsObj) {
+      const rider = cardsObj[riderName];
+      rider.win_chance_gc = getWinChanceGC(rider, factorGC, totalPointsGC);
+      
+      // Calculate XprizeMoney: 12000 * (1-(1-win_chance_gc/100)^3) + sum(win_chance_stage * 7000)
+      const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+      const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+      rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+      
+      console.log(`${riderName}: XPM calculation - gcPrize=${gcPrize.toFixed(0)}, stagePrizes=${stagePrizes.toFixed(0)}, win_chance_stages_array=${JSON.stringify(rider.win_chance_stages_array)}, XPM=${rider.XprizeMoney}`);
+    }
+  }
   
   // RESET ALT STATE
   setCards(cardsObj);
@@ -1282,9 +1423,29 @@ return { pace, updatedCards, doubleLead };
     setDraftRoundNum(1);
     setIsDrafting(false);
     setDraftDebugMsg(null);
-  // Ensure the track preview matches the currently selected trackName
-  const selectedTrack = getResolvedTrack();
-  setTrack(selectedTrack);
+    setFinalBonusesAwarded(false); // Reset for new race
+    
+    // Select random stages if isStageRace
+    let selected = [];
+    if (isStageRace) {
+      const availableTracks = Object.entries(tracks).filter(([name]) => !name.toLowerCase().includes('test'));
+      const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
+      selected = shuffled.slice(0, numberOfStages).map(([name, track]) => ({ name, track }));
+      setSelectedStages(selected);
+      setCurrentStageIndex(0);
+      // Set first stage as the current track
+      if (selected.length > 0) {
+        setTrackName(selected[0].name);
+        setTrack(selected[0].track);
+      }
+    } else {
+      // Single stage - use selected track from setup
+      setSelectedStages([]);
+      setCurrentStageIndex(0);
+      const selectedTrack = getResolvedTrack();
+      setTrack(selectedTrack);
+    }
+    
     const total = numberOfTeams * ridersPerTeam;
     const pool = [...ridersData];
     for (let i = pool.length - 1; i > 0; i--) {
@@ -1294,6 +1455,102 @@ return { pace, updatedCards, doubleLead };
     const pick = pool.slice(0, total);
     // Set both draftPool (visual) and draftRemaining (interactive picks)
     setDraftPool(pick);
+    
+    // Pre-compute GC stats for draft pool if stage race
+    if (isStageRace && selected.length > 0) {
+      const stagesToUse = selected;
+      
+      // Pre-compute win_chance for ALL stages
+      const winChanceStagesArrays = {};
+      
+      for (let stageIdx = 0; stageIdx < stagesToUse.length; stageIdx++) {
+        const stage = stagesToUse[stageIdx];
+        
+        // Create temporary cards for ALL riders for this stage
+        const stageCards = {};
+        for (const rider of pick) {
+          stageCards[rider.NAVN] = {
+            name: rider.NAVN,
+            position: 0,
+            bjerg: Number(rider.BJERG),
+            sprint: Number(rider.SPRINT),
+            flad: Number(rider.FLAD),
+            mentalitet: Number(rider.MENTALITET) || 4,
+            team: 'temp',
+            fatigue: 0,
+            penalty: 0,
+            group: 2,
+            cards: [],
+            discarded: []
+          };
+        }
+        
+        // Compute stats for this stage with ALL riders together
+        computeInitialStats(stageCards, stage.track, 0, numberOfTeams);
+        
+        // Store win_chance for this stage
+        for (const riderName in stageCards) {
+          if (!winChanceStagesArrays[riderName]) {
+            winChanceStagesArrays[riderName] = [];
+          }
+          winChanceStagesArrays[riderName].push(stageCards[riderName].win_chance);
+        }
+      }
+      
+      // Now compute e_moves_left_gc_array and GC stats
+      // Create tempCards for GC calculations (using first stage)
+      const tempCards = {};
+      for (const rider of pick) {
+        tempCards[rider.NAVN] = {
+          name: rider.NAVN,
+          position: 0,
+          bjerg: Number(rider.BJERG) || 50,
+          sprint: Number(rider.SPRINT) || 50,
+          flad: Number(rider.FLAD) || 50,
+          mentalitet: Number(rider.MENTALITET) || 4,
+          team: 'temp',
+          fatigue: 0,
+          penalty: 0,
+          group: 2,
+          cards: [],
+          discarded: []
+        };
+      }
+      
+      computeInitialStats(tempCards, stagesToUse[0].track, 0, numberOfTeams);
+      
+      // Compute e_moves_left_gc_array and GC stats
+      for (const rider of pick) {
+        const riderName = rider.NAVN;
+        rider.win_chance_stages_array = winChanceStagesArrays[riderName] || [];
+        rider.e_moves_left_gc_array = getEMoveLeftGC(tempCards[riderName], stagesToUse);
+        
+        const futureStages = rider.e_moves_left_gc_array.slice(1);
+        const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+        rider.e_moves_left_total = tempCards[riderName].e_moves_left + sumFutureStages;
+        rider.gc_time = 0;
+        rider.favorit_points_gc = 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / 60));
+      }
+      
+      // Calculate GC win chances
+      const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - 0 - 1);
+      let totalPointsGC = 0;
+      for (const rider of pick) {
+        totalPointsGC += Math.pow(rider.favorit_points_gc, factorGC);
+      }
+      
+      for (const rider of pick) {
+        rider.win_chance_gc = 100 * (Math.pow(rider.favorit_points_gc, factorGC) / totalPointsGC);
+        
+        // Calculate XprizeMoney
+        const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+        const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+        rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+        
+        console.log(`${rider.NAVN}: XPM=${rider.XprizeMoney}, win_chance_gc=${rider.win_chance_gc.toFixed(1)}%, stages=${JSON.stringify(rider.win_chance_stages_array.map(w => w.toFixed(1)))}`);
+      }
+    }
+    
     startInteractiveDraft(pick);
     setGameState('draft');
   };
@@ -1468,15 +1725,94 @@ return { pace, updatedCards, doubleLead };
             sprint_chance: 10,
             takes_lead: 0,
             attacking_status: 'no',
-            selected_value: -1
+            selected_value: -1,
+            gc_time: 0,
+            prize_money: 0,
+            points: 0,
+            e_moves_left_total: 0,
+            e_moves_left_gc_array: [],
+            win_chance_stages_array: [],
+            favorit_points_gc: 1,
+            win_chance_gc: 10,
+            XprizeMoney: 0
           };
       }
 
   const selectedTrack = getResolvedTrack();
       // computeInitialStats mutates cardsObj and sets win_chance fields
       computeInitialStats(cardsObj, selectedTrack, 0, numberOfTeams);
+      
+      // Compute GC stats for stage races
+      if (isStageRace && selectedStages.length > 0) {
+        // Pre-compute win_chance for ALL stages
+        const winChanceStagesArrays = {};
+        
+        for (let stageIdx = 0; stageIdx < selectedStages.length; stageIdx++) {
+          const stage = selectedStages[stageIdx];
+          
+          // Create temporary cards object for this stage calculation
+          const tempCards = {};
+          for (const riderName in cardsObj) {
+            tempCards[riderName] = { ...cardsObj[riderName], position: 0 };
+          }
+          
+          // Compute stats for this stage
+          computeInitialStats(tempCards, stage.track, 0, numberOfTeams);
+          
+          // Store win_chance for this stage
+          for (const riderName in tempCards) {
+            if (!winChanceStagesArrays[riderName]) {
+              winChanceStagesArrays[riderName] = [];
+            }
+            winChanceStagesArrays[riderName].push(tempCards[riderName].win_chance);
+          }
+        }
+        
+        // Assign win_chance_stages_array to each rider
+        for (const riderName in cardsObj) {
+          cardsObj[riderName].win_chance_stages_array = winChanceStagesArrays[riderName] || [];
+        }
+        
+        // Now compute e_moves_left_gc_array and GC stats
+        for (const riderName in cardsObj) {
+          const rider = cardsObj[riderName];
+          
+          // Pre-compute e_moves_left for ALL stages (only once at draft)
+          rider.e_moves_left_gc_array = getEMoveLeftGC(rider, selectedStages);
+          
+          // Calculate e_moves_left_total using pre-computed array
+          const futureStages = rider.e_moves_left_gc_array.slice(currentStageIndex + 1);
+          const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+          rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
+          rider.favorit_points_gc = getFavoritPointsGC(rider);
+        }
+        
+        const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - currentStageIndex - 1);
+        const totalPointsGC = getTotalMovesLeftGC(cardsObj, factorGC);
+        
+        for (const riderName in cardsObj) {
+          const rider = cardsObj[riderName];
+          rider.win_chance_gc = getWinChanceGC(rider, factorGC, totalPointsGC);
+          
+          // Calculate XprizeMoney
+          const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+          const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+          rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+        }
+      }
+      
       const entry = cardsObj[candidate.NAVN];
-      if (entry && typeof entry.win_chance === 'number') return entry.win_chance;
+      // For stage races, use XPM; otherwise use regular win chance
+      if (entry) {
+        if (isStageRace && typeof entry.XprizeMoney === 'number') {
+          // Return XPM directly - AI will pick highest value
+          // Ensure minimum of 0 to avoid negative values affecting sort order incorrectly
+          return Math.max(0, entry.XprizeMoney);
+        }
+        if (typeof entry.win_chance === 'number') {
+          return entry.win_chance;
+        }
+      }
       return computeWinScore(candidate);
     } catch (e) {
       return computeWinScore(candidate);
@@ -1769,7 +2105,7 @@ return { pace, updatedCards, doubleLead };
     if (draftSelections && draftSelections.length === total) {
       // drafted array with explicit team marker: { rider, team }
       const drafted = draftSelections.slice(0, total).map(s => ({ rider: s.rider, team: s.team }));
-      initializeGame(drafted);
+      initializeGame(drafted, selectedStages);
       // clear draft state
       setDraftPool([]);
       setDraftRemaining([]);
@@ -1782,7 +2118,7 @@ return { pace, updatedCards, doubleLead };
     }
 
     // fallback: non-interactive flow (legacy)
-    initializeGame(draftPool);
+    initializeGame(draftPool, selectedStages);
     setDraftPool([]);
   };
   
@@ -3126,6 +3462,39 @@ if (potentialLeaders.length > 0) {
     console.log(`${riderName}: sprint_chance=${rider.sprint_chance.toFixed(1)}%, win_chance_wo_sprint=${rider.win_chance_wo_sprint.toFixed(1)}%, win_chance=${rider.win_chance.toFixed(1)}%`);
   }
   
+  // Update GC stats for stage races
+  if (isStageRace && selectedStages.length > 0) {
+    for (const riderName in updatedCards) {
+      const rider = updatedCards[riderName];
+      
+      // Use pre-computed e_moves_left_gc_array (calculated once at draft)
+      const futureStages = rider.e_moves_left_gc_array.slice(currentStageIndex + 1);
+      const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+      
+      // e_moves_left_total = current stage e_moves_left + sum of future stages
+      rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
+      
+      // Calculate GC favorit points
+      rider.favorit_points_gc = getFavoritPointsGC(rider);
+    }
+    
+    // Calculate GC win chances with correct formula: 17 - 0.6 * round + 7 * (numberOfStages - currentStageIndex - 1)
+    const factorGC = 17 - 0.6 * newRound + 7 * (numberOfStages - currentStageIndex - 1);
+    const totalPointsGC = getTotalMovesLeftGC(updatedCards, factorGC);
+    
+    for (const riderName in updatedCards) {
+      const rider = updatedCards[riderName];
+      rider.win_chance_gc = getWinChanceGC(rider, factorGC, totalPointsGC);
+      
+      // Update XprizeMoney based on new GC win chance
+      const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+      const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+      rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+      
+      console.log(`${riderName}: GC - e_moves_left_total=${rider.e_moves_left_total.toFixed(2)}, favorit_points_gc=${rider.favorit_points_gc.toFixed(4)}, win_chance_gc=${rider.win_chance_gc.toFixed(1)}%, XPM=${rider.XprizeMoney}`);
+    }
+  }
+  
   setCards(updatedCards);
   
   addLog(`Round ${newRound} - Statistics updated`);
@@ -3157,6 +3526,54 @@ if (potentialLeaders.length > 0) {
   // reset sprint results for the new round
   // NOTE: Do NOT reset latestPrelTime - it should only decrease across the entire game
   setSprintResults([]);
+};
+
+// Start the next stage in a stage race
+const startNextStage = () => {
+  if (!isStageRace || currentStageIndex >= numberOfStages - 1) {
+    addLog('No more stages to start');
+    return;
+  }
+  
+  addLog(`=== STARTING STAGE ${currentStageIndex + 2} ===`);
+  
+  // Prepare riders for next stage
+  const { updatedCards: preparedCards, logs } = prepareNextStage(cards, ridersData, attackerLeadFields);
+  logs.forEach(log => addLog(log));
+  
+  // Move to next stage
+  const nextStageIndex = currentStageIndex + 1;
+  setCurrentStageIndex(nextStageIndex);
+  
+  // Update track to next stage's track
+  const nextStage = selectedStages[nextStageIndex];
+  if (nextStage) {
+    setTrack(nextStage.track);
+    setTrackName(nextStage.name);
+    addLog(`Stage ${nextStageIndex + 1}: ${nextStage.name}`);
+  }
+  
+  // Reset game state for new stage
+  setCards(preparedCards);
+  setRound(0);
+  setCurrentGroup(0);
+  setMovePhase('input');
+  setSprintResults([]);
+  setLatestPrelTime(0);
+  setFinalStandings([]);
+  setGroupsMovedThisRound([]);
+  setTeamPaces({});
+  setTeamPaceMeta({});
+  setPullInvestOutcome({});
+  setPostMoveInfo(null);
+  setSprintAnimMsgs([]);
+  setSprintFocusGroup(null);
+  setSprintGroupsPending([]);
+  
+  // Recompute initial stats for new stage
+  computeInitialStats(preparedCards, nextStage ? nextStage.track : track, 0, numberOfTeams);
+  
+  addLog('Stage prepared - riders ready to race!');
 };
 
 // Check crash handler: called by the UI when user presses "Check if crash"
@@ -3215,7 +3632,7 @@ const checkCrash = () => {
     // sequence in the UI: show riders' sprint stats, then sequentially "sprint"
     // the lowest->highest sprinter with delays to make it more exciting.
     try {
-  const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime);
+  const res = runSprintsPure(cards, trackStr, sprintGroup, round, sprintResults, latestPrelTime, undefined, isStageRace);
   // Debug: indicate pure runner returned and wipe previous animation messages
   try { addLog(`runSprints: pure runner returned (result.riders=${Object.keys(res.updatedCards || {}).length})`); } catch (e) {}
   // Wipe the animation box when a new group sprints and show an initial
@@ -4309,6 +4726,28 @@ const checkCrash = () => {
                 </div>
               </div>
 
+              <div className="mt-4 p-3 bg-green-50 rounded border border-green-300">
+                <label className="block text-sm font-medium mb-2 text-green-800">Antal etaper: {numberOfStages}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    value={numberOfStages}
+                    onChange={(e) => setNumberOfStages(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold text-green-800">{numberOfStages}</div>
+                </div>
+                <div className="flex justify-between text-xs text-green-600 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                  <span>5</span>
+                </div>
+              </div>
+
               <div className="mt-4 p-3 bg-white rounded border">
                 <label className="block text-sm font-medium mb-2">Udbrydere: {numAttackers}</label>
                 <div className="flex items-center gap-3">
@@ -4386,6 +4825,31 @@ const checkCrash = () => {
           // keep centered behaviour.
           <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto z-50" style={{ position: 'relative' }}>
+              {/* Show selected stages if multi-stage race */}
+              {isStageRace && (
+                <div className="mb-4 p-4 bg-green-50 border border-green-300 rounded">
+                  <h3 className="text-lg font-bold text-green-800 mb-3">Etapeløb: {selectedStages.length} etaper</h3>
+                  <div className="space-y-3">
+                    {selectedStages.map((stage, idx) => (
+                      <div key={idx} className={`p-3 rounded border ${idx === currentStageIndex ? 'bg-green-200 border-green-400' : 'bg-white border-gray-200'}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-green-700 font-semibold">Etape {idx + 1}:</span>
+                          <span className="font-bold">{stage.name}</span>
+                          {idx === currentStageIndex && (
+                            <span className="text-xs text-green-600 ml-auto">← Nuværende</span>
+                          )}
+                        </div>
+                        <div className="text-sm overflow-x-auto p-2 bg-gray-50 rounded font-mono">
+                          {colourTrackTokens(stage.track).map((t, i) => (
+                            <span key={i} className={t.className}>{t.char}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               {/* Track title + coloured track preview above the draft header */}
               <div className="mb-3">
                 <div className="text-2xl font-extrabold mb-2">{trackName}</div>
@@ -4519,6 +4983,26 @@ const checkCrash = () => {
                         {!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
                       </div>
                       {(() => {
+                        // If multi-stage race, show stats for all stages
+                        if (isStageRace) {
+                          const cardInDraft = draftPool.find(c => c.NAVN === r.NAVN);
+                          const xpm = cardInDraft && cardInDraft.XprizeMoney ? cardInDraft.XprizeMoney : 0;
+                          return (
+                            <div className="text-xs text-gray-600 mt-1">
+                              <div className="font-semibold mb-0.5">FLAD: {r.FLAD} | SPRINT: {r.SPRINT}</div>
+                              {selectedStages.map((stage, idx) => {
+                                const { modifiedBJERG, label } = computeModifiedBJERG(r, stage.track);
+                                return (
+                                  <div key={idx} className={`${idx === currentStageIndex ? 'text-green-700 font-semibold' : ''}`}>
+                                    E{idx + 1}: {label}: {modifiedBJERG}
+                                  </div>
+                                );
+                              })}
+                              <div className="font-semibold text-purple-700 mt-1">XPM: {xpm.toLocaleString()}</div>
+                            </div>
+                          );
+                        }
+                        // Single stage - show as before
                         const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
                         return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
                       })()}
@@ -5150,6 +5634,32 @@ const checkCrash = () => {
                         }
 
                         // Default behaviour: show fallback + next round controls
+                        // In stage races, check if all riders are finished - if so, show "Start Next Stage" button
+                        const allRidersFinished = isStageRace && Object.values(cards).every(r => r.finished);
+                        const hasMoreStages = isStageRace && currentStageIndex < numberOfStages - 1;
+                        
+                        if (allRidersFinished && hasMoreStages) {
+                          return (
+                            <div className="flex flex-col gap-2">
+                              <div className="text-sm font-semibold text-green-700">Stage {currentStageIndex + 1} Complete! 🏁</div>
+                              <button 
+                                onClick={startNextStage} 
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold flex items-center gap-2"
+                              >
+                                <SkipForward size={14}/> Start Stage {currentStageIndex + 2}
+                              </button>
+                            </div>
+                          );
+                        }
+                        
+                        if (allRidersFinished && !hasMoreStages) {
+                          return (
+                            <div className="text-sm font-semibold text-green-700">
+                              Stage Race Complete! 🏆 Check Classifications for final results.
+                            </div>
+                          );
+                        }
+                        
                         return (
                           <div className="flex gap-2">
                             <button onClick={() => setFallBackOpen(true)} className="px-4 py-2 bg-yellow-500 text-black rounded font-semibold">Let rider fall back</button>
@@ -6052,7 +6562,17 @@ const checkCrash = () => {
               
                 {/* Final standings */}
                 <div className="bg-white rounded-lg shadow p-3 mt-3">
-                  <h3 className="font-bold mb-2">Final Standings</h3>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="font-bold">Final Standings</h3>
+                    {isStageRace && (
+                      <button 
+                        onClick={() => setShowClassifications(true)} 
+                        className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-black text-xs rounded font-semibold"
+                      >
+                        Show Classifications
+                      </button>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                   {(() => {
                     // Merge finished riders recorded in `cards` (if any) and
@@ -6132,6 +6652,127 @@ const checkCrash = () => {
         </div>
       );
     })()}
+    
+    {/* Classifications Modal */}
+    {showClassifications && isStageRace && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        onClick={() => setShowClassifications(false)}
+      >
+        <div 
+          className="bg-white rounded-lg shadow-xl p-6 max-w-2xl max-h-[80vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">Stage Race Classifications</h2>
+            <button 
+              onClick={() => setShowClassifications(false)}
+              className="text-gray-500 hover:text-gray-700 text-2xl"
+            >
+              ×
+            </button>
+          </div>
+          
+          {/* GC Classification (Yellow) */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-2 text-yellow-600">🟡 General Classification (GC)</h3>
+            <div className="text-sm space-y-1">
+              {(() => {
+                // Get all riders with gc_time, sort by gc_time ascending
+                const allRiders = Object.entries(cards).map(([name, r]) => ({
+                  name,
+                  team: r.team,
+                  gc_time: typeof r.gc_time === 'number' ? r.gc_time : Infinity
+                }));
+                const sorted = allRiders.sort((a, b) => a.gc_time - b.gc_time);
+                const minTime = sorted.length > 0 && sorted[0].gc_time !== Infinity ? sorted[0].gc_time : 0;
+                
+                if (sorted.length === 0 || sorted[0].gc_time === Infinity) {
+                  return <div className="text-gray-500">No GC times recorded yet</div>;
+                }
+                
+                return sorted.map((r, idx) => {
+                  const gap = r.gc_time - minTime;
+                  return (
+                    <div key={r.name} className="flex justify-between border-b pb-1">
+                      <div>
+                        {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                        <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                      </div>
+                      <div className="text-xs text-yellow-600">
+                        {gap === 0 ? convertToSeconds(r.gc_time) : `+${convertToSeconds(gap)}`}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+          
+          {/* Prize Money Classification (Blue) */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-2 text-blue-600">💰 Prize Money Classification</h3>
+            <div className="text-sm space-y-1">
+              {(() => {
+                const allRiders = Object.entries(cards).map(([name, r]) => ({
+                  name,
+                  team: r.team,
+                  prize_money: typeof r.prize_money === 'number' ? r.prize_money : 0
+                }));
+                const sorted = allRiders.sort((a, b) => b.prize_money - a.prize_money);
+                
+                if (sorted.length === 0 || sorted.every(r => r.prize_money === 0)) {
+                  return <div className="text-gray-500">No prize money awarded yet</div>;
+                }
+                
+                return sorted.map((r, idx) => (
+                  <div key={r.name} className="flex justify-between border-b pb-1">
+                    <div>
+                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                    </div>
+                    <div className="text-xs text-blue-600 font-semibold">
+                      ${r.prize_money.toLocaleString()}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+          
+          {/* Points Classification (Green) */}
+          <div className="mb-2">
+            <h3 className="text-lg font-bold mb-2 text-green-600">🟢 Points Classification</h3>
+            <div className="text-sm space-y-1">
+              {(() => {
+                const allRiders = Object.entries(cards).map(([name, r]) => ({
+                  name,
+                  team: r.team,
+                  points: typeof r.points === 'number' ? r.points : 0
+                }));
+                const sorted = allRiders.sort((a, b) => b.points - a.points);
+                
+                if (sorted.length === 0 || sorted.every(r => r.points === 0)) {
+                  return <div className="text-gray-500">No points awarded yet</div>;
+                }
+                
+                return sorted.map((r, idx) => (
+                  <div key={r.name} className="flex justify-between border-b pb-1">
+                    <div>
+                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                    </div>
+                    <div className="text-xs text-green-600 font-semibold">
+                      {r.points} pts
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
   </> );
 };
 
