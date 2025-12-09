@@ -1527,6 +1527,11 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const newPos = rider.position || 0;
     const crossing = detectMountainCrossing(oldPos, newPos, track);
     
+    // Debug log for mountain detection
+    if (oldPos !== newPos) {
+      logs.push(`🔍 Mountain check: ${name} ${oldPos}→${newPos}, track[${oldPos}]='${track[oldPos] || ''}', track[${newPos}]='${track[newPos] || ''}', crossed=${crossing.crossedMountain}, length=${crossing.mountainLength}`);
+    }
+    
     if (crossing.crossedMountain && crossing.mountainLength > mountainLength) {
       mountainCrossed = true;
       mountainLength = crossing.mountainLength;

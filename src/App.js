@@ -927,7 +927,33 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // when penalties are present.
       selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
 
-      updatedCards[name].selected_value = updatedCards[name].takes_lead * selected;
+      // IMPORTANT: selected_value must be limited to what the rider can actually play
+      // If takes_lead > 0, verify the rider has a card that can produce this value
+      let validatedSelected = selected;
+      if (updatedCards[name].takes_lead > 0 && selected > 0) {
+        const top4 = (updatedCards[name].cards || []).slice(0, 4);
+        const localPenalty = top4.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
+        const pos = updatedCards[name].position || 0;
+        const sv = getSlipstreamValue(pos, pos + Math.floor(selected), track);
+        
+        // Check if ANY top-4 card can produce the selected value
+        let maxPlayable = 0;
+        for (const c of top4) {
+          if (!c || !c.id) continue;
+          if (c.id.startsWith('TK-1')) continue; // Skip TK-1 cards
+          const cardVal = sv > 2 ? c.flat : c.uphill;
+          const effective = cardVal - localPenalty;
+          maxPlayable = Math.max(maxPlayable, effective);
+        }
+        
+        // If selected exceeds what can be played, cap it
+        if (selected > maxPlayable) {
+          validatedSelected = maxPlayable;
+          addLog(`⚠️ ${name} wanted ${selected} but can only play ${maxPlayable} (sv=${sv}, penalty=${localPenalty})`);
+        }
+      }
+
+      updatedCards[name].selected_value = updatedCards[name].takes_lead * validatedSelected;
 
       // Sanity check: selected_value must equal takes_lead * selected
       try {
@@ -2441,6 +2467,11 @@ return { pace, updatedCards, doubleLead };
 
     // Determine the maximum chosen pace among teams (0 if none)
     const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
+    
+    // Debug logging for pace decisions
+    try {
+      addLog(`DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, allPaces=[${allPaces.join(',')}], maxChosen=${maxChosen}`);
+    } catch (e) {}
 
     // If a group ahead has already moved, compute distance to that group's
     // furthest position. If that distance is larger than maxChosen, override
@@ -2584,8 +2615,15 @@ return { pace, updatedCards, doubleLead };
 
     const maxPace = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
 
-    if (maxPace > 0) {
-      const teamsWithMax = Object.entries(teamPacesForGroup).filter(([t, p]) => p === maxPace).map(([t]) => t);
+    // If maxPace is 0 but speed was increased due to slipstream catch-up, we need a leader
+    const needsLeaderForSlipstream = maxPace === 0 && speed > 2;
+
+    if (maxPace > 0 || needsLeaderForSlipstream) {
+      // If slipstream catch-up, choose any team with a rider in the group
+      const teamsWithMax = maxPace > 0 
+        ? Object.entries(teamPacesForGroup).filter(([t, p]) => p === maxPace).map(([t]) => t)
+        : teams.filter(t => Object.values(cards).some(r => r.group === groupNum && r.team === t));
+      
       let chosenTeam = teamsWithMax[0] || null;
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
@@ -2679,13 +2717,48 @@ return { pace, updatedCards, doubleLead };
               candidates = groupRiders.filter(r => r.team === chosenTeam && Math.round(r.selected_value || 0) === speedVal);
             }
 
+            // If no candidates match selected_value (e.g., slipstream catch-up scenario),
+            // pick any rider from chosenTeam who can play the required speed
             if (candidates.length === 0) {
-              try { addLog(`No leader candidate in ${chosenTeam} with selected_value=${speedVal} for group ${groupNum}`); } catch(e) {}
+              const teamRiders = groupRiders.filter(r => r.team === chosenTeam && r.attacking_status !== 'attacker');
+              
+              if (needsLeaderForSlipstream) {
+                addLog(`⚠️ Slipstream catch-up: No rider in ${chosenTeam} with selected_value=${speedVal}, searching for capable rider...`);
+              } else {
+                addLog(`⚠️ Speed mismatch: No rider in ${chosenTeam} with selected_value=${speedVal} (speed was adjusted), searching for capable rider...`);
+              }
+              
+              for (const r of teamRiders) {
+                const top4 = (r.cards || []).slice(0, 4);
+                const localPenalty = top4.filter(c => c && c.id && c.id.startsWith('TK-1')).length;
+                const pos = r.position || 0;
+                const sv = getSlipstreamValue(pos, pos + Math.floor(speedVal), track);
+                
+                // Check if rider can play speedVal
+                for (const c of top4) {
+                  if (!c || !c.id || c.id.startsWith('TK-1')) continue;
+                  const cardVal = sv > 2 ? c.flat : c.uphill;
+                  if (cardVal - localPenalty >= speedVal) {
+                    candidates.push(r);
+                    addLog(`Found capable rider: ${r.name} can play ${speedVal} with card value ${cardVal} (penalty=${localPenalty})`);
+                    break;
+                  }
+                }
+                if (candidates.length > 0) break;
+              }
+              
+              if (candidates.length > 0) {
+                addLog(`${candidates[0].name} (${chosenTeam}) selected to lead group ${groupNum} with speed ${speedVal}`);
+              }
+            }
+
+            if (candidates.length === 0) {
+              try { addLog(`⚠️ ERROR: No leader candidate in ${chosenTeam} can play speed ${speedVal} for group ${groupNum}!`); } catch(e) {}
               return prev;
             }
 
             // Choose the candidate with the lowest win_chance
-            candidates.sort((a, b) => (a.win_chance || 0) - (b.win_chance || 0));
+            candidates.sort((a, b) => (a.win_chance || 0) - (b[1].win_chance || 0));
             const bestName = candidates[0].name;
 
             // Clear takes_lead/selected_value for all riders in group
@@ -2693,8 +2766,10 @@ return { pace, updatedCards, doubleLead };
               updated[r.name] = { ...updated[r.name], takes_lead: 0, selected_value: 0 };
             }
 
-            // Leader selected_value = group's speed (cap to speed as safety)
-            const leaderSelectedValue = Math.min(speedVal, speed);
+            // Leader selected_value = group's speed (must match final speed after all adjustments)
+            // IMPORTANT: Use actual 'speed' variable here, not speedVal, because speed may have
+            // been adjusted by dobbeltføring, distance catch-up, or blocking logic
+            const leaderSelectedValue = Math.round(speed);
 
             const leadR = updated[bestName];
 
@@ -2754,6 +2829,29 @@ return { pace, updatedCards, doubleLead };
                   const cardNum = parseInt(c.id.match(/\d+/)?.[0] || '15');
                   if (cardNum > bestNum) { planned = c.id; bestNum = cardNum; }
                 }
+              }
+            }
+
+            // Verify that the leader can actually play the required speed
+            // If not, we need to find another leader or reduce the speed
+            if (!planned) {
+              addLog(`⚠️ Warning: ${bestName} cannot play speed ${leaderSelectedValue} - no suitable card found`);
+              // Try to find the maximum speed this leader CAN play
+              let maxPlayable = 0;
+              for (const c of top4Before) {
+                if (!c || !c.id || c.id.startsWith('TK-1')) continue;
+                const cardValue = svAfter > 2 ? c.flat : c.uphill;
+                const effective = cardValue - localPenalty;
+                maxPlayable = Math.max(maxPlayable, effective);
+              }
+              if (maxPlayable > 0 && maxPlayable < leaderSelectedValue) {
+                addLog(`⚠️ Reducing group ${groupNum} speed from ${leaderSelectedValue} to ${maxPlayable} (max playable by ${bestName})`);
+                // Update the leader's selected_value to what they can actually play
+                updated[bestName] = { ...leadR, takes_lead: 1, selected_value: maxPlayable, planned_card_id: planned };
+                // Also update the global speed variable so confirmMove uses correct speed
+                speed = maxPlayable;
+                setGroupSpeed(speed);
+                return updated;
               }
             }
 
