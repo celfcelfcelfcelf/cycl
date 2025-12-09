@@ -1427,9 +1427,27 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
 // Prepare riders for the next stage in a stage race
 // Resets position/group, reissues cards, removes half of TK/TK-1 cards (rounded down)
-export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rng = Math.random) => {
+export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, numBreakawayRiders = 2, rng = Math.random) => {
   const updatedCards = {};
   const logs = [];
+  
+  // Get all teams and select breakaway riders (one per team, up to numBreakawayRiders)
+  const allRiders = Object.entries(cardsObj);
+  const teams = [...new Set(allRiders.map(([, r]) => r.team))];
+  const shuffledTeams = teams.sort(() => rng() - 0.5);
+  const breakawayTeams = shuffledTeams.slice(0, Math.min(numBreakawayRiders, teams.length));
+  
+  // For each breakaway team, pick one random rider
+  const breakawayRiders = new Set();
+  for (const team of breakawayTeams) {
+    const teamRiders = allRiders.filter(([, r]) => r.team === team);
+    if (teamRiders.length > 0) {
+      const [name] = teamRiders[Math.floor(rng() * teamRiders.length)];
+      breakawayRiders.add(name);
+    }
+  }
+  
+  logs.push(`Breakaway riders for new stage: ${[...breakawayRiders].join(', ')}`);
   
   for (const [name, rider] of Object.entries(cardsObj)) {
     // Find rider in original data to regenerate cards
@@ -1439,8 +1457,8 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rn
       continue;
     }
     
-    // Determine if this rider should be an attacker (preserve their attacking_status if it was 'attacker')
-    const wasAttacker = rider.attacking_status === 'attacker';
+    // Determine if this rider should be in breakaway (new selection for each stage)
+    const isBreakaway = breakawayRiders.has(name);
     
     // Count existing TK-1 and exhaustion cards
     const allCards = [...(rider.cards || []), ...(rider.discarded || [])];
@@ -1453,7 +1471,7 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rn
     logs.push(`${name}: Total TK=${totalTK}, keeping half=${halfTK}`);
     
     // Generate fresh cards for the rider
-    const freshCards = generateCards(originalRider, wasAttacker);
+    const freshCards = generateCards(originalRider, isBreakaway);
     
     // Add back half of the TK cards (rounded down)
     const cardsToAdd = [];
@@ -1483,9 +1501,9 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rn
     
     updatedCards[name] = {
       ...rider,
-      position: wasAttacker ? attackerLeadFields : 0,
-      old_position: wasAttacker ? attackerLeadFields : 0,
-      group: wasAttacker ? 1 : 2,
+      position: isBreakaway ? attackerLeadFields : 0,
+      old_position: isBreakaway ? attackerLeadFields : 0,
+      group: isBreakaway ? 1 : 2,
       cards: allNewCards,
       discarded: [],
       finished: false,
@@ -1495,6 +1513,7 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, rn
       ranking: 0,
       takes_lead: 0,
       selected_value: -1,
+      attacking_status: 'no',
       fatigue: cardsToAdd.length / allNewCards.length, // Recalculate fatigue based on TK ratio
       penalty: 0,
       // Preserve GC stats: gc_time, prize_money, points

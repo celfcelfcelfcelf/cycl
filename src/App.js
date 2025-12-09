@@ -107,6 +107,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
   const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
+  const [gcTestMode, setGcTestMode] = useState(false); // GC test mode: all stages use sprinttest
   
   // Update numAttackers default when numberOfTeams or ridersPerTeam changes
   useEffect(() => {
@@ -1119,12 +1120,15 @@ return { pace, updatedCards, doubleLead };
   // - an array of { rider, team } objects (from an interactive draft), or
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
   const initializeGame = (drafted = null, stagesArray = null) => {
-  // Prepare selectedTrack and track state
-  const selectedTrack = getResolvedTrack();
-  setTrack(selectedTrack);
-  
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
+  
+  // Prepare selectedTrack and track state
+  // In stage race mode, use the track from the first stage directly
+  const selectedTrack = (stagesToUse && stagesToUse.length > 0) 
+    ? stagesToUse[0].track 
+    : getResolvedTrack();
+  setTrack(selectedTrack);
 
   // build team list
   const teamList = ['Me'];
@@ -1428,9 +1432,19 @@ return { pace, updatedCards, doubleLead };
     // Select random stages if isStageRace
     let selected = [];
     if (isStageRace) {
-      const availableTracks = Object.entries(tracks).filter(([name]) => !name.toLowerCase().includes('test'));
-      const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
-      selected = shuffled.slice(0, numberOfStages).map(([name, track]) => ({ name, track }));
+      if (gcTestMode) {
+        // GC test mode: all stages use sprinttest
+        const sprinttest = tracks['sprinttest'] || '111111FFFFFFFFFF';
+        selected = Array.from({ length: numberOfStages }, (_, i) => ({ 
+          name: `Stage ${i + 1} (Sprint Test)`, 
+          track: sprinttest 
+        }));
+      } else {
+        // Normal mode: random stages
+        const availableTracks = Object.entries(tracks).filter(([name]) => !name.toLowerCase().includes('test'));
+        const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
+        selected = shuffled.slice(0, numberOfStages).map(([name, track]) => ({ name, track }));
+      }
       setSelectedStages(selected);
       setCurrentStageIndex(0);
       // Set first stage as the current track
@@ -3537,8 +3551,8 @@ const startNextStage = () => {
   
   addLog(`=== STARTING STAGE ${currentStageIndex + 2} ===`);
   
-  // Prepare riders for next stage
-  const { updatedCards: preparedCards, logs } = prepareNextStage(cards, ridersData, attackerLeadFields);
+  // Prepare riders for next stage (use numAttackers for breakaway count)
+  const { updatedCards: preparedCards, logs } = prepareNextStage(cards, ridersData, attackerLeadFields, numAttackers);
   logs.forEach(log => addLog(log));
   
   // Move to next stage
@@ -3556,7 +3570,21 @@ const startNextStage = () => {
   // Reset game state for new stage
   setCards(preparedCards);
   setRound(0);
-  setCurrentGroup(0);
+  
+  // Find the highest group number to start with (backmost group)
+  const groupNumbers = Object.values(preparedCards)
+    .filter(r => !r.finished)
+    .map(r => r.group);
+  const startingGroup = groupNumbers.length > 0 ? Math.max(...groupNumbers) : 2;
+  setCurrentGroup(startingGroup);
+  
+  // Find first team that has riders in the starting group
+  const teamsInStartingGroup = Object.values(preparedCards)
+    .filter(r => !r.finished && r.group === startingGroup)
+    .map(r => r.team);
+  const firstTeam = teamsInStartingGroup.length > 0 ? teamsInStartingGroup[0] : 'Me';
+  setCurrentTeam(firstTeam);
+  
   setMovePhase('input');
   setSprintResults([]);
   setLatestPrelTime(0);
@@ -3571,7 +3599,7 @@ const startNextStage = () => {
   setSprintGroupsPending([]);
   
   // Recompute initial stats for new stage
-  computeInitialStats(preparedCards, nextStage ? nextStage.track : track, 0, numberOfTeams);
+  computeInitialStats(preparedCards, nextStage ? nextStage.track : track, startingGroup, numberOfTeams);
   
   addLog('Stage prepared - riders ready to race!');
 };
@@ -4746,6 +4774,20 @@ const checkCrash = () => {
                   <span>4</span>
                   <span>5</span>
                 </div>
+                
+                {numberOfStages > 1 && (
+                  <div className="mt-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={gcTestMode}
+                        onChange={(e) => setGcTestMode(e.target.checked)}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm text-green-800">GC Test Mode (alle etaper = sprinttest)</span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 p-3 bg-white rounded border">
