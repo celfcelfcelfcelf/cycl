@@ -3069,6 +3069,10 @@ const confirmMove = (cardsSnapshot) => {
   const groupsNewPositions = [];
 
   addLog(`=== Moving group ${currentGroup} ===`);
+  
+  // Reset groupSpeed at the start of each group's movement
+  // This prevents speed from previous group carrying over
+  setGroupSpeed(0);
 
   // Opret en kopi af hele cards-objektet som vi opdaterer
   const updatedCards = { ...preCards };

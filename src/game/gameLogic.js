@@ -278,8 +278,8 @@ export const detectSprintGroups = (cards, track) => {
   } catch (e) {}
 
   for (const rider of Object.values(cards)) {
-    // Skip riders who already have a result (already finished/sprinted)
-    if (rider.result !== undefined && rider.result !== null) continue;
+    // Skip riders who already have sprint points assigned (already sprinted)
+    if (rider.sprint_points !== undefined && rider.sprint_points > 0) continue;
     
     if (rider.position >= finishLine) {
       if (!sprintGroups.includes(rider.group)) {
