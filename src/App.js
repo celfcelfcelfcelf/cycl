@@ -70,7 +70,10 @@ const tracks = {
   'Tour Down Under (24, E2 - Norwood-Lobethal)': '11113333333333333333333333223333333331111333333233333FFFFFFFF',
   'Volta a la Comunitat Valenciana (23, E5 / Paterna - Valencia)': '11111111111111_______333333333333333333333333333333333FFFFFFFFF',
   'Utsunomiya Japan Cup Road Race': '_333333222221_333333222221_333333222221_333333222221_333333FFFFFFFFF',
-  'Saint-Julien-en-Saint-Alban  ›  Berre lÉtang': '333333333333333333333333333333333333333321_33333333333333333333FFFFFFFF'
+  'Saint-Julien-en-Saint-Alban  ›  Berre lÉtang': '333333333333333333333333333333333333333321_33333333333333333333FFFFFFFF',
+  'Bukowina Resort  ›  Bukowina Tatrzańska (Polen, 25)': '3333333333333333333333333333320000011__33333333111112222FFFFFFFFF',
+  'Sparkassen Münsterland Giro': '33333333333333333333333333333333333333333333333333333333333333FFFFFFFFFF',
+  'Visegrad 4 Kerekparverseny': '33333333333333333333333333333333333333333333333111333333111FFFFFFFFFF'
 };
 
 // ========== MAIN COMPONENT ==========
@@ -1305,6 +1308,7 @@ return { pace, updatedCards, doubleLead };
       gc_time: 0,
       prize_money: 0,
       points: 0,
+      kom_points: 0,
       e_moves_left_total: 0,
       e_moves_left_gc_array: [],
       win_chance_stages_array: [],
@@ -1743,6 +1747,7 @@ return { pace, updatedCards, doubleLead };
             gc_time: 0,
             prize_money: 0,
             points: 0,
+            kom_points: 0,
             e_moves_left_total: 0,
             e_moves_left_gc_array: [],
             win_chance_stages_array: [],
@@ -3932,23 +3937,24 @@ const checkCrash = () => {
       // Check current field - must be '3'
       if (track[groupPos] !== '3') return 0;
       
-      // Find distance to next numbered field (0, 1, or 2)
-      // Count only '3' fields (flat terrain) from the NEXT position
+      // Find distance to next numbered field (0, 1, or 2) EXCLUDING F-fields
+      // Count only '3' and 'F' fields from the NEXT position
       // We start from groupPos+1 because we count the fields we'll MOVE to
       let distance = 0;
       for (let i = groupPos + 1; i < track.length; i++) {
         const ch = track[i];
         if (ch === '0' || ch === '1' || ch === '2') {
-          // Found next numbered field - stop counting
+          // Found next numbered field (NOT including F) - stop counting
           break;
         }
-        if (ch === '3') {
+        if (ch === '3' || ch === 'F') {
+          // Count flat fields and finish line fields
           distance++;
         } else if (ch === '_') {
           // Skip underscores (nedkørsler) - they don't count towards distance
           continue;
-        } else if (ch === 'F' || ch === 'B' || ch === '*') {
-          // Reached end marker
+        } else if (ch === 'B' || ch === '*') {
+          // Reached brosten marker (but not F)
           break;
         } else {
           // Non-flat terrain in the stretch - not allowed
@@ -6513,7 +6519,16 @@ const checkCrash = () => {
                   </div>
                 )}
                 {/* Back to Setup button removed per user request */}
-                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-3 rounded text-base font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
+                {isStageRace && (
+                  <button 
+                    onClick={() => setShowClassifications(true)} 
+                    className="w-full mt-3 bg-yellow-500 hover:bg-yellow-600 text-black py-3 rounded text-base font-semibold"
+                    style={{ touchAction: 'manipulation', zIndex: 30 }}
+                  >
+                    Show Classifications
+                  </button>
+                )}
+                <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-2 rounded text-sm font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
                   Eliminate rider
                 </button>
                 {/* Mobile floating button for easy activation on phones */}
@@ -6604,17 +6619,7 @@ const checkCrash = () => {
               
                 {/* Final standings */}
                 <div className="bg-white rounded-lg shadow p-3 mt-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-bold">Final Standings</h3>
-                    {isStageRace && (
-                      <button 
-                        onClick={() => setShowClassifications(true)} 
-                        className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-black text-xs rounded font-semibold"
-                      >
-                        Show Classifications
-                      </button>
-                    )}
-                  </div>
+                  <h3 className="font-bold mb-2">Final Standings</h3>
                   <div className="text-xs text-gray-500 mb-1">Level: {level}</div>
                   {(() => {
                     // Merge finished riders recorded in `cards` (if any) and
@@ -6657,7 +6662,53 @@ const checkCrash = () => {
                 </div>
               </div>
               <div className="bg-white rounded-lg shadow p-3 mt-3 max-h-96 overflow-y-auto">
-                <h3 className="font-bold mb-2"><FileText size={16} className="inline"/>Log</h3>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="font-bold"><FileText size={16} className="inline"/>Log</h3>
+                  <button 
+                    onClick={() => {
+                      const logText = logs.slice().reverse().join('\n');
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(logText).then(() => {
+                          alert('Log copied to clipboard!');
+                        }).catch(() => {
+                          // Fallback for older browsers
+                          const textarea = document.createElement('textarea');
+                          textarea.value = logText;
+                          textarea.style.position = 'fixed';
+                          textarea.style.opacity = '0';
+                          document.body.appendChild(textarea);
+                          textarea.select();
+                          try {
+                            document.execCommand('copy');
+                            alert('Log copied to clipboard!');
+                          } catch (err) {
+                            alert('Failed to copy log. Please try again.');
+                          }
+                          document.body.removeChild(textarea);
+                        });
+                      } else {
+                        // Fallback for browsers without clipboard API
+                        const textarea = document.createElement('textarea');
+                        textarea.value = logText;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        try {
+                          document.execCommand('copy');
+                          alert('Log copied to clipboard!');
+                        } catch (err) {
+                          alert('Failed to copy log. Please try again.');
+                        }
+                        document.body.removeChild(textarea);
+                      }
+                    }}
+                    className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded"
+                    style={{ touchAction: 'manipulation' }}
+                  >
+                    Copy Log
+                  </button>
+                </div>
                 <div className="text-xs space-y-1">
                   {logs.slice(-100).reverse().map((l,i) => <div key={i} className="border-b pb-1">{l}</div>)}
                 </div>
@@ -6751,10 +6802,72 @@ const checkCrash = () => {
             </div>
           </div>
           
+          {/* Points Classification (Green) */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-2 text-green-600">🟢 Points Classification</h3>
+            <div className="text-sm space-y-1">
+              {(() => {
+                const allRiders = Object.entries(cards).map(([name, r]) => ({
+                  name,
+                  team: r.team,
+                  points: typeof r.points === 'number' ? r.points : 0
+                }));
+                const sorted = allRiders.sort((a, b) => b.points - a.points);
+                
+                if (sorted.length === 0 || sorted.every(r => r.points === 0)) {
+                  return <div className="text-gray-500">No points awarded yet</div>;
+                }
+                
+                return sorted.map((r, idx) => (
+                  <div key={r.name} className="flex justify-between border-b pb-1">
+                    <div>
+                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                    </div>
+                    <div className="text-xs text-green-600 font-semibold">
+                      {r.points} pts
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+
+          {/* King of the Mountains Classification (Red/White Polka Dots) */}
+          <div className="mb-6">
+            <h3 className="text-lg font-bold mb-2 text-red-600">⛰️  King of the Mountains (KOM)</h3>
+            <div className="text-sm space-y-1">
+              {(() => {
+                const allRiders = Object.entries(cards).map(([name, r]) => ({
+                  name,
+                  team: r.team,
+                  kom_points: typeof r.kom_points === 'number' ? r.kom_points : 0
+                }));
+                const sorted = allRiders.sort((a, b) => b.kom_points - a.kom_points);
+                
+                if (sorted.length === 0 || sorted.every(r => r.kom_points === 0)) {
+                  return <div className="text-gray-500">No mountain points awarded yet</div>;
+                }
+                
+                return sorted.map((r, idx) => (
+                  <div key={r.name} className="flex justify-between border-b pb-1">
+                    <div>
+                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                    </div>
+                    <div className="text-xs text-red-600 font-semibold">
+                      {r.kom_points} pts
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+
           {/* Prize Money Classification (Blue) */}
           <div className="mb-6">
             <h3 className="text-lg font-bold mb-2 text-blue-600">💰 Prize Money Classification</h3>
-            <div className="text-sm space-y-1">
+            <div className="text-sm space-y-1 mb-4">
               {(() => {
                 const allRiders = Object.entries(cards).map(([name, r]) => ({
                   name,
@@ -6780,32 +6893,37 @@ const checkCrash = () => {
                 ));
               })()}
             </div>
-          </div>
-          
-          {/* Points Classification (Green) */}
-          <div className="mb-2">
-            <h3 className="text-lg font-bold mb-2 text-green-600">🟢 Points Classification</h3>
+            
+            {/* Prize Money per Team */}
+            <h4 className="text-md font-bold mb-2 text-blue-700">Prize Money per Team</h4>
             <div className="text-sm space-y-1">
               {(() => {
                 const allRiders = Object.entries(cards).map(([name, r]) => ({
                   name,
                   team: r.team,
-                  points: typeof r.points === 'number' ? r.points : 0
+                  prize_money: typeof r.prize_money === 'number' ? r.prize_money : 0
                 }));
-                const sorted = allRiders.sort((a, b) => b.points - a.points);
                 
-                if (sorted.length === 0 || sorted.every(r => r.points === 0)) {
-                  return <div className="text-gray-500">No points awarded yet</div>;
+                // Sum prize money by team
+                const teamMoney = {};
+                for (const r of allRiders) {
+                  if (!teamMoney[r.team]) teamMoney[r.team] = 0;
+                  teamMoney[r.team] += r.prize_money;
                 }
                 
-                return sorted.map((r, idx) => (
-                  <div key={r.name} className="flex justify-between border-b pb-1">
+                const sorted = Object.entries(teamMoney).sort((a, b) => b[1] - a[1]);
+                
+                if (sorted.length === 0 || sorted.every(([, money]) => money === 0)) {
+                  return <div className="text-gray-500">No prize money awarded yet</div>;
+                }
+                
+                return sorted.map(([team, money], idx) => (
+                  <div key={team} className="flex justify-between border-b pb-1">
                     <div>
-                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
-                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                      {idx + 1}. {team === 'Me' ? <strong>{team}</strong> : team}
                     </div>
-                    <div className="text-xs text-green-600 font-semibold">
-                      {r.points} pts
+                    <div className="text-xs text-blue-700 font-bold">
+                      ${money.toLocaleString()}
                     </div>
                   </div>
                 ));
