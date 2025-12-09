@@ -278,6 +278,9 @@ export const detectSprintGroups = (cards, track) => {
   } catch (e) {}
 
   for (const rider of Object.values(cards)) {
+    // Skip riders who already have a result (already finished/sprinted)
+    if (rider.result !== undefined && rider.result !== null) continue;
+    
     if (rider.position >= finishLine) {
       if (!sprintGroups.includes(rider.group)) {
         sprintGroups.push(rider.group);
@@ -468,12 +471,34 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   }
 
   if (!chosenCard) {
+    // No card meets the minimum requirement. Choose the best card available
+    // to move as far as possible. Prefer highest value card (lowest card number).
+    let bestValue = -1;
     let lowestNum = 999;
     for (const card of availableCards.slice(0, 4)) {
+      if (!card || !card.id) continue;
+      // Skip TK-1 cards as they will be replaced anyway
+      if (card.id.startsWith('TK-1')) continue;
+      
+      const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
       const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
-      if (cardNum < lowestNum) {
+      
+      // Choose card with highest value (best card), or if equal value, lowest card number
+      if (cardValue > bestValue || (cardValue === bestValue && cardNum < lowestNum)) {
         chosenCard = card;
+        bestValue = cardValue;
         lowestNum = cardNum;
+      }
+    }
+    
+    // If still no card found (all were TK-1), pick any non-TK card or lowest number
+    if (!chosenCard) {
+      for (const card of availableCards.slice(0, 4)) {
+        const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
+        if (cardNum < lowestNum) {
+          chosenCard = card;
+          lowestNum = cardNum;
+        }
       }
     }
   }

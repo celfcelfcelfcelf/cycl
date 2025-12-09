@@ -2508,7 +2508,9 @@ return { pace, updatedCards, doubleLead };
     // THEN apply +1 bonus to speed and mark the two leading riders to pay 2 TK each
     let dobbeltføringApplied = false;
     let dobbeltføringLeaders = [];
-    if (dobbeltføring) {
+    // Skip automatic dobbeltføring if manual dobbeltføring was already applied
+    const manualDobbeltføringApplied = (dobbeltføringLeadersRef.current || []).length > 0;
+    if (dobbeltføring && !manualDobbeltføringApplied) {
       try {
         // Find teams with non-zero pace values
         const teamsWithPace = Object.entries(teamPacesForGroup)
@@ -2542,6 +2544,10 @@ return { pace, updatedCards, doubleLead };
               speed = speed + 1;
               dobbeltføringApplied = true;
               
+              // Get team names for logging
+              const team1 = teamsWithPace[0][0];
+              const team2 = teamsWithPace[1][0];
+              
               addLog(`⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (before: ${oldSpeed})`);
               
               // IMPORTANT: Update selected_value for all riders who were going to take lead
@@ -2557,8 +2563,6 @@ return { pace, updatedCards, doubleLead };
               });
               
               // Find the leading riders from the top 2 teams (max 2 leaders)
-              const team1 = teamsWithPace[0][0];
-              const team2 = teamsWithPace[1][0];
               
               const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
               
