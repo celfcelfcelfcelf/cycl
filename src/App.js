@@ -2501,6 +2501,8 @@ return { pace, updatedCards, doubleLead };
     speed = Math.max(2, speed);
     if (track[groupPos] === '_') speed = Math.max(5, speed);
     
+    try { addLog(`DEBUG Group ${groupNum}: speed after minimum=${speed}, groupPos=${groupPos}, track[${groupPos}]='${track[groupPos] || ''}'`); } catch (e) {}
+    
     // Check for dobbeltføring: if 2+ teams have pace values within 1 of each other
     // AND the terrain is flat enough (only 3-fields until next numbered field)
     // THEN apply +1 bonus to speed and mark the two leading riders to pay 2 TK each
@@ -2536,8 +2538,23 @@ return { pace, updatedCards, doubleLead };
             // Apply dobbeltføring if terrain allows it
             // speed will be increased by +1, so final speed must fit within flatDistance
             if (flatDistance > 0 && (speed + 1) <= flatDistance) {
+              const oldSpeed = speed;
               speed = speed + 1;
               dobbeltføringApplied = true;
+              
+              addLog(`⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (before: ${oldSpeed})`);
+              
+              // IMPORTANT: Update selected_value for all riders who were going to take lead
+              // They need to match the new speed, not the old one
+              setCards(prev => {
+                const updated = { ...prev };
+                for (const [n, r] of Object.entries(updated)) {
+                  if (r.group === groupNum && r.takes_lead > 0) {
+                    updated[n] = { ...r, selected_value: speed };
+                  }
+                }
+                return updated;
+              });
               
               // Find the leading riders from the top 2 teams (max 2 leaders)
               const team1 = teamsWithPace[0][0];
@@ -2559,7 +2576,7 @@ return { pace, updatedCards, doubleLead };
                 dobbeltføringLeaders.push(team2Riders[0][0]);
               }
               
-              addLog(`⚡ Dobbeltføring! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (før: ${speed-1}). Førere: ${dobbeltføringLeaders.join(', ')}`);
+              addLog(`⚡ Dobbeltføring leaders: ${dobbeltføringLeaders.join(', ')}`);
               
               // Store leaders in ref for use in confirmMove
               dobbeltføringLeadersRef.current = dobbeltføringLeaders;
@@ -3321,9 +3338,11 @@ const confirmMove = (cardsSnapshot) => {
       // No remaining non-finished groups: reassign groups and detect sprints
       setTimeout(() => {
         setCards(prevCards => {
-          const sorted = Object.entries(prevCards).sort((a, b) => b[1].position - a[1].position);
+          // Only reassign groups for non-finished riders
+          const notFinished = Object.entries(prevCards).filter(([, r]) => !r.finished);
+          const sorted = notFinished.sort((a, b) => b[1].position - a[1].position);
           let gNum = 1;
-          let curPos = sorted[0][1].position;
+          let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
           const updatedCards2 = { ...prevCards };
 
           sorted.forEach(([n, r]) => {
