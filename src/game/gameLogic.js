@@ -212,6 +212,204 @@ export const calculateMountainPoints = (ridersWhoMoved, mountainLength) => {
   return pointsAwarded;
 };
 
+/**
+ * Count flat distance (3-fields) from next position until next numbered field
+ */
+function countFlatDistance(track, groupPos) {
+  let flatDistance = 0;
+  if (track[groupPos] === '3') {
+    for (let i = groupPos + 1; i < track.length; i++) {
+      const ch = track[i];
+      if (ch === '0' || ch === '1' || ch === '2') break;
+      if (ch === '3') flatDistance++;
+      else if (ch === '_') continue;
+      else if (ch === 'F' || ch === 'B' || ch === '*') break;
+      else break;
+    }
+  }
+  return flatDistance;
+}
+
+/**
+ * Select the two dobbeltføring leaders based on submission order
+ */
+function selectDobbeltforingLeaders({
+  teamPacesForGroup,
+  teamPaceMeta,
+  groupNum,
+  finalSpeed,
+  cards
+}) {
+  const leaders = [];
+  const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
+  
+  // Get all teams with their submission timestamps and paces
+  const teamsWithTimestamps = [];
+  for (const [team, pace] of Object.entries(teamPacesForGroup)) {
+    if (pace > 0) {
+      const paceKey = `${groupNum}-${team}`;
+      const meta = teamPaceMeta[paceKey];
+      const timestamp = meta && meta.timestamp ? meta.timestamp : 0;
+      teamsWithTimestamps.push({ team, pace, timestamp });
+    }
+  }
+  
+  // Sort by timestamp (earliest first)
+  teamsWithTimestamps.sort((a, b) => a.timestamp - b.timestamp);
+  
+  // Find leader 1: First team with pace within 1 of final speed
+  let leader1Team = null;
+  for (const { team, pace } of teamsWithTimestamps) {
+    if (Math.abs(pace - finalSpeed) <= 1) {
+      leader1Team = team;
+      const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
+      if (teamRiders.length > 0) {
+        teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+        leaders.push(teamRiders[0][0]);
+      }
+      break;
+    }
+  }
+  
+  // Find leader 2: First team (excluding leader 1) with pace within 2 of final speed
+  for (const { team, pace } of teamsWithTimestamps) {
+    if (team === leader1Team) continue;
+    if (Math.abs(pace - finalSpeed) <= 2) {
+      const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
+      if (teamRiders.length > 0) {
+        teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+        leaders.push(teamRiders[0][0]);
+      }
+      break;
+    }
+  }
+  
+  return leaders;
+}
+
+/**
+ * Processes dobbeltføring (double-leading) logic for a group
+ * 
+ * @param {Object} params
+ * @param {Object} params.teamPacesForGroup - Object mapping team names to their declared pace values
+ * @param {Object} params.teamPaceMeta - Metadata including timestamps for submission order
+ * @param {number} params.groupNum - The group number being processed
+ * @param {number} params.groupPos - Current position of the group on track
+ * @param {number} params.currentSpeed - Calculated speed before dobbeltføring bonus
+ * @param {string} params.track - The race track string
+ * @param {Object} params.cards - All rider cards/state
+ * @param {Object} params.manualDobbeltforing - Manual dobbeltføring from user { rider1, rider2, pace1, pace2 } or null
+ * @param {boolean} params.enabled - Whether dobbeltføring is enabled globally
+ * 
+ * @returns {Object} {
+ *   applied: boolean,           // Whether dobbeltføring was applied
+ *   newSpeed: number,           // Updated speed (speed + 1 if applied, otherwise unchanged)
+ *   leaders: string[],          // Array of rider names who are leading [rider1, rider2]
+ *   type: 'manual'|'automatic'|null,  // Type of dobbeltføring applied
+ *   logMessages: string[]       // Log messages to display
+ * }
+ */
+export function processDobbeltforing({
+  teamPacesForGroup,
+  teamPaceMeta,
+  groupNum,
+  groupPos,
+  currentSpeed,
+  track,
+  cards,
+  manualDobbeltforing = null,
+  enabled = true
+}) {
+  
+  const result = {
+    applied: false,
+    newSpeed: currentSpeed,
+    leaders: [],
+    type: null,
+    logMessages: []
+  };
+  
+  if (!enabled) {
+    return result;
+  }
+  
+  // === MANUAL DOBBELTFØRING ===
+  if (manualDobbeltforing) {
+    const { rider1, rider2, pace1, pace2 } = manualDobbeltforing;
+    const p1 = parseInt(pace1);
+    const p2 = parseInt(pace2);
+    
+    if (Math.abs(p1 - p2) <= 1) {
+      result.applied = true;
+      result.newSpeed = currentSpeed + 1;
+      result.leaders = [rider1, rider2];
+      result.type = 'manual';
+      result.logMessages.push(
+        `Manual dobbeltføring: ${rider1}(${p1}), ${rider2}(${p2}) → speed ${result.newSpeed}`
+      );
+      return result;
+    }
+  }
+  
+  // === AUTOMATIC DOBBELTFØRING ===
+  
+  // Find teams with non-zero pace values
+  const teamsWithPace = Object.entries(teamPacesForGroup)
+    .filter(([t, p]) => p > 0)
+    .sort((a, b) => b[1] - a[1]); // sort by pace descending
+  
+  if (teamsWithPace.length < 2) {
+    return result;
+  }
+  
+  const topPace = teamsWithPace[0][1];
+  const secondPace = teamsWithPace[1][1];
+  
+  // Check if top two paces are within 1 of each other
+  if (Math.abs(topPace - secondPace) > 1) {
+    return result;
+  }
+  
+  // Check terrain: count 3-fields from next position until next numbered field
+  const flatDistance = countFlatDistance(track, groupPos);
+  
+  // Apply dobbeltføring if terrain allows it
+  // speed will be increased by +1, so final speed must fit within flatDistance
+  if (flatDistance === 0 || (currentSpeed + 1) > flatDistance) {
+    result.logMessages.push(
+      `Dobbeltføring rejected: insufficient flat terrain (flat=${flatDistance}, speed+1=${currentSpeed + 1})`
+    );
+    return result;
+  }
+  
+  // Dobbeltføring is valid!
+  const newSpeed = currentSpeed + 1;
+  const team1 = teamsWithPace[0][0];
+  const team2 = teamsWithPace[1][0];
+  
+  result.applied = true;
+  result.newSpeed = newSpeed;
+  result.type = 'automatic';
+  result.logMessages.push(
+    `⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${newSpeed} (before: ${currentSpeed})`
+  );
+  
+  // Find leaders based on submission order
+  result.leaders = selectDobbeltforingLeaders({
+    teamPacesForGroup,
+    teamPaceMeta,
+    groupNum,
+    finalSpeed: newSpeed,
+    cards
+  });
+  
+  result.logMessages.push(
+    `⚡ Dobbeltføring leaders: ${result.leaders.join(', ')}`
+  );
+  
+  return result;
+}
+
 export const getTotalMovesLeft = (cards, factor) => {
   let sum = 0;
   for (const rider of Object.values(cards)) {

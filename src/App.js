@@ -20,6 +20,7 @@ import {
   detectSprintGroups,
   detectMountainCrossing,
   calculateMountainPoints,
+  processDobbeltforing,
   getRandomTrack,
   generateCards,
   pickValue,
@@ -2243,22 +2244,27 @@ return { pace, updatedCards, doubleLead };
   // Handle dobbeltføring: if doubleLead is provided and values are within 1, apply +1 bonus
   let finalPace = parseInt(pace);
   let isDoubleLead = false;
-  if (dobbeltføring && doubleLead && doubleLead.pace1 && doubleLead.pace2) {
-    const p1 = parseInt(doubleLead.pace1);
-    const p2 = parseInt(doubleLead.pace2);
-    if (Math.abs(p1 - p2) <= 1) {
-      finalPace = Math.max(p1, p2) + 1;
+  
+  // Process manual dobbeltføring if provided
+  if (doubleLead) {
+    const dobbeltforingResult = processDobbeltforing({
+      teamPacesForGroup: {},  // Not needed for manual
+      teamPaceMeta: {},
+      groupNum,
+      groupPos: 0,  // Not needed for manual terrain check
+      currentSpeed: parseInt(pace),
+      track,
+      cards,
+      manualDobbeltforing: doubleLead,
+      enabled: dobbeltføring
+    });
+    
+    if (dobbeltforingResult.applied) {
+      finalPace = dobbeltforingResult.newSpeed;
       isDoubleLead = true;
-      addLog(`${submittingTeam} dobbeltføring: ${p1},${p2} → speed ${finalPace}`);
-      
-      // Mark the two riders as dobbeltføring leaders so they get extra TK
-      const rider1 = doubleLead.rider1;
-      const rider2 = doubleLead.rider2;
-      if (rider1 && rider2) {
-        const existingLeaders = dobbeltføringLeadersRef.current || [];
-        dobbeltføringLeadersRef.current = [...existingLeaders, rider1, rider2];
-        addLog(`🔍 DEBUG: Manual dobbeltføring - marking ${rider1}, ${rider2} as leaders`);
-      }
+      dobbeltføringLeadersRef.current = [...(dobbeltføringLeadersRef.current || []), ...dobbeltforingResult.leaders];
+      dobbeltforingResult.logMessages.forEach(msg => addLog(msg));
+      addLog(`🔍 DEBUG: Manual dobbeltføring - marking ${dobbeltforingResult.leaders.join(', ')} as leaders`);
     }
   }
   
@@ -2509,116 +2515,25 @@ return { pace, updatedCards, doubleLead };
     // Check for dobbeltføring: if 2+ teams have pace values within 1 of each other
     // AND the terrain is flat enough (only 3-fields until next numbered field)
     // THEN apply +1 bonus to speed and mark the two leading riders to pay 2 TK each
-    let dobbeltføringApplied = false;
-    let dobbeltføringLeaders = [];
-    // Skip automatic dobbeltføring if manual dobbeltføring was already applied
     const manualDobbeltføringApplied = (dobbeltføringLeadersRef.current || []).length > 0;
-    if (dobbeltføring && !manualDobbeltføringApplied) {
-      try {
-        // Find teams with non-zero pace values
-        const teamsWithPace = Object.entries(teamPacesForGroup)
-          .filter(([t, p]) => p > 0)
-          .sort((a, b) => b[1] - a[1]); // sort by pace descending
-        
-        if (teamsWithPace.length >= 2) {
-          const topPace = teamsWithPace[0][1];
-          const secondPace = teamsWithPace[1][1];
-          
-          // Check if top two paces are within 1 of each other
-          if (Math.abs(topPace - secondPace) <= 1) {
-            // Check terrain: count 3-fields from next position until next numbered field
-            // We count from groupPos+1 because we're checking where the group will MOVE to
-            let flatDistance = 0;
-            if (track[groupPos] === '3') {
-              for (let i = groupPos + 1; i < track.length; i++) {
-                const ch = track[i];
-                if (ch === '0' || ch === '1' || ch === '2') break;
-                if (ch === '3') flatDistance++;
-                else if (ch === '_') continue;
-                else if (ch === 'F' || ch === 'B' || ch === '*') break;
-                else break;
-              }
-            }
-            
-            // Apply dobbeltføring if terrain allows it
-            // speed will be increased by +1, so final speed must fit within flatDistance
-            if (flatDistance > 0 && (speed + 1) <= flatDistance) {
-              const oldSpeed = speed;
-              speed = speed + 1;
-              dobbeltføringApplied = true;
-              
-              // Get team names for logging
-              const team1 = teamsWithPace[0][0];
-              const team2 = teamsWithPace[1][0];
-              
-              addLog(`⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (before: ${oldSpeed})`);
-              
-              // NOTE: We do NOT update selected_value for dobbeltføring leaders
-              // They should play cards matching their originally declared value (e.g., 5)
-              // The group moves at speed 6 due to the dobbeltføring bonus
-              
-              // Find the leading riders based on submission order
-              // Leader 1: First rider who declared a value within 1 of final speed
-              // Leader 2: First rider (excluding leader 1) who declared a value within 2 of final speed
-              
-              const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
-              
-              // Get all teams with their submission timestamps and paces
-              const teamsWithTimestamps = [];
-              for (const [team, pace] of Object.entries(teamPacesForGroup)) {
-                if (pace > 0) {
-                  const paceKey = `${groupNum}-${team}`;
-                  const meta = newMeta[paceKey];
-                  const timestamp = meta && meta.timestamp ? meta.timestamp : 0;
-                  teamsWithTimestamps.push({ team, pace, timestamp });
-                }
-              }
-              
-              // Sort by timestamp (earliest first)
-              teamsWithTimestamps.sort((a, b) => a.timestamp - b.timestamp);
-              
-              // Find leader 1: First team with pace within 1 of final speed
-              let leader1Team = null;
-              let leader1Rider = null;
-              for (const { team, pace } of teamsWithTimestamps) {
-                if (Math.abs(pace - speed) <= 1) {
-                  leader1Team = team;
-                  // Find a rider from this team with takes_lead > 0
-                  const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
-                  if (teamRiders.length > 0) {
-                    // Pick rider with lowest win_chance
-                    teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-                    leader1Rider = teamRiders[0][0];
-                    dobbeltføringLeaders.push(leader1Rider);
-                  }
-                  break;
-                }
-              }
-              
-              // Find leader 2: First team (excluding leader 1) with pace within 2 of final speed
-              for (const { team, pace } of teamsWithTimestamps) {
-                if (team === leader1Team) continue; // Skip leader 1's team
-                if (Math.abs(pace - speed) <= 2) {
-                  // Find a rider from this team with takes_lead > 0
-                  const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
-                  if (teamRiders.length > 0) {
-                    // Pick rider with lowest win_chance
-                    teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-                    dobbeltføringLeaders.push(teamRiders[0][0]);
-                  }
-                  break;
-                }
-              }
-              
-              addLog(`⚡ Dobbeltføring leaders: ${dobbeltføringLeaders.join(', ')}`);
-              
-              // Store leaders in ref for use in confirmMove
-              dobbeltføringLeadersRef.current = dobbeltføringLeaders;
-            }
-          }
-        }
-      } catch (e) {
-        addLog(`Error checking dobbeltføring: ${e.message}`);
+    
+    if (!manualDobbeltføringApplied) {
+      const dobbeltforingResult = processDobbeltforing({
+        teamPacesForGroup,
+        teamPaceMeta: newMeta,
+        groupNum,
+        groupPos,
+        currentSpeed: speed,
+        track,
+        cards,
+        manualDobbeltforing: null,  // No manual here, only automatic
+        enabled: dobbeltføring
+      });
+      
+      if (dobbeltforingResult.applied) {
+        speed = dobbeltforingResult.newSpeed;
+        dobbeltføringLeadersRef.current = dobbeltforingResult.leaders;
+        dobbeltforingResult.logMessages.forEach(msg => addLog(msg));
       }
     }
     
