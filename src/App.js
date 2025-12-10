@@ -18,6 +18,8 @@ import {
   getPenalty,
   getFatigue,
   detectSprintGroups,
+  detectMountainCrossing,
+  calculateMountainPoints,
   getRandomTrack,
   generateCards,
   pickValue,
@@ -2309,7 +2311,8 @@ return { pace, updatedCards, doubleLead };
     isAttack: effectiveIsAttack, 
     attacker: effectiveAttacker, 
     round: currentRound,
-    doubleLead: isDoubleLead ? doubleLead : null
+    doubleLead: isDoubleLead ? doubleLead : null,
+    timestamp: Date.now() // Add timestamp to track submission order
   };
   if (currentRound === 2 && typeof prevPaceForThisTeam !== 'undefined') metaEntry.prevPace = prevPaceForThisTeam;
   const newMeta = { ...teamPaceMeta, [paceKey]: metaEntry };
@@ -2550,34 +2553,61 @@ return { pace, updatedCards, doubleLead };
               
               addLog(`⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${speed} (before: ${oldSpeed})`);
               
-              // IMPORTANT: Update selected_value for all riders who were going to take lead
-              // They need to match the new speed, not the old one
-              setCards(prev => {
-                const updated = { ...prev };
-                for (const [n, r] of Object.entries(updated)) {
-                  if (r.group === groupNum && r.takes_lead > 0) {
-                    updated[n] = { ...r, selected_value: speed };
-                  }
-                }
-                return updated;
-              });
+              // NOTE: We do NOT update selected_value for dobbeltføring leaders
+              // They should play cards matching their originally declared value (e.g., 5)
+              // The group moves at speed 6 due to the dobbeltføring bonus
               
-              // Find the leading riders from the top 2 teams (max 2 leaders)
+              // Find the leading riders based on submission order
+              // Leader 1: First rider who declared a value within 1 of final speed
+              // Leader 2: First rider (excluding leader 1) who declared a value within 2 of final speed
               
               const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
               
-              // Find rider taking lead from team1
-              const team1Riders = groupRidersAll.filter(([, r]) => r.team === team1 && r.takes_lead > 0);
-              if (team1Riders.length > 0) {
-                team1Riders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-                dobbeltføringLeaders.push(team1Riders[0][0]);
+              // Get all teams with their submission timestamps and paces
+              const teamsWithTimestamps = [];
+              for (const [team, pace] of Object.entries(teamPacesForGroup)) {
+                if (pace > 0) {
+                  const paceKey = `${groupNum}-${team}`;
+                  const meta = newMeta[paceKey];
+                  const timestamp = meta && meta.timestamp ? meta.timestamp : 0;
+                  teamsWithTimestamps.push({ team, pace, timestamp });
+                }
               }
               
-              // Find rider taking lead from team2
-              const team2Riders = groupRidersAll.filter(([, r]) => r.team === team2 && r.takes_lead > 0);
-              if (team2Riders.length > 0) {
-                team2Riders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-                dobbeltføringLeaders.push(team2Riders[0][0]);
+              // Sort by timestamp (earliest first)
+              teamsWithTimestamps.sort((a, b) => a.timestamp - b.timestamp);
+              
+              // Find leader 1: First team with pace within 1 of final speed
+              let leader1Team = null;
+              let leader1Rider = null;
+              for (const { team, pace } of teamsWithTimestamps) {
+                if (Math.abs(pace - speed) <= 1) {
+                  leader1Team = team;
+                  // Find a rider from this team with takes_lead > 0
+                  const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
+                  if (teamRiders.length > 0) {
+                    // Pick rider with lowest win_chance
+                    teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+                    leader1Rider = teamRiders[0][0];
+                    dobbeltføringLeaders.push(leader1Rider);
+                  }
+                  break;
+                }
+              }
+              
+              // Find leader 2: First team (excluding leader 1) with pace within 2 of final speed
+              for (const { team, pace } of teamsWithTimestamps) {
+                if (team === leader1Team) continue; // Skip leader 1's team
+                if (Math.abs(pace - speed) <= 2) {
+                  // Find a rider from this team with takes_lead > 0
+                  const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
+                  if (teamRiders.length > 0) {
+                    // Pick rider with lowest win_chance
+                    teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
+                    dobbeltføringLeaders.push(teamRiders[0][0]);
+                  }
+                  break;
+                }
               }
               
               addLog(`⚡ Dobbeltføring leaders: ${dobbeltføringLeaders.join(', ')}`);
@@ -3377,6 +3407,84 @@ const confirmMove = (cardsSnapshot) => {
             }
           } catch (e) {
             // ignore detection errors
+          }
+
+          // Mountain points calculation - now runs after ALL groups have moved
+          try {
+            let mountainCrossed = false;
+            let mountainLength = 0;
+            
+            // First pass: collect ALL riders who crossed any mountain
+            const allRidersData = [];
+            for (const [name, rider] of Object.entries(updatedCards2)) {
+              const oldPos = rider.old_position || 0;
+              const newPos = rider.position || 0;
+              const crossing = detectMountainCrossing(oldPos, newPos, track);
+              
+              if (crossing.crossedMountain) {
+                const randomTiebreaker = Math.random();
+                allRidersData.push({
+                  name,
+                  groupNum: rider.group || 999,
+                  uphillValue: rider.last_uphill_value || 0,
+                  flatValue: rider.last_flat_value || 0,
+                  cardPlayed: rider.played_card || '?',
+                  randomTiebreaker,
+                  mountainLength: crossing.mountainLength,
+                  oldPos,
+                  newPos
+                });
+                
+                if (crossing.mountainLength > mountainLength) {
+                  mountainCrossed = true;
+                  mountainLength = crossing.mountainLength;
+                }
+              }
+            }
+            
+            // Second pass: debug log for all riders who moved
+            for (const [name, rider] of Object.entries(updatedCards2)) {
+              const oldPos = rider.old_position || 0;
+              const newPos = rider.position || 0;
+              
+              if (oldPos !== newPos) {
+                const groupNum = rider.group || '?';
+                const cardPlayed = rider.played_card || '?';
+                const valuePlayed = rider.played_effective || '?';
+                const crossing = detectMountainCrossing(oldPos, newPos, track);
+                
+                // Find random tiebreaker for this rider if they crossed
+                const riderData = allRidersData.find(r => r.name === name);
+                const randomNum = riderData ? riderData.randomTiebreaker.toFixed(4) : '?';
+                
+                addLog(`🔍 Mountain check: ${name} ${oldPos}→${newPos}, group=${groupNum}, value_played=${valuePlayed}, card_played=${cardPlayed}, random=${randomNum}, track[${oldPos}]='${track[oldPos] || ''}', track[${newPos}]='${track[newPos] || ''}', crossed=${crossing.crossedMountain}, length=${crossing.mountainLength}`);
+              }
+            }
+            
+            // If we crossed a mountain, award points
+            if (mountainCrossed && mountainLength > 0) {
+              addLog(`⛰️  Mountain crossed! Length: ${mountainLength} fields`);
+              
+              // Filter to only riders who crossed the LONGEST mountain
+              const ridersWhoCompete = allRidersData.filter(r => r.mountainLength === mountainLength);
+              
+              // Calculate and award points to all riders who crossed this mountain
+              const pointsAwarded = calculateMountainPoints(ridersWhoCompete, mountainLength);
+              
+              // Apply points to the riders
+              for (const award of pointsAwarded) {
+                if (updatedCards2[award.name]) {
+                  const currentKOM = updatedCards2[award.name].kom_points || 0;
+                  updatedCards2[award.name] = {
+                    ...updatedCards2[award.name],
+                    kom_points: currentKOM + award.points
+                  };
+                  addLog(`🏔️ ${award.name} (Group ${award.groupNum}): +${award.points} KOM points (uphill=${award.uphillValue}, flat=${award.flatValue}) → Total: ${currentKOM + award.points}`);
+                }
+              }
+            }
+          } catch (e) {
+            addLog(`Mountain points error: ${e.message}`);
           }
 
           return updatedCards2;

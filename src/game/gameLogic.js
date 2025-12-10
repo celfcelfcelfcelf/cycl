@@ -100,44 +100,53 @@ export const getFavoritPoints = (rider) => {
 // Detect if a rider just crossed a mountain peak (KOM point)
 // Returns { crossedMountain: boolean, mountainLength: number }
 export const detectMountainCrossing = (oldPos, newPos, track) => {
-  // A mountain is a sequence of 0, 1, 2 fields between two '3' or '_' fields
-  // We detect crossing when old position was ON the mountain and new position is AFTER it
+  // A mountain is a sequence of 0, 1, 2 fields
+  // We detect crossing when rider moves FROM before/on the mountain TO after it
   
   if (oldPos >= newPos) return { crossedMountain: false, mountainLength: 0 };
   
-  // Check if we crossed from a hill field (0,1,2) to a flat/downhill field (3,_,F)
-  // OR if we moved through hill fields and are still on a hill but there's no more hills ahead
-  const oldChar = track[oldPos] || '';
-  const newChar = track[newPos] || '';
+  // Find any mountain segment between oldPos and newPos
+  // A mountain is any continuous sequence of '0', '1', '2' fields
+  let foundMountain = false;
+  let mountainStart = -1;
+  let mountainEnd = -1;
   
-  // Case 1: Moving from hill to non-hill (including F for finish line)
-  const wasOnHill = ['0', '1', '2'].includes(oldChar);
-  const nowOffHill = ['3', '_', 'F'].includes(newChar);
+  // Scan the path from oldPos to newPos to find a mountain
+  for (let i = oldPos; i <= newPos; i++) {
+    const char = track[i] || '';
+    const isHill = ['0', '1', '2'].includes(char);
+    
+    if (isHill && mountainStart === -1) {
+      // Found start of mountain
+      mountainStart = i;
+    } else if (!isHill && mountainStart !== -1) {
+      // Found end of mountain (moved off the hill)
+      mountainEnd = i - 1;
+      foundMountain = true;
+      break;
+    }
+  }
   
-  // Case 2: Moving through hills but all remaining fields are F (mountain before finish)
-  const stillOnHill = ['0', '1', '2'].includes(newChar);
-  const restIsFinish = stillOnHill && track.slice(newPos + 1).split('').every(c => c === 'F' || c === '');
+  // Special case: still on mountain at newPos, but it's the last mountain before finish
+  if (mountainStart !== -1 && mountainEnd === -1) {
+    const newChar = track[newPos] || '';
+    if (['0', '1', '2'].includes(newChar)) {
+      // Check if remaining fields are all F (finish)
+      const restIsFinish = track.slice(newPos + 1).split('').every(c => c === 'F' || c === '');
+      if (restIsFinish) {
+        mountainEnd = newPos;
+        foundMountain = true;
+      }
+    }
+  }
   
-  if (!wasOnHill || (!nowOffHill && !restIsFinish)) {
+  if (!foundMountain || mountainStart === -1 || mountainEnd === -1) {
     return { crossedMountain: false, mountainLength: 0 };
   }
   
-  // Find the mountain we just crossed - scan backwards from current position to find start
-  let mountainStart = newPos;
-  if (nowOffHill) {
-    // We're past the mountain, scan back from newPos-1
-    mountainStart = newPos - 1;
-  }
-  // Scan backwards to find the start of the mountain
-  while (mountainStart >= 0 && ['0', '1', '2'].includes(track[mountainStart])) {
-    mountainStart--;
-  }
-  mountainStart++; // Move back to first hill field
-  
-  // Mountain length is number of 0,1,2 fields we found
+  // Calculate mountain length (number of hill fields)
   let mountainLength = 0;
-  const endScan = nowOffHill ? newPos : newPos + 1; // Include current position if still on hill
-  for (let i = mountainStart; i < endScan; i++) {
+  for (let i = mountainStart; i <= mountainEnd; i++) {
     if (['0', '1', '2'].includes(track[i])) {
       mountainLength++;
     }
@@ -151,13 +160,13 @@ export const detectMountainCrossing = (oldPos, newPos, track) => {
 
 // Calculate mountain points for riders who crossed a mountain
 // Points: 1st = mountainLength, 2nd = floor(mountainLength/2), 3rd = floor(mountainLength/4), etc.
-// Ranking: 1) Lowest group number, 2) Highest uphill card value, 3) Lowest flat card value
+// Ranking: 1) Lowest group number, 2) Highest uphill card value, 3) Lowest card number, 4) Random tiebreaker
 export const calculateMountainPoints = (ridersWhoMoved, mountainLength) => {
   if (mountainLength === 0 || !ridersWhoMoved || ridersWhoMoved.length === 0) {
     return [];
   }
   
-  // Sort riders by: 1) group number (ascending), 2) uphill value (descending), 3) flat value (ascending)
+  // Sort riders by: 1) group number (ascending), 2) uphill value (descending), 3) card number (ascending), 4) random
   const sorted = [...ridersWhoMoved].sort((a, b) => {
     // First: lower group number wins (Group 1 before Group 2)
     const groupA = a.groupNum || 999;
@@ -169,10 +178,21 @@ export const calculateMountainPoints = (ridersWhoMoved, mountainLength) => {
     const uphillB = b.uphillValue || 0;
     if (uphillB !== uphillA) return uphillB - uphillA;
     
-    // Third: lower flat value wins
-    const flatA = a.flatValue || 999;
-    const flatB = b.flatValue || 999;
-    return flatA - flatB;
+    // Third: lower card number wins (extract from "kort: X" format)
+    const extractCardNumber = (cardPlayed) => {
+      if (!cardPlayed || cardPlayed === '?') return 999;
+      const match = cardPlayed.match(/kort:\s*(\d+)/);
+      return match ? parseInt(match[1], 10) : 999;
+    };
+    
+    const cardNumA = extractCardNumber(a.cardPlayed);
+    const cardNumB = extractCardNumber(b.cardPlayed);
+    if (cardNumA !== cardNumB) return cardNumA - cardNumB;
+    
+    // Fourth: random tiebreaker (use pre-generated random number)
+    const randomA = a.randomTiebreaker ?? 0.5;
+    const randomB = b.randomTiebreaker ?? 0.5;
+    return randomA - randomB;
   });
   
   // Assign points: 1st gets mountainLength, 2nd gets floor(mountainLength/2), etc.
@@ -1541,62 +1561,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     groupsNewPositions.sort((a, b) => b[0] - a[0]);
   }
 
-  // Mountain points calculation for all groups
-  // Check if any rider in this group crossed a mountain
-  let mountainCrossed = false;
-  let mountainLength = 0;
-  
-  for (const name of nonAttackers) {
-    const rider = updatedCards[name];
-    const oldPos = rider.old_position || 0;
-    const newPos = rider.position || 0;
-    const crossing = detectMountainCrossing(oldPos, newPos, track);
-    
-    // Debug log for mountain detection
-    if (oldPos !== newPos) {
-      logs.push(`🔍 Mountain check: ${name} ${oldPos}→${newPos}, track[${oldPos}]='${track[oldPos] || ''}', track[${newPos}]='${track[newPos] || ''}', crossed=${crossing.crossedMountain}, length=${crossing.mountainLength}`);
-    }
-    
-    if (crossing.crossedMountain && crossing.mountainLength > mountainLength) {
-      mountainCrossed = true;
-      mountainLength = crossing.mountainLength;
-    }
-  }
-  
-  // If we crossed a mountain, award points
-  // Collect ALL riders across all groups who crossed this same mountain
-  if (mountainCrossed && mountainLength > 0) {
-    logs.push(`⛰️  Group ${groupNum} crossed mountain! Length: ${mountainLength} fields`);
-    
-    // Collect ALL riders who crossed mountains (not just current group)
-    const allRidersData = [];
-    for (const [name, rider] of Object.entries(updatedCards)) {
-      const oldPos = rider.old_position || 0;
-      const newPos = rider.position || 0;
-      const crossing = detectMountainCrossing(oldPos, newPos, track);
-      
-      // Include riders who crossed the same mountain length
-      if (crossing.crossedMountain && crossing.mountainLength === mountainLength) {
-        allRidersData.push({
-          name,
-          groupNum: rider.group || 999,
-          uphillValue: rider.last_uphill_value || 0,
-          flatValue: rider.last_flat_value || 0
-        });
-      }
-    }
-    
-    // Calculate and award points to all riders who crossed this mountain
-    const pointsAwarded = calculateMountainPoints(allRidersData, mountainLength);
-    
-    for (const award of pointsAwarded) {
-      if (updatedCards[award.name]) {
-        const currentKOM = updatedCards[award.name].kom_points || 0;
-        updatedCards[award.name].kom_points = currentKOM + award.points;
-        logs.push(`🏔️  ${award.name} (Group ${award.groupNum}): +${award.points} KOM points (uphill=${award.uphillValue}, flat=${award.flatValue}) → Total: ${currentKOM + award.points}`);
-      }
-    }
-  }
+  // Mountain points calculation has been moved to App.js
+  // It now runs after ALL groups have moved, not after each individual group
 
   // NOTE: Brosten capacity enforcement is intentionally performed by the
   // engine wrapper (`stepGroup`) as the final step after post-adjust
