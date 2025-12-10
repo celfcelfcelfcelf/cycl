@@ -3069,10 +3069,6 @@ const confirmMove = (cardsSnapshot) => {
   const groupsNewPositions = [];
 
   addLog(`=== Moving group ${currentGroup} ===`);
-  
-  // Reset groupSpeed at the start of each group's movement
-  // This prevents speed from previous group carrying over
-  setGroupSpeed(0);
 
   // Opret en kopi af hele cards-objektet som vi opdaterer
   const updatedCards = { ...preCards };
@@ -3108,11 +3104,20 @@ const confirmMove = (cardsSnapshot) => {
     plannedCards[n] = (updatedCards[n] && (updatedCards[n].planned_card_id || (updatedCards[n].attack_card && updatedCards[n].attack_card.id))) || null;
   });
   
+  // Calculate the actual speed for this group from teamPaces
+  // Don't rely on groupSpeed state as it may not be updated yet
+  const groupRidersForSpeed = Object.entries(preCards).filter(([, r]) => r.group === currentGroup && !r.finished);
+  const speedPaces = groupRidersForSpeed
+    .filter(([, r]) => r.attacking_status !== 'attacker')
+    .map(([, r]) => Math.round(r.selected_value || 0))
+    .filter(v => v > 0);
+  const computedSpeed = speedPaces.length > 0 ? Math.max(...speedPaces) : groupSpeed;
+  
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
   // Pass the pre-move snapshot into the engine helper so it sees any
   // planned_card_id/human_planned flags that were just set by the UI.
-  const nonAttRes = computeNonAttackerMoves(preCards, currentGroup, groupSpeed, slipstream, track);
+  const nonAttRes = computeNonAttackerMoves(preCards, currentGroup, computedSpeed, slipstream, track);
     // replace updated cards and collect logs
     for (const [n, r] of Object.entries(nonAttRes.updatedCards)) updatedCards[n] = r;
     for (const entry of nonAttRes.logs || []) addLog(entry);
@@ -3128,7 +3133,7 @@ const confirmMove = (cardsSnapshot) => {
 
   // Second phase: move attackers separately (delegated to pure helper)
   try {
-    const attRes = computeAttackerMoves(updatedCards, currentGroup, groupSpeed, slipstream, track, Math.random);
+    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, slipstream, track, Math.random);
     if (attRes && attRes.updatedCards) {
       for (const [n, r] of Object.entries(attRes.updatedCards)) updatedCards[n] = r;
     }
