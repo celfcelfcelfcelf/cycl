@@ -29,7 +29,12 @@ export const getEffectiveSV = (sv, speed) => {
 
 // Helper function: check if terrain is flat (for card value selection)
 export const isFlatTerrain = (sv, speed) => {
-  return sv === 3;
+  // Check if we're on flat terrain (original SV = 3)
+  // sv can be either:
+  // - Original SV value (3 for flat)
+  // - Effective SV value (speed/2 for flat terrain after getEffectiveSV)
+  // To handle both cases: flat terrain means sv === 3 OR sv === speed/2
+  return sv === 3 || sv === speed / 2;
 };
 
 export const getLength = (track) => {
