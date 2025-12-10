@@ -21,6 +21,7 @@ import {
   detectMountainCrossing,
   calculateMountainPoints,
   processDobbeltforing,
+  calculateGroupSpeed,
   getRandomTrack,
   generateCards,
   pickValue,
@@ -2476,105 +2477,64 @@ return { pace, updatedCards, doubleLead };
 
     // Determine the maximum chosen pace among teams (0 if none)
     const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
-    
-    // Debug logging for pace decisions
-    try {
-      addLog(`DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, allPaces=[${allPaces.join(',')}], maxChosen=${maxChosen}`);
-    } catch (e) {}
 
-    // If a group ahead has already moved, compute distance to that group's
-    // furthest position. If that distance is larger than maxChosen, override
-    // the group's speed to that distance and clear any leaders.
+    // Get positions of groups ahead for catch-up logic
     const aheadPositions = Object.values(cards).filter(r => r.group > groupNum).map(r => r.position);
-    let speed = Math.max(...allPaces.filter(p => p > 0), 2);
-    if (aheadPositions.length > 0) {
-      const maxAheadPos = Math.max(...aheadPositions);
-      if (maxAheadPos > groupPos) {
-        const distance = maxAheadPos - groupPos;
-        try { addLog(`DEBUG Distance to group ahead=${distance}`); } catch (e) {}
-        if (distance > maxChosen) {
-          speed = distance;
-          try { addLog(`Group ${groupNum}: distance ${distance} > max chosen ${maxChosen}, setting speed=${speed} and clearing selected_value/takes_lead`); } catch(e) {}
-          setCards(prev => {
-            const updated = { ...prev };
-            for (const [n, r] of Object.entries(updated)) {
-              if (r.group === groupNum) updated[n] = { ...r, selected_value: 0, takes_lead: 0 };
-            }
-            return updated;
-          });
+    
+    // Calculate group speed using consolidated logic
+    const speedResult = calculateGroupSpeed({
+      teamPacesForGroup,
+      teamPaceMeta: newMeta,
+      groupNum,
+      groupPos,
+      track,
+      cards,
+      aheadPositions,
+      dobbeltforingEnabled: dobbeltføring,
+      manualDobbeltforingLeaders: dobbeltføringLeadersRef.current || []
+    });
+    
+    let speed = speedResult.speed;
+    
+    // Apply dobbeltføring leaders if automatic dobbeltføring was applied
+    if (speedResult.dobbeltforingApplied) {
+      dobbeltføringLeadersRef.current = speedResult.dobbeltforingLeaders;
+    }
+    
+    // Log all messages from speed calculation
+    speedResult.logMessages.forEach(msg => {
+      try { addLog(msg); } catch (e) {}
+    });
+    
+    // If speed was forced by catch-up, clear selected_value/takes_lead for all riders
+    if (speedResult.forcedByCatchUp) {
+      setCards(prev => {
+        const updated = { ...prev };
+        for (const [n, r] of Object.entries(updated)) {
+          if (r.group === groupNum) updated[n] = { ...r, selected_value: 0, takes_lead: 0 };
         }
-      }
-    }
-
-    // Ensure a minimum group speed of 2 (UI-level guard). Downhill override below
-    speed = Math.max(2, speed);
-    if (track[groupPos] === '_') speed = Math.max(5, speed);
-    
-    try { addLog(`DEBUG Group ${groupNum}: speed after minimum=${speed}, groupPos=${groupPos}, track[${groupPos}]='${track[groupPos] || ''}'`); } catch (e) {}
-    
-    // Check for dobbeltføring: if 2+ teams have pace values within 1 of each other
-    // AND the terrain is flat enough (only 3-fields until next numbered field)
-    // THEN apply +1 bonus to speed and mark the two leading riders to pay 2 TK each
-    const manualDobbeltføringApplied = (dobbeltføringLeadersRef.current || []).length > 0;
-    
-    if (!manualDobbeltføringApplied) {
-      const dobbeltforingResult = processDobbeltforing({
-        teamPacesForGroup,
-        teamPaceMeta: newMeta,
-        groupNum,
-        groupPos,
-        currentSpeed: speed,
-        track,
-        cards,
-        manualDobbeltforing: null,  // No manual here, only automatic
-        enabled: dobbeltføring
+        return updated;
       });
-      
-      if (dobbeltforingResult.applied) {
-        speed = dobbeltforingResult.newSpeed;
-        dobbeltføringLeadersRef.current = dobbeltforingResult.leaders;
-        dobbeltforingResult.logMessages.forEach(msg => addLog(msg));
-      }
     }
     
+    // If speed was blocked by group ahead, clear takes_lead/selected_value
+    if (speedResult.blockedByAhead) {
+      setCards(prev => {
+        const updated = { ...prev };
+        for (const [n, r] of Object.entries(updated)) {
+          if (r.group === groupNum) {
+            updated[n] = { ...r, takes_lead: 0, selected_value: 0 };
+          }
+        }
+        return updated;
+      });
+    }
+    
+    // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
     setSlipstream(getEffectiveSV(sv, speed));
     setIsFlat(sv === 3);
-
-    // If any group ahead (higher group number) has already moved and is now
-    // positioned such that this group's chosen speed would move into/through
-    // that group, cap this group's speed so it stops right behind the ahead group.
-    // (reuse aheadPositions computed above)
-    if (aheadPositions.length > 0) {
-      const maxAheadPos = Math.max(...aheadPositions);
-      // If chosen speed would reach or pass maxAheadPos, cap it
-      if (groupPos + speed <= maxAheadPos) {
-        const newSpeed = Math.max(0, maxAheadPos - groupPos);
-        if (newSpeed !== speed) {
-          try { addLog(`Group ${groupNum} blocked by group ahead at pos ${maxAheadPos}; capping speed ${speed}→${newSpeed}`); } catch(e) {}
-          speed = newSpeed;
-          // Clear any take-lead intentions in this group: no one leads
-          setCards(prev => {
-            const updated = { ...prev };
-            for (const [n, r] of Object.entries(updated)) {
-              if (r.group === groupNum) {
-                updated[n] = { ...r, takes_lead: 0, selected_value: 0 };
-              }
-            }
-            return updated;
-          });
-
-          // Recompute slipstream for the new capped speed
-          const newSv = getSlipstreamValue(groupPos, groupPos + speed, track);
-          setGroupSpeed(speed);
-          setSlipstream(getEffectiveSV(newSv, speed));
-          setIsFlat(newSv === 3);
-          // update local sv variable for logs later
-          sv = newSv;
-        }
-      }
-    }
 
     // Ensure each team has a value (default 0)
     for (const t of teams) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);

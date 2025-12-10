@@ -410,6 +410,150 @@ export function processDobbeltforing({
   return result;
 }
 
+/**
+ * Calculate final group speed from team paces, considering all constraints
+ * 
+ * @param {Object} params
+ * @param {Object} params.teamPacesForGroup - Team name → declared pace value
+ * @param {Object} params.teamPaceMeta - Metadata with timestamps for dobbeltføring
+ * @param {number} params.groupNum - Group number
+ * @param {number} params.groupPos - Current position on track
+ * @param {string} params.track - Track string
+ * @param {Object} params.cards - All riders
+ * @param {number[]} params.aheadPositions - Positions of groups ahead (for catch-up logic)
+ * @param {boolean} params.dobbeltforingEnabled - Global dobbeltføring setting
+ * @param {string[]} params.manualDobbeltforingLeaders - Already applied manual leaders
+ * 
+ * @returns {Object} {
+ *   speed: number,                    // Final speed for the group
+ *   dobbeltforingApplied: boolean,    // Whether dobbeltføring was applied
+ *   dobbeltforingLeaders: string[],   // Names of riders who lead (pay 2 TK)
+ *   forcedByCatchUp: boolean,         // Speed forced to catch group ahead
+ *   blockedByAhead: boolean,          // Speed capped to avoid collision
+ *   minimumApplied: boolean,          // Minimum speed (2 or 5) applied
+ *   downhillBoost: boolean,           // Downhill minimum (5) applied
+ *   baseSpeed: number,                // Speed before dobbeltføring/minimums
+ *   logMessages: string[]             // Log messages
+ * }
+ */
+export function calculateGroupSpeed({
+  teamPacesForGroup,
+  teamPaceMeta,
+  groupNum,
+  groupPos,
+  track,
+  cards,
+  aheadPositions = [],
+  dobbeltforingEnabled = true,
+  manualDobbeltforingLeaders = []
+}) {
+  
+  const result = {
+    speed: 0,
+    dobbeltforingApplied: false,
+    dobbeltforingLeaders: [],
+    forcedByCatchUp: false,
+    blockedByAhead: false,
+    minimumApplied: false,
+    downhillBoost: false,
+    baseSpeed: 0,
+    logMessages: []
+  };
+  
+  // Step 1: Calculate base speed from team paces
+  const allPaces = Object.values(teamPacesForGroup);
+  const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
+  
+  let speed = Math.max(...allPaces.filter(p => p > 0), 2);
+  result.baseSpeed = speed;
+  
+  result.logMessages.push(
+    `DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, allPaces=[${allPaces.join(',')}], maxChosen=${maxChosen}`
+  );
+  
+  // Step 2: Check if group ahead forces higher speed (BEFORE minimums/dobbeltføring)
+  // If distance to group ahead > maxChosen, override speed and skip dobbeltføring
+  if (aheadPositions.length > 0) {
+    const maxAheadPos = Math.max(...aheadPositions);
+    if (maxAheadPos > groupPos) {
+      const distance = maxAheadPos - groupPos;
+      result.logMessages.push(`DEBUG Distance to group ahead=${distance}`);
+      
+      if (distance > maxChosen) {
+        speed = distance;
+        result.speed = speed;
+        result.forcedByCatchUp = true;
+        result.logMessages.push(
+          `Group ${groupNum}: distance ${distance} > max chosen ${maxChosen}, setting speed=${speed} and clearing selected_value/takes_lead`
+        );
+        // Early return: when forced by catch-up, no dobbeltføring or other modifications
+        return result;
+      }
+    }
+  }
+  
+  // Step 3: Apply minimum speed constraints
+  const beforeMinimum = speed;
+  speed = Math.max(2, speed);
+  
+  if (track[groupPos] === '_') {
+    speed = Math.max(5, speed);
+    result.downhillBoost = true;
+  }
+  
+  if (speed !== beforeMinimum) {
+    result.minimumApplied = true;
+  }
+  
+  result.logMessages.push(
+    `DEBUG Group ${groupNum}: speed after minimum=${speed}, groupPos=${groupPos}, track[${groupPos}]='${track[groupPos] || ''}'`
+  );
+  
+  // Step 4: Check for dobbeltføring (if not manually applied)
+  const manualApplied = manualDobbeltforingLeaders.length > 0;
+  
+  if (!manualApplied && dobbeltforingEnabled) {
+    const dobbeltforingResult = processDobbeltforing({
+      teamPacesForGroup,
+      teamPaceMeta,
+      groupNum,
+      groupPos,
+      currentSpeed: speed,
+      track,
+      cards,
+      manualDobbeltforing: null,
+      enabled: true
+    });
+    
+    if (dobbeltforingResult.applied) {
+      speed = dobbeltforingResult.newSpeed;
+      result.dobbeltforingApplied = true;
+      result.dobbeltforingLeaders = dobbeltforingResult.leaders;
+      result.logMessages.push(...dobbeltforingResult.logMessages);
+    }
+  }
+  
+  // Step 5: Check if speed would collide with group ahead (AFTER dobbeltføring)
+  // If speed would reach or pass group ahead, cap it
+  if (aheadPositions.length > 0) {
+    const maxAheadPos = Math.max(...aheadPositions);
+    
+    if (groupPos + speed <= maxAheadPos) {
+      const newSpeed = Math.max(0, maxAheadPos - groupPos);
+      if (newSpeed !== speed) {
+        result.logMessages.push(
+          `Group ${groupNum} blocked by group ahead at pos ${maxAheadPos}; capping speed ${speed}→${newSpeed}`
+        );
+        speed = newSpeed;
+        result.blockedByAhead = true;
+      }
+    }
+  }
+  
+  result.speed = speed;
+  return result;
+}
+
 export const getTotalMovesLeft = (cards, factor) => {
   let sum = 0;
   for (const rider of Object.values(cards)) {
