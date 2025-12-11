@@ -634,20 +634,28 @@ export const getFatigue = (rider) => {
 export const detectSprintGroups = (cards, track) => {
   const sprintGroups = [];
   const finishLine = track.indexOf('F');
+  
+  // No sprint line on this track
+  if (finishLine === -1) return sprintGroups;
+  
   try {
     const groups = Array.from(new Set(Object.values(cards).map(r => r.group))).sort((a,b) => a-b);
     const groupPositions = {};
     for (const g of groups) {
-      groupPositions[g] = Math.max(...Object.values(cards).filter(r => r.group === g).map(r => r.position));
+      groupPositions[g] = Math.max(...Object.values(cards).filter(r => r.group === g && !r.finished).map(r => r.position));
     }
     // eslint-disable-next-line no-console
     console.log('detectSprintGroups: finishLine=', finishLine, 'groupPositions=', groupPositions);
   } catch (e) {}
 
   for (const rider of Object.values(cards)) {
+    // Skip finished riders
+    if (rider.finished) continue;
+    
     // Skip riders who already have sprint points assigned (already sprinted)
     if (rider.sprint_points !== undefined && rider.sprint_points > 0) continue;
     
+    // Check if rider has crossed the sprint line
     if (rider.position >= finishLine) {
       if (!sprintGroups.includes(rider.group)) {
         sprintGroups.push(rider.group);

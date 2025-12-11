@@ -77,7 +77,9 @@ const tracks = {
   'Saint-Julien-en-Saint-Alban  ›  Berre lÉtang': '333333333333333333333333333333333333333321_33333333333333333333FFFFFFFF',
   'Bukowina Resort  ›  Bukowina Tatrzańska (Polen, 25)': '3333333333333333333333333333320000011__33333333111112222FFFFFFFFF',
   'Sparkassen Münsterland Giro': '33333333333333333333333333333333333333333333333333333333333333FFFFFFFFFF',
-  'Visegrad 4 Kerekparverseny': '33333333333333333333333333333333333333333333333111333333111FFFFFFFFFF'
+  'Visegrad 4 Kerekparverseny': '33333333333333333333333333333333333333333333333111333333111FFFFFFFFFF',
+  'Barcelona  ›  Barcelona, Catalonia (25, 7)': '322200_3333111322200_3333111322200_3333111322200_3333FFFFFFFF',
+  'Huilongzhen  ›  Binhan Village  (Tour of Taihu Lake, 25, 3)': '333333333333333333333333333333333333333333333333FFFFFFFFFF'
 };
 
 // ========== MAIN COMPONENT ==========
@@ -136,6 +138,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [pullInvestSelections, setPullInvestSelections] = useState([]);
   const [pullInvestButtonsDisabled, setPullInvestButtonsDisabled] = useState(false);
   const [teamBaseOrder, setTeamBaseOrder] = useState([]); // fixed base order assigned at game start
+  const cardsSnapshotRef = useRef(null); // Store cards snapshot to avoid React state timing issues
   const processedInvestsRef = useRef(new Set());
   const addingInvestRef = useRef(new Set());
   const pullInvestHandledRef = useRef(new Set());
@@ -1485,9 +1488,14 @@ return { pace, updatedCards, doubleLead };
           track: sprinttest 
         }));
       } else {
-        // Normal mode: random stages
+        // Normal mode: random stages using Fisher-Yates shuffle for proper randomization
         const availableTracks = Object.entries(tracks).filter(([name]) => !name.toLowerCase().includes('test'));
-        const shuffled = [...availableTracks].sort(() => Math.random() - 0.5);
+        const shuffled = [...availableTracks];
+        // Fisher-Yates shuffle for unbiased random selection
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
         selected = shuffled.slice(0, numberOfStages).map(([name, track]) => ({ name, track }));
       }
       setSelectedStages(selected);
@@ -1867,7 +1875,12 @@ return { pace, updatedCards, doubleLead };
         if (isStageRace && typeof entry.XprizeMoney === 'number') {
           // Return XPM directly - AI will pick highest value
           // Ensure minimum of 0 to avoid negative values affecting sort order incorrectly
-          return Math.max(0, entry.XprizeMoney);
+          const xpm = Math.max(0, entry.XprizeMoney);
+          // Debug log to verify XPM is being used (only for AI picks during draft)
+          if (pickingTeam !== 'Me') {
+            console.log(`[DRAFT] ${pickingTeam} evaluating ${candidate.NAVN}: XPM=${xpm}`);
+          }
+          return xpm;
         }
         if (typeof entry.win_chance === 'number') {
           return entry.win_chance;
@@ -2196,8 +2209,9 @@ return { pace, updatedCards, doubleLead };
     return teams[startIdx % teams.length];
   };
 
-  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null) => {
+  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null, cardsSnapshot = null) => {
     // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
+    // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -2810,6 +2824,10 @@ return { pace, updatedCards, doubleLead };
         return copy;
       });
     } catch (e) {}
+    // Store cardsSnapshot in ref if provided, so openCardSelectionForGroup can use it
+    if (cardsSnapshot) {
+      cardsSnapshotRef.current = cardsSnapshot;
+    }
     setMovePhase('cardSelection');
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
   };
@@ -2957,7 +2975,7 @@ const handleHumanChoices = (groupNum, choice) => {
   
   // Submit the team's pace (max of all riders' values)
   // Compute the team's non-attacker pace (attackers should not determine this)
-  const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(name => updatedCards[name].selected_value || 0));
+  const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(n => updatedCards[n].selected_value || 0));
   const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
   const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
   
@@ -2969,7 +2987,39 @@ const handleHumanChoices = (groupNum, choice) => {
     rider2: choice.rider2
   } : null;
   
-  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName, doubleLead);
+  // Pass updatedCards as snapshot to avoid React state timing issues
+  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName, doubleLead, updatedCards);
+};
+
+/**
+ * Check if a group has crossed the sprint line ('F') and needs to sprint.
+ * This should be called immediately after a group moves to catch sprints
+ * before group reassignment happens.
+ * 
+ * @param {object} cardsState - Current cards state
+ * @param {number} groupNum - Group number to check
+ * @param {string} trackStr - Track string
+ * @returns {boolean} - True if the group should sprint
+ */
+const shouldGroupSprint = (cardsState, groupNum, trackStr) => {
+  try {
+    const finishLine = trackStr.indexOf('F');
+    if (finishLine === -1) return false; // No sprint line on this track
+    
+    // Get all riders in this group who haven't finished
+    const groupRiders = Object.values(cardsState).filter(r => r.group === groupNum && !r.finished);
+    if (groupRiders.length === 0) return false;
+    
+    // Check if any rider in the group has crossed the finish line and hasn't sprinted yet
+    const hasCrossedSprintLine = groupRiders.some(r => r.position >= finishLine);
+    const alreadySprinted = groupRiders.some(r => r.sprint_points !== undefined && r.sprint_points > 0);
+    
+    // Group should sprint if it has crossed the line and hasn't sprinted yet
+    return hasCrossedSprintLine && !alreadySprinted;
+  } catch (e) {
+    console.error('Error in shouldGroupSprint:', e);
+    return false;
+  }
 };
 
 const confirmMove = (cardsSnapshot) => {
@@ -3057,6 +3107,11 @@ const confirmMove = (cardsSnapshot) => {
   
   const computedSpeed = speedResult.speed;
   
+  // Recompute slipstream based on the final computed speed (which may include dobbeltføring)
+  // to ensure the slipstream value matches the actual speed being used for movement
+  const computedSV = getSlipstreamValue(groupPos, groupPos + computedSpeed, track);
+  const computedSlipstream = getEffectiveSV(computedSV, computedSpeed);
+  
   // Log speed calculation messages
   speedResult.logMessages.forEach(msg => {
     try { addLog(msg); } catch (e) {}
@@ -3065,7 +3120,7 @@ const confirmMove = (cardsSnapshot) => {
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
   // Pass the updatedCards (with dobbeltføring_leader flags set) to the engine helper
-  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, slipstream, track);
+  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track);
     // replace updated cards and collect logs
     for (const [n, r] of Object.entries(nonAttRes.updatedCards)) updatedCards[n] = r;
     for (const entry of nonAttRes.logs || []) addLog(entry);
@@ -3081,7 +3136,7 @@ const confirmMove = (cardsSnapshot) => {
 
   // Second phase: move attackers separately (delegated to pure helper)
   try {
-    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, slipstream, track, Math.random);
+    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random);
     if (attRes && attRes.updatedCards) {
       for (const [n, r] of Object.entries(attRes.updatedCards)) updatedCards[n] = r;
     }
@@ -3265,8 +3320,24 @@ const confirmMove = (cardsSnapshot) => {
       }
     }
 
-    setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved, sv: slipstream });
+    setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved, sv: computedSlipstream, speed: computedSpeed });
   } catch (e) {}
+
+  // Check if this group should sprint immediately after moving (before group reassignment)
+  try {
+    if (shouldGroupSprint(updatedCards, currentGroup, track)) {
+      // Add to pending sprints if not already there
+      setSprintGroupsPending(prev => {
+        if (!prev.includes(currentGroup)) {
+          addLog(`🏁 Sprint detected for group ${currentGroup} after move`);
+          return [...prev, currentGroup].sort((a, b) => a - b);
+        }
+        return prev;
+      });
+    }
+  } catch (e) {
+    console.error('Error checking for sprint:', e);
+  }
 
   // After moving this group, compute remaining (non-finished) groups.
   // If any remain that haven't moved this round, continue the round with
@@ -4686,10 +4757,14 @@ const checkCrash = () => {
       return;
     }
     // find human riders in the group
-    const humanRiders = Object.entries(cards).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
+    // Use cardsSnapshotRef if available (set by handlePaceSubmit) to avoid React state timing issues
+    const cardsToUse = cardsSnapshotRef.current || cards;
+    const humanRiders = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
     if (!humanRiders || humanRiders.length === 0) {
       // nothing to do
-      confirmMove();
+      const snapshot = cardsSnapshotRef.current;
+      cardsSnapshotRef.current = null; // Clear after use
+      confirmMove(snapshot);
       return;
     }
     // Prepare default selections (choose first top-4 or null)
@@ -4697,7 +4772,7 @@ const checkCrash = () => {
     // Pre-select a valid card for leaders (must match the group's speed) or
     // fallback to first top-4 for non-leaders.
     humanRiders.forEach(name => {
-      const rider = cards[name] || { cards: [] };
+      const rider = cardsToUse[name] || { cards: [] };
   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
   const isLeader = (rider.takes_lead || 0) === 1;
   if (isLeader) {
@@ -4723,6 +4798,7 @@ const checkCrash = () => {
     });
     setCardSelections(initial);
     setCardSelectionOpen(true);
+    // Note: cardsSnapshotRef is cleared in submitCardSelections after confirmMove is called
   };
 
   const handleCardChoice = (riderName, cardId) => {
@@ -4750,9 +4826,10 @@ const checkCrash = () => {
         updated[riderName].human_planned = true;
       }
     }
-    // Close modal and set cards; then call confirmMove after a short delay so state is in sync
+    // Close modal and set cards; then call confirmMove with snapshot
     setCardSelectionOpen(false);
     setCards(updated);
+    cardsSnapshotRef.current = null; // Clear snapshot after use
     // Call confirmMove with the updated snapshot to avoid a race where
     // React hasn't yet flushed `cards` to state when the engine reads it.
     confirmMove(updated);
@@ -5894,7 +5971,7 @@ const checkCrash = () => {
                     <div className="mt-3 p-3 border rounded bg-yellow-50">
                                       <div className="mb-2 text-sm font-medium">
                                         {/* Show the group number and group stats at the top in bold */}
-                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={groupSpeed}, sv={slipstream})</div>
+                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={postMoveInfo.speed || 0}, sv={postMoveInfo.sv || 0})</div>
                                         {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
                           const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
                           return (
