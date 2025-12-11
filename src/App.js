@@ -1103,11 +1103,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           // and the bonus field must also be flat
           const groupPos = updatedCards[rider1].position;
           const currentField = track[groupPos];
-          const slipstream = (currentField && currentField.startsWith('3-')) ? 3 : 1;
           
-          if (slipstream === 3) {
-            // Calculate max allowed pace for dobbeltføring
-            const maxSpeed = getDobbeltføringMaxSpeed(groupNum);
+          if (currentField === '3') {
+            // Calculate max allowed speed: count flat fields ahead
+            let distance = 0;
+            for (let i = groupPos + 1; i < track.length; i++) {
+              const ch = track[i];
+              if (ch === '0' || ch === '1' || ch === '2') break;
+              if (ch === '3' || ch === 'F') {
+                distance++;
+              } else if (ch === '_') {
+                continue;
+              } else {
+                break;
+              }
+            }
+            const maxSpeed = distance;
             const doubleSpeed = Math.max(pace1, pace2) + 1;
             
             if (doubleSpeed <= maxSpeed) {
