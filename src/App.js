@@ -1966,6 +1966,12 @@ return { pace, updatedCards, doubleLead };
       // For 1 rider per team: human picks at position Math.round((level * teams_count) / 100)
       const pickPosition = Math.round((level * teams_count) / 100);
       list_.push(Math.max(1, Math.min(pickPosition, riders)));
+    } else if (riders_per_team === 5) {
+      // For 5 riders per team: positions spread evenly based on teams_count
+      for (let i = 0; i < 5; i++) {
+        const position = Math.round(teams_count / 2) + teams_count * i;
+        list_.push(position);
+      }
     } else {
       // Fallback: evenly space human picks across the draft
       const total = riders_per_team * teams_count;
