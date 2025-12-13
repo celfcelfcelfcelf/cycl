@@ -7212,7 +7212,7 @@ const checkCrash = () => {
     )}
     
     {/* Stages Modal */}
-    {showStages && isStageRace && (
+    {showStages && isStageRace && selectedStages.length > 0 && (
       <div 
         className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         onClick={() => setShowStages(false)}
@@ -7222,7 +7222,7 @@ const checkCrash = () => {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">Stages in {raceName}</h2>
+            <h2 className="text-2xl font-bold">Stage Race Overview</h2>
             <button 
               onClick={() => setShowStages(false)}
               className="text-gray-500 hover:text-gray-700 text-2xl"
@@ -7232,7 +7232,7 @@ const checkCrash = () => {
           </div>
           
           <div className="space-y-3">
-            {stageRaceStages.map((stage, idx) => {
+            {selectedStages.map((stage, idx) => {
               const isCompleted = idx < currentStageIndex;
               const isCurrent = idx === currentStageIndex;
               const isUpcoming = idx > currentStageIndex;
@@ -7274,7 +7274,7 @@ const checkCrash = () => {
           </div>
           
           <div className="mt-4 text-sm text-gray-600 text-center">
-            Total Stages: {stageRaceStages.length}
+            Total Stages: {selectedStages.length}
           </div>
         </div>
       </div>
