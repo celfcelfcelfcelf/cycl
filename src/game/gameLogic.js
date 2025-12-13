@@ -2024,7 +2024,9 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
       attacking_status: 'no',
       fatigue: cardsToAdd.length / allNewCards.length, // Recalculate fatigue based on TK ratio
       penalty: 0,
-      // Preserve GC stats: gc_time, prize_money, points
+      sprint_points: 0, // Reset sprint points for new stage
+      tk_penalty: 0, // Reset TK penalty for new stage
+      // Preserve GC stats: gc_time, prize_money, points, kom_points
       // These are already in rider object and will be kept
     };
   }
