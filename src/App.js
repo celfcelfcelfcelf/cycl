@@ -128,6 +128,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [cards, setCards] = useState({});
   const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
   const [showClassifications, setShowClassifications] = useState(false); // modal for GC/prize/points
+  const [showStages, setShowStages] = useState(false); // modal for showing stages in race
   const [finalBonusesAwarded, setFinalBonusesAwarded] = useState(false); // track if final bonuses were awarded
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
@@ -6797,13 +6798,22 @@ const checkCrash = () => {
                 )}
                 {/* Back to Setup button removed per user request */}
                 {isStageRace && (
-                  <button 
-                    onClick={() => setShowClassifications(true)} 
-                    className="w-full mt-3 bg-yellow-500 hover:bg-yellow-600 text-black py-3 rounded text-base font-semibold"
-                    style={{ touchAction: 'manipulation', zIndex: 30 }}
-                  >
-                    Show Classifications
-                  </button>
+                  <>
+                    <button 
+                      onClick={() => setShowClassifications(true)} 
+                      className="w-full mt-3 bg-yellow-500 hover:bg-yellow-600 text-black py-3 rounded text-base font-semibold"
+                      style={{ touchAction: 'manipulation', zIndex: 30 }}
+                    >
+                      Show Classifications
+                    </button>
+                    <button 
+                      onClick={() => setShowStages(true)} 
+                      className="w-full mt-2 bg-blue-500 hover:bg-blue-600 text-white py-2 rounded text-sm font-semibold"
+                      style={{ touchAction: 'manipulation', zIndex: 30 }}
+                    >
+                      Show Stages
+                    </button>
+                  </>
                 )}
                 <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-2 rounded text-sm font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
                   Eliminate rider
@@ -7196,6 +7206,75 @@ const checkCrash = () => {
                 ));
               })()}
             </div>
+          </div>
+        </div>
+      </div>
+    )}
+    
+    {/* Stages Modal */}
+    {showStages && isStageRace && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        onClick={() => setShowStages(false)}
+      >
+        <div 
+          className="bg-white rounded-lg shadow-xl p-6 max-w-3xl max-h-[80vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">Stages in {raceName}</h2>
+            <button 
+              onClick={() => setShowStages(false)}
+              className="text-gray-500 hover:text-gray-700 text-2xl"
+            >
+              ×
+            </button>
+          </div>
+          
+          <div className="space-y-3">
+            {stageRaceStages.map((stage, idx) => {
+              const isCompleted = idx < currentStageIndex;
+              const isCurrent = idx === currentStageIndex;
+              const isUpcoming = idx > currentStageIndex;
+              
+              return (
+                <div 
+                  key={idx} 
+                  className={`border rounded-lg p-4 ${
+                    isCurrent ? 'border-blue-500 bg-blue-50' : 
+                    isCompleted ? 'border-green-500 bg-green-50' : 
+                    'border-gray-300 bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-bold text-lg">
+                      Stage {idx + 1}: {stage.name}
+                      {isCurrent && <span className="ml-2 text-sm text-blue-600">(Current)</span>}
+                      {isCompleted && <span className="ml-2 text-sm text-green-600">✓ Completed</span>}
+                      {isUpcoming && <span className="ml-2 text-sm text-gray-500">(Upcoming)</span>}
+                    </h3>
+                  </div>
+                  
+                  <div className="text-sm text-gray-700 space-y-1">
+                    <div><strong>Distance:</strong> {stage.track.length} fields</div>
+                    <div><strong>Type:</strong> {stage.track.includes('0') || stage.track.includes('1') || stage.track.includes('2') ? 'Mountain Stage' : stage.track.includes('_') ? 'Hilly Stage' : 'Flat Stage'}</div>
+                    {stage.track.split('B').length - 1 > 0 && (
+                      <div><strong>Sprint Points:</strong> {stage.track.split('B').length - 1} intermediate sprint(s)</div>
+                    )}
+                    <div className="mt-2">
+                      <strong>Track Preview:</strong>
+                      <div className="font-mono text-xs bg-white p-2 rounded mt-1 overflow-x-auto">
+                        {stage.track.substring(0, 100)}{stage.track.length > 100 ? '...' : ''}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="mt-4 text-sm text-gray-600 text-center">
+            Total Stages: {stageRaceStages.length}
           </div>
         </div>
       </div>
