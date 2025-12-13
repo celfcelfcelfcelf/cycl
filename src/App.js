@@ -4171,7 +4171,10 @@ const checkCrash = () => {
       if (typeof groupPos !== 'number' || groupPos < 0 || groupPos >= track.length) return 0;
       
       // Check current field - must be '3'
-      if (track[groupPos] !== '3') return 0;
+      if (track[groupPos] !== '3') {
+        console.log(`getDobbeltføringMaxSpeed: not on flat field (groupPos=${groupPos}, track[${groupPos}]='${track[groupPos]}')`);
+        return 0;
+      }
       
       // Find distance to next numbered field (0, 1, or 2) EXCLUDING F-fields
       // Count only '3' and 'F' fields from the NEXT position
@@ -4194,6 +4197,7 @@ const checkCrash = () => {
           break;
         } else {
           // Non-flat terrain in the stretch - not allowed
+          console.log(`getDobbeltføringMaxSpeed: non-flat terrain at position ${i} (track[${i}]='${ch}')`);
           return 0;
         }
       }
@@ -4201,7 +4205,9 @@ const checkCrash = () => {
       // Return max pace value allowed for dobbeltføring
       // Since speed = max(pace1, pace2) + 1, the resulting speed must fit in distance
       // Example: 4 flat fields ahead → max pace 3 → speed 3+1=4 ✓
-      return distance > 0 ? distance - 1 : 0;
+      const maxSpeed = distance > 0 ? distance - 1 : 0;
+      console.log(`getDobbeltføringMaxSpeed: groupPos=${groupPos}, distance=${distance}, maxSpeed=${maxSpeed}, track snippet='${track.slice(groupPos, groupPos + 10)}'`);
+      return maxSpeed;
     } catch (e) {
       return 0;
     }
