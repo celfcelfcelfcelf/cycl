@@ -7257,14 +7257,34 @@ const checkCrash = () => {
                   
                   <div className="text-sm text-gray-700 space-y-1">
                     <div><strong>Distance:</strong> {stage.track.length} fields</div>
-                    <div><strong>Type:</strong> {stage.track.includes('0') || stage.track.includes('1') || stage.track.includes('2') ? 'Mountain Stage' : stage.track.includes('_') ? 'Hilly Stage' : 'Flat Stage'}</div>
                     {stage.track.split('B').length - 1 > 0 && (
                       <div><strong>Sprint Points:</strong> {stage.track.split('B').length - 1} intermediate sprint(s)</div>
                     )}
                     <div className="mt-2">
                       <strong>Track Preview:</strong>
-                      <div className="font-mono text-xs bg-white p-2 rounded mt-1 overflow-x-auto">
-                        {stage.track.substring(0, 100)}{stage.track.length > 100 ? '...' : ''}
+                      <div className="bg-white p-2 rounded mt-1 overflow-x-auto">
+                        <div className="flex items-center">
+                          {stage.track.split('').map((t, i) => {
+                            if (t === '2') {
+                              return (
+                                <div key={i} className="min-w-[4px] h-4 mr-0.5 bg-gradient-to-r from-gray-400 to-red-500" title={`${i+1}: ${t}`} />
+                              );
+                            }
+                            const cls = (() => {
+                              switch (t) {
+                                case '3': return 'bg-gray-400';
+                                case '1': return 'bg-red-500';
+                                case '0': return 'bg-pink-300';
+                                case 'F': return 'bg-yellow-400';
+                                case '_': return 'bg-blue-200';
+                                case 'B': return 'bg-green-400';
+                                case '*': return 'bg-purple-400';
+                                default: return 'bg-gray-300';
+                              }
+                            })();
+                            return <div key={i} className={`${cls} min-w-[4px] h-4 mr-0.5`} title={`${i+1}: ${t}`} />;
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>
