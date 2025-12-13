@@ -2134,10 +2134,19 @@ return { pace, updatedCards, doubleLead };
     let bestScore = -Infinity;
     for (let i = 0; i < remaining.length; i++) {
       const candidate = remaining[i];
-      const s = computeCandidateWinChance(candidate, teamPicking, selections, remaining);
+      // For stage races, use pre-computed XprizeMoney directly from candidate
+      // This ensures consistent evaluation across all candidates
+      let s;
+      if (isStageRace && typeof candidate.XprizeMoney === 'number') {
+        s = candidate.XprizeMoney;
+        console.log(`[DRAFT] ${teamPicking} evaluating ${candidate.NAVN}: XPM=${s} (pre-computed)`);
+      } else {
+        s = computeCandidateWinChance(candidate, teamPicking, selections, remaining);
+      }
       if (s > bestScore) { bestScore = s; bestIdx = i; }
     }
     const chosen = remaining[bestIdx];
+    console.log(`[DRAFT] ${teamPicking} chose ${chosen.NAVN} with score ${bestScore}`);
 
     const newSelections = [...selections, { team: teamPicking, rider: chosen }];
     const newRemaining = [...remaining.slice(0, bestIdx), ...remaining.slice(bestIdx + 1)];
