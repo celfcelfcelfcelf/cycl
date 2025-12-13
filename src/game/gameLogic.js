@@ -1907,7 +1907,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       // Store uphill and flat values for mountain points calculation
       last_uphill_value: cardUphill,
       last_flat_value: cardFlat,
-      kom_points: rider.kom_points || 0 // Preserve existing mountain points
+      kom_points: rider.kom_points || 0, // Preserve existing mountain points
+      eligible_for_speed: eligibleForSlip // Track if rider met minimum speed requirement
     };
     // Detailed debugging log for card play and movement decisions
     const takesLeadStr = chosenValue > 0 ? ' (lead)' : '';
@@ -2544,6 +2545,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       moved_fields: newPos - oldPosition,
       move_distance_for_prel: newPos - oldPosition,
       last_group_speed: groupSpeed,
+      eligible_for_speed: true // Attackers always meet their own speed requirement
     };
 
     const cardFlatA = chosenCard.flat ?? 0;

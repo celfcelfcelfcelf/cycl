@@ -3306,7 +3306,11 @@ const confirmMove = (cardsSnapshot) => {
           ? Number(updatedCards[n].moved_fields)
           : Math.max(0, (updatedCards[n] ? Number(updatedCards[n].position || 0) : newPos) - (oldPositions[n] || 0));
 
-        const failed = movedFields < Math.round(groupSpeed || 0);
+        // Use eligible_for_speed from engine to determine if rider failed
+        // This correctly handles cases where rider catches group ahead with slipstream
+        const failed = updatedCards[n] && typeof updatedCards[n].eligible_for_speed === 'boolean'
+          ? !updatedCards[n].eligible_for_speed
+          : movedFields < Math.round(groupSpeed || 0); // fallback to distance check
         const isLead = (cards[n] && cards[n].takes_lead === 1) || (updatedCards[n] && updatedCards[n].takes_lead === 1);
 
         // Determine how many TK-1 and EC cards were added as a result of the move
@@ -3330,7 +3334,7 @@ const confirmMove = (cardsSnapshot) => {
           if (isLead) ecTaken = 1;
         }
 
-        const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ✓`;
+        const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ${failed ? '✗' : '✓'}`;
         msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken });
         // Also write the plain textual line to the global log so it appears in the Log panel
         addLog(plainLine);
