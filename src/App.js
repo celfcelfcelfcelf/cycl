@@ -7036,8 +7036,9 @@ const checkCrash = () => {
                 
                 return sorted.map((r, idx) => {
                   const gap = r.gc_time - minTime;
+                  const isGCLeader = idx === 0;
                   return (
-                    <div key={r.name} className="flex justify-between border-b pb-1">
+                    <div key={r.name} className={`flex justify-between border-b pb-1 ${isGCLeader ? 'border-2 border-yellow-400 bg-yellow-50 rounded px-1' : ''}`}>
                       <div>
                         {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
                         <span className="text-xs text-gray-500 ml-2">({r.team})</span>
@@ -7068,17 +7069,33 @@ const checkCrash = () => {
                   return <div className="text-gray-500">No points awarded yet</div>;
                 }
                 
-                return sorted.map((r, idx) => (
-                  <div key={r.name} className="flex justify-between border-b pb-1">
-                    <div>
-                      {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
-                      <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                // Find GC leader to check if same as points leader
+                const gcLeader = (() => {
+                  const allRiders = Object.entries(cards).map(([name, r]) => ({
+                    name,
+                    gc_time: typeof r.gc_time === 'number' ? r.gc_time : Infinity
+                  }));
+                  const gcSorted = allRiders.sort((a, b) => a.gc_time - b.gc_time);
+                  return gcSorted.length > 0 && gcSorted[0].gc_time !== Infinity ? gcSorted[0].name : null;
+                })();
+                
+                const pointsLeader = sorted.length > 0 ? sorted[0].name : null;
+                const greenJerseyHolder = gcLeader === pointsLeader && sorted.length > 1 ? sorted[1].name : pointsLeader;
+                
+                return sorted.map((r, idx) => {
+                  const hasGreenJersey = r.name === greenJerseyHolder;
+                  return (
+                    <div key={r.name} className="flex justify-between border-b pb-1">
+                      <div className={hasGreenJersey ? 'text-green-600 font-semibold' : ''}>
+                        {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                        <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                      </div>
+                      <div className="text-xs text-green-600 font-semibold">
+                        {r.points} pts
+                      </div>
                     </div>
-                    <div className="text-xs text-green-600 font-semibold">
-                      {r.points} pts
-                    </div>
-                  </div>
-                ));
+                  );
+                });
               })()}
             </div>
           </div>
