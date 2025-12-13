@@ -6904,47 +6904,20 @@ const checkCrash = () => {
                   <h3 className="font-bold"><FileText size={16} className="inline"/>Log</h3>
                   <button 
                     onClick={() => {
+                      const message = prompt('Skriv en kort beskrivelse af problemet:');
+                      if (message === null) return; // User cancelled
+                      
                       const logText = logs.slice().reverse().join('\n');
-                      if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(logText).then(() => {
-                          alert('Log copied to clipboard!');
-                        }).catch(() => {
-                          // Fallback for older browsers
-                          const textarea = document.createElement('textarea');
-                          textarea.value = logText;
-                          textarea.style.position = 'fixed';
-                          textarea.style.opacity = '0';
-                          document.body.appendChild(textarea);
-                          textarea.select();
-                          try {
-                            document.execCommand('copy');
-                            alert('Log copied to clipboard!');
-                          } catch (err) {
-                            alert('Failed to copy log. Please try again.');
-                          }
-                          document.body.removeChild(textarea);
-                        });
-                      } else {
-                        // Fallback for browsers without clipboard API
-                        const textarea = document.createElement('textarea');
-                        textarea.value = logText;
-                        textarea.style.position = 'fixed';
-                        textarea.style.opacity = '0';
-                        document.body.appendChild(textarea);
-                        textarea.select();
-                        try {
-                          document.execCommand('copy');
-                          alert('Log copied to clipboard!');
-                        } catch (err) {
-                          alert('Failed to copy log. Please try again.');
-                        }
-                        document.body.removeChild(textarea);
-                      }
+                      const emailBody = `Beskrivelse:\n${message}\n\n--- LOG ---\n${logText}`;
+                      
+                      // Send email via mailto link
+                      const mailtoLink = `mailto:andersenjespersteen@gmail.com?subject=Cycling Game Log&body=${encodeURIComponent(emailBody)}`;
+                      window.location.href = mailtoLink;
                     }}
                     className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded"
                     style={{ touchAction: 'manipulation' }}
                   >
-                    Copy Log
+                    Send Log
                   </button>
                 </div>
                 <div className="text-xs space-y-1">
