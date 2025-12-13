@@ -129,6 +129,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
   const [showClassifications, setShowClassifications] = useState(false); // modal for GC/prize/points
   const [showStages, setShowStages] = useState(false); // modal for showing stages in race
+  const [intermediateSprintOpen, setIntermediateSprintOpen] = useState(false); // modal for intermediate sprint at stage start
+  const [intermediateSprintSelections, setIntermediateSprintSelections] = useState({}); // {riderName: value (0,1,2)}
   const [finalBonusesAwarded, setFinalBonusesAwarded] = useState(false); // track if final bonuses were awarded
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
@@ -3843,14 +3845,26 @@ const startNextStage = () => {
     .filter(r => !r.finished)
     .map(r => r.group);
   const startingGroup = groupNumbers.length > 0 ? Math.max(...groupNumbers) : 2;
-  setCurrentGroup(startingGroup);
   
   // Find first team that has riders in the starting group
   const teamsInStartingGroup = Object.values(preparedCards)
     .filter(r => !r.finished && r.group === startingGroup)
     .map(r => r.team);
   const firstTeam = teamsInStartingGroup.length > 0 ? teamsInStartingGroup[0] : 'Me';
-  setCurrentTeam(firstTeam);
+  
+  // Initialize intermediate sprint selections for human riders
+  const humanRiders = Object.entries(preparedCards)
+    .filter(([, r]) => r.team === 'Me' && !r.finished)
+    .map(([n]) => n);
+  const initialSelections = {};
+  humanRiders.forEach(name => initialSelections[name] = 0);
+  setIntermediateSprintSelections(initialSelections);
+  
+  // Open intermediate sprint modal instead of starting immediately
+  setIntermediateSprintOpen(true);
+  
+  // Store starting group and team for use after intermediate sprint
+  window.pendingStageStart = { startingGroup, firstTeam };
   
   setMovePhase('input');
   setSprintResults([]);
@@ -3866,10 +3880,47 @@ const startNextStage = () => {
   setSprintFocusGroup(null);
   setSprintGroupsPending([]);
   
-  // Recompute initial stats for new stage
-  computeInitialStats(preparedCards, nextStage ? nextStage.track : track, startingGroup, numberOfTeams);
+  // Don't compute initial stats yet - wait for intermediate sprint
+};
+
+// Confirm intermediate sprint and start the stage
+const confirmIntermediateSprint = () => {
+  if (!window.pendingStageStart) return;
+  
+  const { startingGroup, firstTeam } = window.pendingStageStart;
+  
+  // Log intermediate sprint selections
+  Object.entries(intermediateSprintSelections).forEach(([name, value]) => {
+    if (value > 0) {
+      addLog(`${name} will sprint with effort ${value} at intermediate sprint`);
+    }
+  });
+  
+  // Store selections in cards for later use (when intermediate sprint happens)
+  setCards(prev => {
+    const updated = { ...prev };
+    Object.entries(intermediateSprintSelections).forEach(([name, value]) => {
+      if (updated[name]) {
+        updated[name] = { ...updated[name], intermediate_sprint_effort: value };
+      }
+    });
+    return updated;
+  });
+  
+  // Now set currentGroup and currentTeam to actually start the stage
+  setCurrentGroup(startingGroup);
+  setCurrentTeam(firstTeam);
+  setMovePhase('input');
+  
+  // Recompute initial stats
+  const nextStage = selectedStages[currentStageIndex];
+  computeInitialStats(cards, nextStage ? nextStage.track : track, startingGroup, numberOfTeams);
   
   addLog('Stage prepared - riders ready to race!');
+  
+  // Close modal
+  setIntermediateSprintOpen(false);
+  delete window.pendingStageStart;
 };
 
 // Check crash handler: called by the UI when user presses "Check if crash"
@@ -7207,6 +7258,75 @@ const checkCrash = () => {
               })()}
             </div>
           </div>
+        </div>
+      </div>
+    )}
+    
+    {/* Intermediate Sprint Modal */}
+    {intermediateSprintOpen && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[9999]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div 
+          className="bg-white rounded-lg shadow-xl p-6 max-w-4xl max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="text-2xl font-bold mb-3 text-green-600">Intermediate Sprint</h2>
+          <p className="text-gray-700 mb-4">
+            Intermediate sprint before race entered its final kms.
+            <br />
+            <strong>How much will you sprint?</strong>
+          </p>
+          
+          <div className="space-y-4 mb-6">
+            {Object.entries(cards)
+              .filter(([, r]) => r.team === 'Me' && !r.finished)
+              .map(([name, rider]) => {
+                const top4 = (rider.cards || []).slice(0, 4);
+                const selectedValue = intermediateSprintSelections[name] || 0;
+                
+                return (
+                  <div key={name} className="border rounded-lg p-4 bg-gray-50">
+                    <div className="font-bold text-lg mb-2">{name}</div>
+                    
+                    {/* Show top 4 cards */}
+                    <div className="flex gap-2 mb-3">
+                      {top4.map((card, idx) => (
+                        <div key={idx} className="bg-white border rounded px-2 py-1 text-sm">
+                          {card.id.replace('kort: ', '')} ({card.flat}-{card.uphill})
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Sprint effort buttons */}
+                    <div className="flex gap-2">
+                      <span className="text-sm font-medium mr-2 self-center">Effort:</span>
+                      {[0, 1, 2].map(value => (
+                        <button
+                          key={value}
+                          onClick={() => setIntermediateSprintSelections(prev => ({ ...prev, [name]: value }))}
+                          className={`px-4 py-2 rounded font-semibold ${
+                            selectedValue === value
+                              ? 'bg-green-600 text-white'
+                              : 'bg-gray-200 hover:bg-gray-300'
+                          }`}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          
+          <button
+            onClick={confirmIntermediateSprint}
+            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold text-lg"
+          >
+            Confirm and Start Stage
+          </button>
         </div>
       </div>
     )}
