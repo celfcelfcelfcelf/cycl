@@ -225,10 +225,11 @@ function countFlatDistance(track, groupPos) {
   if (track[groupPos] === '3') {
     for (let i = groupPos + 1; i < track.length; i++) {
       const ch = track[i];
+      // Only stop at mountain fields (0, 1, 2)
       if (ch === '0' || ch === '1' || ch === '2') break;
+      // Count flat fields (3) and allow dobbeltføring over finish line (F), downhill (_), sprint (B), etc.
       if (ch === '3') flatDistance++;
-      else if (ch === '_') continue;
-      else if (ch === 'F' || ch === 'B' || ch === '*') break;
+      else if (ch === '_' || ch === 'F' || ch === 'B' || ch === '*') flatDistance++;
       else break;
     }
   }
