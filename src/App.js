@@ -3327,22 +3327,6 @@ const confirmMove = (cardsSnapshot) => {
     setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved, sv: computedSlipstream, speed: computedSpeed });
   } catch (e) {}
 
-  // Check if this group should sprint immediately after moving (before group reassignment)
-  try {
-    if (shouldGroupSprint(updatedCards, currentGroup, track)) {
-      // Add to pending sprints if not already there
-      setSprintGroupsPending(prev => {
-        if (!prev.includes(currentGroup)) {
-          addLog(`🏁 Sprint detected for group ${currentGroup} after move`);
-          return [...prev, currentGroup].sort((a, b) => a - b);
-        }
-        return prev;
-      });
-    }
-  } catch (e) {
-    console.error('Error checking for sprint:', e);
-  }
-
   // After moving this group, compute remaining (non-finished) groups.
   // If any remain that haven't moved this round, continue the round with
   // the highest-numbered remaining-not-yet-moved group. Otherwise, perform
@@ -4884,8 +4868,8 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold">CYCL 2.1 TEST</h1>
-                 /div>
+                <h1 className="text-3xl font-bold">CYCL 2.1</h1>
+               
               </>
             )}
           </div>
