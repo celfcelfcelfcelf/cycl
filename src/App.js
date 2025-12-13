@@ -7256,7 +7256,7 @@ const checkCrash = () => {
                   </div>
                   
                   <div className="text-sm text-gray-700 space-y-1">
-                    <div><strong>Distance:</strong> {stage.track.length} fields</div>
+                    <div><strong>Distance:</strong> {stage.track.indexOf('F') !== -1 ? stage.track.indexOf('F') + 1 : stage.track.length} fields</div>
                     {stage.track.split('B').length - 1 > 0 && (
                       <div><strong>Sprint Points:</strong> {stage.track.split('B').length - 1} intermediate sprint(s)</div>
                     )}
