@@ -4358,7 +4358,8 @@ const checkCrash = () => {
                   const riderObj = riders.find(([n]) => n === paceLeader)[1];
                   const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                  const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
+                  // Calculate slipstream based on THIS pace value, not groupSpeed
+                  const svForLead = getSlipstreamValue(riderObj.position, riderObj.position + pace, track);
                   for (const c of top4) {
                     const cardVal = svForLead > 2 ? c.flat : c.uphill;
                     const effective = cardVal - localPenalty;
@@ -4374,8 +4375,8 @@ const checkCrash = () => {
                   try {
                     const top4 = (riderObj.cards || []).slice(0, Math.min(4, riderObj.cards.length));
                     const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                    // Calculate slipstream value for this specific rider
-                    const svForRider = getSlipstreamValue(riderObj.position, riderObj.position + Math.floor(groupSpeed || 0), track);
+                    // Calculate slipstream based on THIS pace value, not groupSpeed
+                    const svForRider = getSlipstreamValue(riderObj.position, riderObj.position + pace, track);
                     for (const c of top4) {
                       const cardVal = svForRider > 2 ? c.flat : c.uphill;
                       const effective = cardVal - localPenalty;
