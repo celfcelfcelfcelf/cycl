@@ -4884,13 +4884,8 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <div className="text-[11px] text-gray-700 mt-1 font-medium">tror nedkørsel virker</div>
-                <h1 className="text-3xl font-bold">CYCL 2.0 TEST</h1>
-                <div className="text-[11px] text-gray-800 mt-1 font-medium">Nu kan man selv vælge hvilket kort man spiller</div>
-                <div className="text-[11px] text-green-700 mt-1">du kan angribe igen</div>
-                <div className="text-[11px] text-gray-600 mt-1 leading-tight">
-                  <div>Man har mulighed for at lave om efter angreb. Det koster en TK.</div>
-                </div>
+                <h1 className="text-3xl font-bold">CYCL 2.1 TEST</h1>
+                 /div>
               </>
             )}
           </div>

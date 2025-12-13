@@ -2211,7 +2211,13 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       rider.tk_penalty = tk_penalty;
     }
 
-    const groupRiders = Object.entries(updatedCards).filter(([n, r]) => r.group === sprintGroupId && !r.finished);
+    // Only include riders who have crossed the finish line (position >= finishPos)
+    const groupRiders = Object.entries(updatedCards).filter(([n, r]) => 
+      r.group === sprintGroupId && 
+      !r.finished && 
+      typeof r.position === 'number' && 
+      r.position >= finishPos
+    );
 
     const groupTimes = groupRiders.map(([,r]) => r.prel_time).filter(t => typeof t === 'number');
     const groupMinTime = groupTimes.length > 0 ? Math.min(...groupTimes) : null;
