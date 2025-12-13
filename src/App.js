@@ -5372,7 +5372,12 @@ const checkCrash = () => {
                           <button onClick={() => { setSprintAnimMsgs(['Preparing sprint...']); runSprints(track, sprintFocusGroup); setSprintFocusGroup(null); }} className="w-full bg-purple-600 text-white py-2 rounded font-semibold">Sprint with group {sprintFocusGroup}</button>
                         </div>
                       ) : (
-                        `Group ${currentGroup} moves.`
+                        (() => {
+                          // Find the position of the current group (max position of riders in the group)
+                          const groupRiders = Object.values(cards).filter(r => r.group === currentGroup && !r.finished);
+                          const groupPosition = groupRiders.length > 0 ? Math.max(...groupRiders.map(r => r.position || 0)) : 0;
+                          return `Group ${currentGroup} moves. (Field ${groupPosition})`;
+                        })()
                       )}
                     </div>
                     <div className="text-sm text-gray-700 mt-1">{currentTeam}'s turn to choose</div>
