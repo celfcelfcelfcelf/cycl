@@ -2071,6 +2071,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
       for (const riderName of Object.keys(updatedCards)) {
         const r = updatedCards[riderName];
         if (r.group !== sprintGroupId) continue;
+        if (r.finished) continue; // Skip riders who already finished in previous rounds
         if (typeof r.position !== 'number' || r.position < finishPos) continue;
         try {
           // Determine a robust previous position for fraction calculation.
@@ -2134,7 +2135,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
     // later don't get clamped down to an earlier time from another rider.
     for (const sprintGroupId of sprintGroups) {
       const groupRidersAtFinish = Object.entries(updatedCards)
-        .filter(([n, r]) => r.group === sprintGroupId && typeof r.position === 'number' && r.position >= finishPos);
+        .filter(([n, r]) => r.group === sprintGroupId && !r.finished && typeof r.position === 'number' && r.position >= finishPos);
       const groupPrels = groupRidersAtFinish.map(([, r]) => r.prel_time).filter(t => typeof t === 'number' && t !== 10000);
       if (groupPrels.length > 0) {
         const groupMax = Math.max(...groupPrels);
