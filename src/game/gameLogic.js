@@ -657,12 +657,16 @@ export const detectSprintGroups = (cards, track) => {
     
     // Check if rider has crossed the sprint line
     if (rider.position >= finishLine) {
+      // eslint-disable-next-line no-console
+      console.log(`detectSprintGroups: ${rider.name} at position ${rider.position} >= finishLine ${finishLine}, group ${rider.group}`);
       if (!sprintGroups.includes(rider.group)) {
         sprintGroups.push(rider.group);
       }
     }
   }
   
+  // eslint-disable-next-line no-console
+  console.log('detectSprintGroups: returning', sprintGroups);
   return sprintGroups.sort((a, b) => a - b);
 };
 
