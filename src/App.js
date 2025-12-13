@@ -2552,6 +2552,17 @@ return { pace, updatedCards, doubleLead };
     
     // If speed was forced by catch-up, clear selected_value/takes_lead for all riders
     if (speedResult.forcedByCatchUp) {
+      // Clear dobbeltføring leaders since catch-up forcing overrides manual selection
+      dobbeltføringLeadersRef.current = [];
+      
+      // Clear immediately in snapshot so confirmMove sees the cleared values
+      if (cardsSnapshotRef.current) {
+        for (const [n, r] of Object.entries(cardsSnapshotRef.current)) {
+          if (r.group === groupNum) {
+            cardsSnapshotRef.current[n] = { ...r, selected_value: 0, takes_lead: 0 };
+          }
+        }
+      }
       setCards(prev => {
         const updated = { ...prev };
         for (const [n, r] of Object.entries(updated)) {
@@ -2563,6 +2574,17 @@ return { pace, updatedCards, doubleLead };
     
     // If speed was blocked by group ahead, clear takes_lead/selected_value
     if (speedResult.blockedByAhead) {
+      // Clear dobbeltføring leaders since blocking overrides manual selection
+      dobbeltføringLeadersRef.current = [];
+      
+      // Clear immediately in snapshot so confirmMove sees the cleared values
+      if (cardsSnapshotRef.current) {
+        for (const [n, r] of Object.entries(cardsSnapshotRef.current)) {
+          if (r.group === groupNum) {
+            cardsSnapshotRef.current[n] = { ...r, takes_lead: 0, selected_value: 0 };
+          }
+        }
+      }
       setCards(prev => {
         const updated = { ...prev };
         for (const [n, r] of Object.entries(updated)) {
