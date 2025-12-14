@@ -117,6 +117,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
   const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
   const [gcTestMode, setGcTestMode] = useState(false); // GC test mode: all stages use sprinttest
+  const [manualStageSelection, setManualStageSelection] = useState([]); // Manual stage selection for stage races
+  const [showStageSelector, setShowStageSelector] = useState(false); // Show stage selector modal
   
   // Update numAttackers default when numberOfTeams or ridersPerTeam changes
   useEffect(() => {
@@ -1501,8 +1503,9 @@ return { pace, updatedCards, doubleLead };
     setIsDrafting(false);
     setDraftDebugMsg(null);
     setFinalBonusesAwarded(false); // Reset for new race
+    setManualStageSelection([]); // Reset manual stage selection
     
-    // Select random stages if isStageRace
+    // Select stages if isStageRace
     let selected = [];
     if (isStageRace) {
       if (gcTestMode) {
@@ -1512,6 +1515,9 @@ return { pace, updatedCards, doubleLead };
           name: `Stage ${i + 1} (Sprint Test)`, 
           track: sprinttest 
         }));
+      } else if (selectedStages.length === numberOfStages) {
+        // Use manually selected stages (already set when stage selector was confirmed)
+        selected = selectedStages;
       } else {
         // Normal mode: random stages using Fisher-Yates shuffle for proper randomization
         const availableTracks = Object.entries(tracks).filter(([name]) => !name.toLowerCase().includes('test'));
@@ -5420,9 +5426,100 @@ const checkCrash = () => {
         {gameState === 'setup' && (
           <div className="fixed left-0 right-0 bottom-0 p-4 bg-white border-t shadow-lg">
             <div className="max-w-7xl mx-auto px-4">
-              <button onClick={startDraft} className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3">
-                <Play size={20}/> Start Game
+              <button 
+                onClick={() => {
+                  if (isStageRace && !gcTestMode) {
+                    // Show stage selector for multi-stage races
+                    setShowStageSelector(true);
+                  } else {
+                    // Go directly to draft for single stage or GC test mode
+                    startDraft();
+                  }
+                }} 
+                className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3"
+              >
+                <Play size={20}/> {isStageRace && !gcTestMode ? 'Vælg baner' : 'Start Game'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Stage Selector Modal */}
+        {showStageSelector && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
+              <h2 className="text-2xl font-bold mb-4">Vælg {numberOfStages} baner til etapeløbet</h2>
+              
+              {Array.from({ length: numberOfStages }).map((_, idx) => (
+                <div key={idx} className="mb-4 p-4 bg-gray-50 rounded border">
+                  <label className="block text-sm font-medium mb-2">Etape {idx + 1}</label>
+                  <select
+                    value={manualStageSelection[idx] || ''}
+                    onChange={(e) => {
+                      const newSelection = [...manualStageSelection];
+                      newSelection[idx] = e.target.value;
+                      setManualStageSelection(newSelection);
+                    }}
+                    className="w-full px-3 py-2 border rounded"
+                  >
+                    <option value="">-- Vælg bane --</option>
+                    {Object.keys(tracks)
+                      .filter(name => !name.toLowerCase().includes('test'))
+                      .map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))
+                    }
+                  </select>
+                  {manualStageSelection[idx] && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Længde: {getLength(tracks[manualStageSelection[idx]])} km
+                    </div>
+                  )}
+                </div>
+              ))}
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowStageSelector(false);
+                    setManualStageSelection([]);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold"
+                >
+                  Annuller
+                </button>
+                <button
+                  onClick={() => {
+                    // Validate all stages are selected
+                    if (manualStageSelection.length !== numberOfStages || manualStageSelection.some(s => !s)) {
+                      alert(`Vælg venligst alle ${numberOfStages} baner`);
+                      return;
+                    }
+                    
+                    // Set selected stages
+                    const selected = manualStageSelection.map((trackName, idx) => ({
+                      name: `${trackName}`,
+                      track: tracks[trackName]
+                    }));
+                    setSelectedStages(selected);
+                    setCurrentStageIndex(0);
+                    
+                    // Set first stage as current track
+                    if (selected.length > 0) {
+                      setTrackName(selected[0].name);
+                      setTrack(selected[0].track);
+                    }
+                    
+                    // Close modal and start draft
+                    setShowStageSelector(false);
+                    startDraft();
+                  }}
+                  disabled={manualStageSelection.length !== numberOfStages || manualStageSelection.some(s => !s)}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  Start draft →
+                </button>
+              </div>
             </div>
           </div>
         )}
