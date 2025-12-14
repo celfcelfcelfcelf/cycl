@@ -131,6 +131,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [showStages, setShowStages] = useState(false); // modal for showing stages in race
   const [intermediateSprintOpen, setIntermediateSprintOpen] = useState(false); // modal for intermediate sprint at stage start
   const [intermediateSprintSelections, setIntermediateSprintSelections] = useState({}); // {riderName: value (0,1,2)}
+  const [intermediateSprintResults, setIntermediateSprintResults] = useState(null); // {results: [{name, intSprintPoint, effort, points, timeBonus}]}
   const [finalBonusesAwarded, setFinalBonusesAwarded] = useState(false); // track if final bonuses were awarded
   const [round, setRound] = useState(0);
   const [currentGroup, setCurrentGroup] = useState(0);
@@ -1440,7 +1441,6 @@ return { pace, updatedCards, doubleLead };
   // RESET ALT STATE
   setCards(cardsObj);
   setRound(0);
-  setCurrentGroup(2);
   setTeamPaces({});
   setTeamPaceMeta({});
   setMovePhase('input');
@@ -1454,9 +1454,31 @@ return { pace, updatedCards, doubleLead };
   setTeamBaseOrder(shuffled);
   // pick first team that has riders in the starting group (group 2) to avoid landing on an empty team
   const firstTeamAtStart = findNextTeamWithRiders(0, 2);
-  if (firstTeamAtStart) setCurrentTeam(firstTeamAtStart);
-  else setCurrentTeam(shuffled[0]);
+  const firstTeamToUse = firstTeamAtStart || shuffled[0];
+  
   setGameState('playing');
+  
+  // Only show intermediate sprint modal for stage races
+  if (isStageRace) {
+    // Initialize intermediate sprint selections for human riders
+    const humanRiders = Object.entries(cardsObj)
+      .filter(([, r]) => r.team === 'Me' && !r.finished)
+      .map(([n]) => n);
+    const initialSelections = {};
+    humanRiders.forEach(name => initialSelections[name] = 0);
+    setIntermediateSprintSelections(initialSelections);
+    
+    // Open intermediate sprint modal instead of starting immediately
+    setIntermediateSprintOpen(true);
+    
+    // Store starting group and team for use after intermediate sprint
+    window.pendingStageStart = { startingGroup: 2, firstTeam: firstTeamToUse };
+  } else {
+    // Single stage race: start immediately
+    setCurrentGroup(2);
+    setCurrentTeam(firstTeamToUse);
+    setMovePhase('input');
+  }
   
   setLogs([`Game started! Length: ${getLength(selectedTrack)} km`]);
   // include chosen level in the log for visibility
@@ -3852,19 +3874,26 @@ const startNextStage = () => {
     .map(r => r.team);
   const firstTeam = teamsInStartingGroup.length > 0 ? teamsInStartingGroup[0] : 'Me';
   
-  // Initialize intermediate sprint selections for human riders
-  const humanRiders = Object.entries(preparedCards)
-    .filter(([, r]) => r.team === 'Me' && !r.finished)
-    .map(([n]) => n);
-  const initialSelections = {};
-  humanRiders.forEach(name => initialSelections[name] = 0);
-  setIntermediateSprintSelections(initialSelections);
-  
-  // Open intermediate sprint modal instead of starting immediately
-  setIntermediateSprintOpen(true);
-  
-  // Store starting group and team for use after intermediate sprint
-  window.pendingStageStart = { startingGroup, firstTeam };
+  // Only show intermediate sprint modal for stage races
+  if (isStageRace) {
+    // Initialize intermediate sprint selections for human riders
+    const humanRiders = Object.entries(preparedCards)
+      .filter(([, r]) => r.team === 'Me' && !r.finished)
+      .map(([n]) => n);
+    const initialSelections = {};
+    humanRiders.forEach(name => initialSelections[name] = 0);
+    setIntermediateSprintSelections(initialSelections);
+    
+    // Open intermediate sprint modal instead of starting immediately
+    setIntermediateSprintOpen(true);
+    
+    // Store starting group and team for use after intermediate sprint
+    window.pendingStageStart = { nextGroup: startingGroup, firstTeam };
+  } else {
+    // Single stage: start immediately
+    setCurrentGroup(startingGroup);
+    setCurrentTeam(firstTeam);
+  }
   
   setMovePhase('input');
   setSprintResults([]);
@@ -3880,43 +3909,176 @@ const startNextStage = () => {
   setSprintFocusGroup(null);
   setSprintGroupsPending([]);
   
-  // Don't compute initial stats yet - wait for intermediate sprint
+  // Don't compute initial stats yet for stage races - wait for intermediate sprint
 };
 
 // Confirm intermediate sprint and start the stage
 const confirmIntermediateSprint = () => {
   if (!window.pendingStageStart) return;
   
-  const { startingGroup, firstTeam } = window.pendingStageStart;
+  const { startingGroup, nextGroup, firstTeam } = window.pendingStageStart;
   
-  // Log intermediate sprint selections
+  // Use startingGroup (for first stage) or nextGroup (for subsequent stages)
+  const groupToSet = startingGroup !== undefined ? startingGroup : nextGroup;
+  
+  // STEP 1: Calculate sprint_effort for all riders
+  const sprintEfforts = {};
+  
+  // Human riders: use selections from modal
   Object.entries(intermediateSprintSelections).forEach(([name, value]) => {
-    if (value > 0) {
-      addLog(`${name} will sprint with effort ${value} at intermediate sprint`);
-    }
+    sprintEfforts[name] = value;
   });
   
-  // Store selections in cards for later use (when intermediate sprint happens)
+  // AI riders: sprint_effort = min(round(rider.sprint_chance * random(0, 20)), 2)
+  addLog('=== AI SPRINT EFFORT CALCULATION ===');
+  Object.entries(cards).forEach(([name, rider]) => {
+    if (rider.team !== 'Me' && !rider.finished) {
+      const randomFactor = Math.random() * 15 + 3; // 0 to 20
+      const sprintChance = rider.sprint_chance || 10; // default if not set (in percentage)
+      const rawCalculation = (sprintChance / 100) * randomFactor;
+      const effort = Math.min(Math.round(rawCalculation), 2);
+      sprintEfforts[name] = effort;
+      
+      addLog(`${name}: sprint_chance=${sprintChance.toFixed(1)}%, random=${randomFactor.toFixed(2)}, raw=${rawCalculation.toFixed(2)}, effort=${effort}`);
+    }
+  });
+  addLog('====================================');
+  
+  // STEP 2: Calculate int_sprint_point for each rider
+  const sprintPoints = [];
+  
+  Object.entries(cards).forEach(([name, rider]) => {
+    if (rider.finished) return;
+    
+    const effort = sprintEfforts[name] || 0;
+    const sprintStat = rider.sprint || 0;
+    
+    // Get flat values of rider's cards
+    const riderCards = rider.cards || [];
+    const flatValues = riderCards.map(card => {
+      if (typeof card === 'string') {
+        const [flat] = card.split('|').map(Number);
+        return flat;
+      } else if (card && typeof card.flat === 'number') {
+        return card.flat;
+      }
+      return 0;
+    }).sort((a, b) => b - a); // sort descending
+    
+    // Sum of best sprint_effort cards
+    const bestCardsSum = flatValues.slice(0, effort).reduce((sum, val) => sum + val, 0);
+    
+    // int_sprint_point = sprint_stat + best_cards + random(0,1)
+    const randomBonus = Math.random(); // 0 to 1
+    const intSprintPoint = sprintStat + bestCardsSum + randomBonus;
+    
+    sprintPoints.push({ name, intSprintPoint, effort });
+  });
+  
+  // Sort by int_sprint_point descending
+  sprintPoints.sort((a, b) => b.intSprintPoint - a.intSprintPoint);
+  
+  // STEP 3: Add 2|2 cards to each rider based on sprint_effort
   setCards(prev => {
     const updated = { ...prev };
-    Object.entries(intermediateSprintSelections).forEach(([name, value]) => {
-      if (updated[name]) {
-        updated[name] = { ...updated[name], intermediate_sprint_effort: value };
+    
+    Object.entries(sprintEfforts).forEach(([name, effort]) => {
+      if (updated[name] && effort > 0) {
+        // Add 'effort' number of 2|2 cards as proper card objects (kort: 16)
+        const existingCards = updated[name].cards || [];
+        const newCards = Array(effort).fill(null).map(() => ({
+          id: 'kort: 16',
+          flat: 2,
+          uphill: 2
+        }));
+        const combinedCards = [...existingCards, ...newCards];
+        
+        // Shuffle the hand (Fisher-Yates)
+        for (let i = combinedCards.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
+        }
+        
+        updated[name] = {
+          ...updated[name],
+          cards: combinedCards
+        };
       }
     });
+    
     return updated;
   });
   
+  // STEP 4: Award points, time bonuses, and prize money
+  const pointsAwards = [10, 7, 4, 1];
+  const timeAwards = [-5, -2]; // in seconds
+  const prizeMoney = 500; // $500 for winner
+  
+  // Prepare results for modal display
+  const resultsForModal = sprintPoints.map((entry, index) => ({
+    name: entry.name,
+    team: cards[entry.name]?.team || '',
+    intSprintPoint: entry.intSprintPoint,
+    effort: entry.effort,
+    points: index < pointsAwards.length ? pointsAwards[index] : 0,
+    timeBonus: index < timeAwards.length ? timeAwards[index] : 0,
+    prizeMoney: index === 0 ? prizeMoney : 0
+  }));
+  
+  // Award points, time bonuses, and prize money
+  setCards(prev => {
+    const updated = { ...prev };
+    
+    sprintPoints.forEach((entry, index) => {
+      const { name } = entry;
+      if (!updated[name]) return;
+      
+      // Award points (top 4)
+      if (index < pointsAwards.length) {
+        const points = pointsAwards[index];
+        updated[name] = {
+          ...updated[name],
+          points: (updated[name].points || 0) + points
+        };
+      }
+      
+      // Award time bonus (top 2)
+      if (index < timeAwards.length) {
+        const timeBonusSec = timeAwards[index];
+        updated[name] = {
+          ...updated[name],
+          gc_time: (updated[name].gc_time || 0) + timeBonusSec
+        };
+      }
+      
+      // Award prize money (winner only)
+      if (index === 0) {
+        updated[name] = {
+          ...updated[name],
+          prize_money: (updated[name].prize_money || 0) + prizeMoney
+        };
+      }
+    });
+    
+    return updated;
+  });
+  
+  // Close intermediate sprint selection modal
+  setIntermediateSprintOpen(false);
+  
+  // Show results modal
+  setIntermediateSprintResults({ results: resultsForModal });
+  
   // Now set currentGroup and currentTeam to actually start the stage
-  setCurrentGroup(startingGroup);
+  setCurrentGroup(groupToSet);
   setCurrentTeam(firstTeam);
   setMovePhase('input');
   
   // Recompute initial stats
   const nextStage = selectedStages[currentStageIndex];
-  computeInitialStats(cards, nextStage ? nextStage.track : track, startingGroup, numberOfTeams);
+  computeInitialStats(cards, nextStage ? nextStage.track : track, groupToSet, numberOfTeams);
   
-  addLog('Stage prepared - riders ready to race!');
+  addLog('Stage ready to race!');
   
   // Close modal
   setIntermediateSprintOpen(false);
@@ -7265,7 +7427,7 @@ const checkCrash = () => {
     {/* Intermediate Sprint Modal */}
     {intermediateSprintOpen && (
       <div 
-        className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[9999]"
+        className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[100]"
         onClick={(e) => e.stopPropagation()}
       >
         <div 
@@ -7277,6 +7439,8 @@ const checkCrash = () => {
             Intermediate sprint before race entered its final kms.
             <br />
             <strong>How much will you sprint?</strong>
+            <br />
+            <span className="text-sm text-gray-600">One effort costs 1 TK (kort: 16)</span>
           </p>
           
           <div className="space-y-4 mb-6">
@@ -7326,6 +7490,83 @@ const checkCrash = () => {
             className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold text-lg"
           >
             Confirm and Start Stage
+          </button>
+        </div>
+      </div>
+    )}
+    
+    {/* Intermediate Sprint Results Modal */}
+    {intermediateSprintResults && (
+      <div 
+        className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[9999]"
+        onClick={() => setIntermediateSprintResults(null)}
+      >
+        <div 
+          className="bg-white rounded-lg shadow-xl p-6 max-w-2xl max-h-[80vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-green-600">🏃 Intermediate Sprint Results</h2>
+            <button 
+              onClick={() => setIntermediateSprintResults(null)}
+              className="text-gray-500 hover:text-gray-700 text-2xl"
+            >
+              ×
+            </button>
+          </div>
+          
+          <div className="space-y-2">
+            {intermediateSprintResults.results.map((entry, idx) => {
+              const isTop4 = idx < 4;
+              const isTop2 = idx < 2;
+              
+              return (
+                <div 
+                  key={entry.name} 
+                  className={`flex justify-between items-center border rounded-lg p-3 ${
+                    isTop4 ? 'bg-green-50 border-green-300' : 'bg-gray-50'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-lg">{idx + 1}.</span>
+                      <span className={entry.team === 'Me' ? 'font-bold' : ''}>
+                        {entry.name}
+                      </span>
+                      <span className="text-xs text-gray-500">({entry.team})</span>
+                    </div>
+                    <div className="text-xs text-gray-600 ml-6">
+                      Score: {entry.intSprintPoint.toFixed(2)} • Effort: {entry.effort}
+                    </div>
+                  </div>
+                  
+                  <div className="text-right">
+                    {entry.points > 0 && (
+                      <div className="text-green-600 font-bold">
+                        +{entry.points} pts
+                      </div>
+                    )}
+                    {entry.timeBonus < 0 && (
+                      <div className="text-yellow-600 font-semibold text-sm">
+                        {entry.timeBonus}s GC
+                      </div>
+                    )}
+                    {entry.prizeMoney > 0 && (
+                      <div className="text-blue-600 font-bold text-sm">
+                        ${entry.prizeMoney}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <button
+            onClick={() => setIntermediateSprintResults(null)}
+            className="w-full mt-6 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold"
+          >
+            Continue Race
           </button>
         </div>
       </div>
