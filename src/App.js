@@ -6902,6 +6902,28 @@ const checkCrash = () => {
                           const timeStr = convertToSeconds(storedGap);
                           const riders = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished).map(([n]) => n);
                           const namesStr = riders.join(', ');
+                          
+                          // Calculate GC leader (lowest gc_time) and points leader (highest points)
+                          const gcLeader = (() => {
+                            if (!isStageRace) return null;
+                            const allRiders = Object.entries(cards).map(([name, r]) => ({
+                              name,
+                              gc_time: typeof r.gc_time === 'number' ? r.gc_time : Infinity
+                            }));
+                            const sorted = allRiders.sort((a, b) => a.gc_time - b.gc_time);
+                            return sorted.length > 0 && sorted[0].gc_time !== Infinity ? sorted[0].name : null;
+                          })();
+                          
+                          const pointsLeader = (() => {
+                            if (!isStageRace) return null;
+                            const allRiders = Object.entries(cards).map(([name, r]) => ({
+                              name,
+                              points: typeof r.points === 'number' ? r.points : 0
+                            }));
+                            const sorted = allRiders.sort((a, b) => b.points - a.points);
+                            return sorted.length > 0 && sorted[0].points > 0 ? sorted[0].name : null;
+                          })();
+                          
                           return (
                             <div key={g} className="mb-0.5">
                               <div className="flex items-center gap-3">
@@ -6912,8 +6934,12 @@ const checkCrash = () => {
                                         const team = (cards[name] && cards[name].team) || '';
                                         const bg = (teamColors && teamColors[team]) || 'transparent';
                                         const txt = (teamTextColors && teamTextColors[team]) || '#111827';
+                                        const hasYellowJersey = isStageRace && name === gcLeader;
+                                        const hasGreenJersey = isStageRace && name === pointsLeader;
                                         return (
                                             <div key={name} className="whitespace-nowrap inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
+                                            {hasYellowJersey && <span className="text-yellow-400" title="GC Leader">👕</span>}
+                                            {hasGreenJersey && <span className="text-green-500" title="Points Leader">⭐</span>}
                                             <span>{abbrevFirstName(name)}</span>
                                             <button
                                               type="button"
