@@ -5486,27 +5486,28 @@ const checkCrash = () => {
                       <div className="text-xs text-gray-600 mb-2">
                         Længde: {getLength(tracks[manualStageSelection[idx]])} km
                       </div>
-                      {/* Track preview with colors and numbers */}
-                      <div className="flex flex-wrap gap-0.5">
-                        {tracks[manualStageSelection[idx]].slice(0, tracks[manualStageSelection[idx]].indexOf('F')).split('').map((char, i) => {
-                          const colorClass = char === '0' ? 'bg-red-400' :
-                                           char === '1' ? 'bg-orange-400' :
-                                           char === '2' ? 'bg-yellow-400' :
-                                           char === '3' ? 'bg-green-400' :
-                                           char === '_' ? 'bg-blue-300' :
-                                           'bg-gray-300';
-                          return (
-                            <div
-                              key={i}
-                              className={`${colorClass} text-[10px] font-mono w-5 h-5 flex items-center justify-center text-gray-800`}
-                              title={`Position ${i}: ${char}`}
-                            >
-                              {char}
-                            </div>
-                          );
-                        })}
-                        <div className="bg-black text-white text-[10px] font-mono w-5 h-5 flex items-center justify-center">
-                          F
+                      {/* Track preview with same colors as draft screen */}
+                      <div className="overflow-x-auto">
+                        <div className="flex items-center">
+                          {tracks[manualStageSelection[idx]].slice(0, tracks[manualStageSelection[idx]].indexOf('F') + 1).split('').map((t, i) => {
+                            if (t === '2') {
+                              // gradient from gray to red
+                              return (
+                                <div key={i} className="min-w-[4px] h-4 mr-0.5 bg-gradient-to-r from-gray-400 to-red-500" title={`${i+1}: ${t}`} />
+                              );
+                            }
+                            const cls = (() => {
+                              switch (t) {
+                                case '3': return 'bg-gray-400';
+                                case '1': return 'bg-red-500';
+                                case '0': return 'bg-pink-300';
+                                case 'F': return 'bg-yellow-400';
+                                case '_': return 'bg-blue-200';
+                                default: return 'bg-gray-300';
+                              }
+                            })();
+                            return <div key={i} className={`${cls} min-w-[4px] h-4 mr-0.5`} title={`${i+1}: ${t}`} />;
+                          })}
                         </div>
                       </div>
                     </div>
