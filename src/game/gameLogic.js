@@ -1223,8 +1223,9 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     } catch (e) {}
 
     // Stage race GC blending: combine regular chance_tl (33%) with GC-based chance_tl_gc (67%)
+    let chance_tl_original = chance_tl;
+    let chance_tl_gc = 0;
     if (isStageRace) {
-      let chance_tl_gc = 0;
       
       // Calculate GC probabilities using win_chance_gc
       let prob_front_gc = 0, prob_team_front_gc = 0, prob_group_gc = 0;
@@ -1313,11 +1314,11 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
       }
 
       // Blend: 1/3 regular + 2/3 GC
-      const chance_tl_original = chance_tl;
+      chance_tl_original = chance_tl;
       chance_tl = chance_tl * 0.3333 + chance_tl_gc * 0.6667;
       if (write) { 
         try { 
-          logger(`TLFC GC-BLEND ${riderName}: original=${chance_tl_original.toFixed(4)} gc=${chance_tl_gc.toFixed(4)} blended=${chance_tl.toFixed(4)}`); 
+          logger(`🔀 GC-BLEND ${riderName}: stage=${chance_tl_original.toFixed(4)} gc=${chance_tl_gc.toFixed(4)} → blended=${chance_tl.toFixed(4)}`); 
         } catch(e) {} 
       }
     }
@@ -1325,7 +1326,15 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     if (!floating) {
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
       const roll = rng();
-      if (write) { try { logger(`🎲 ${riderName}: take_lead prob=${(prob*100).toFixed(2)}% (chance_tl=${chance_tl.toFixed(4)}) roll=${roll.toFixed(3)}`); } catch(e) {} }
+      if (isStageRace && write) {
+        try { 
+          const prob_stage = Math.max(0, chance_tl_original || 0) / (1 + Math.max(0, chance_tl_original || 0));
+          const prob_gc = Math.max(0, chance_tl_gc || 0) / (1 + Math.max(0, chance_tl_gc || 0));
+          logger(`🎲 ${riderName}: take_lead prob=${(prob*100).toFixed(2)}% [stage=${(prob_stage*100).toFixed(2)}% gc=${(prob_gc*100).toFixed(2)}%] roll=${roll.toFixed(3)}`); 
+        } catch(e) {} 
+      } else if (write) {
+        try { logger(`🎲 ${riderName}: take_lead prob=${(prob*100).toFixed(2)}% (chance_tl=${chance_tl.toFixed(4)}) roll=${roll.toFixed(3)}`); } catch(e) {} 
+      }
       if (roll < prob) {
         if (write) { try { logger(`👑 ${riderName} TAKES LEAD! (${roll.toFixed(3)} < ${prob.toFixed(3)})`); } catch(e) {} }
         return 1;
