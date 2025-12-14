@@ -889,9 +889,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const teamAttackDeclared = {};
   for (const [name] of teamRiders) {
   // Pass the app logger into takesLeadFC so its internal debug/probability
-  // messages are routed to the game log (previously the logger param was
-  // omitted and so no TLFC logs were emitted).
-  updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, false, [], addLog, Math.random, isStageRace);
+  // messages are routed to the game log. Set write=true to enable detailed logging.
+  updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, true, [], addLog, Math.random, isStageRace);
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.

@@ -1078,7 +1078,8 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
   const ratio = fraTeamIGruppe / Math.max(1, groupSize);
   const sv = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
 
-  if (write) { try { logger(`TLFC START ${riderName} group=${group} groupSize=${groupSize} ratio=${ratio.toFixed(3)} sv=${sv}`); } catch (e) {} }
+  if (write) { try { logger(`=== TAKE LEAD EVALUATION: ${riderName} (${team}) ===`); } catch (e) {} }
+  if (write) { try { logger(`📊 Group ${group}: ${groupSize} riders, ${teamsInGroup} teams, ${fraTeamIGruppe} from ${team} (ratio=${(ratio*100).toFixed(1)}%), sv=${sv}`); } catch (e) {} }
 
   if (ratio === 1) {
     if (!floating) return 1; else return 6;
@@ -1100,6 +1101,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
   if (groupSize > 2 && rider.attacking_status !== 'attacked') {
     // If best card is worse than 7, no chance to attack
     if (bestSelCard > 7) {
+      if (write) { try { logger(`⊘ ${riderName}: cannot attack (best card ${bestSelCard} > 7)`); } catch(e) {} }
       // Skip attack calculation entirely
     } else {
     let attack_prob_percent = 0.25;
@@ -1114,12 +1116,15 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     attack_prob_percent = attack_prob_percent * fb_ratio;
 
     const attack_prob = Math.floor(1 / Math.max(1e-9, attack_prob_percent)) + 1;
-    if (write) { try { logger(`TLFC ${riderName}: attack_prob_percent=${attack_prob_percent.toFixed(6)} attack_prob=${attack_prob}`); } catch(e) {} }
-    if (Math.floor(rng() * (attack_prob + 1)) === 1) {
+    const attack_roll = Math.floor(rng() * (attack_prob + 1));
+    if (write) { try { logger(`🎯 ${riderName}: attack_prob=${attack_prob_percent.toFixed(4)}% (1-in-${attack_prob}) roll=${attack_roll}`); } catch(e) {} }
+    if (attack_roll === 1) {
       if (groupSize > 2) {
-        if (write) { try { logger(`TLFC DECISION ${riderName} chooses to ATTACK (attack_prob_percent=${attack_prob_percent.toFixed(6)}, attack_prob=${attack_prob})`); } catch(e) {} }
+        if (write) { try { logger(`⚔️ ${riderName} ATTACKS! (prob=${attack_prob_percent.toFixed(4)}%)`); } catch(e) {} }
         if (!floating) return 2; else return 2;
       }
+    } else {
+      if (write) { try { logger(`✓ ${riderName} does not attack (roll ${attack_roll} ≠ 1)`); } catch(e) {} }
     }
     }
   }
@@ -1319,19 +1324,19 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
     if (!floating) {
       const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
-      if (rng() < prob) {
-        if (write) { try { logger(`TLFC DECIDE ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 1`); } catch(e) {} }
+      const roll = rng();
+      if (write) { try { logger(`🎲 ${riderName}: take_lead prob=${(prob*100).toFixed(2)}% (chance_tl=${chance_tl.toFixed(4)}) roll=${roll.toFixed(3)}`); } catch(e) {} }
+      if (roll < prob) {
+        if (write) { try { logger(`👑 ${riderName} TAKES LEAD! (${roll.toFixed(3)} < ${prob.toFixed(3)})`); } catch(e) {} }
         return 1;
+      } else {
+        if (write) { try { logger(`✓ ${riderName} does not take lead (${roll.toFixed(3)} ≥ ${prob.toFixed(3)})`); } catch(e) {} }
       }
     } else {
       return chance_tl;
     }
   }
 
-  try {
-    const prob = Math.max(0, chance_tl) / (1 + Math.max(0, chance_tl));
-    if (write) { logger(`TLFC END ${riderName} chance_tl=${chance_tl.toFixed(4)} prob=${prob.toFixed(3)} -> RETURNS 0`); }
-  } catch(e) {}
   return 0;
 };
 
@@ -1590,24 +1595,9 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     if (!(isFlatTerrain(svFinal, speed) && pv1 === 1)) return 0;
   }
 
+  // Return the value the selected card can produce (after penalty)
+  // Don't snap to other cards' values - the AI chose this card for a reason
   const finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
-
-  const top4 = (rider.cards || []).slice(0, 4);
-  const localPenaltyTop4 = top4.slice(0,4).filter(c => c && c.id === 'TK-1: 99').length;
-  const allowed = new Set(top4.map(c => {
-    const svForCard = getSlipstreamValue(rider.position, rider.position + c.flat, trackStr);
-    return Math.round((isFlatTerrain(svForCard, speed) ? c.flat : c.uphill) - localPenaltyTop4);
-  }));
-  if (!allowed.has(finalValue)) {
-    let best = null;
-    let bestDiff = Infinity;
-    for (const v of allowed) {
-      const d = Math.abs(v - finalValue);
-      if (d < bestDiff) { bestDiff = d; best = v; }
-    }
-    if (best === null) return 0;
-    return best;
-  }
   
   return finalValue;
 };
