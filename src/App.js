@@ -5481,37 +5481,26 @@ const checkCrash = () => {
                       ))
                     }
                   </select>
-                  {manualStageSelection[idx] && (
-                    <div className="mt-3">
-                      <div className="text-xs text-gray-600 mb-2">
-                        Længde: {getLength(tracks[manualStageSelection[idx]])} km
-                      </div>
-                      {/* Track preview with same colors as draft screen */}
-                      <div className="overflow-x-auto">
-                        <div className="flex items-center">
-                          {tracks[manualStageSelection[idx]].slice(0, tracks[manualStageSelection[idx]].indexOf('F') + 1).split('').map((t, i) => {
-                            if (t === '2') {
-                              // gradient from gray to red
-                              return (
-                                <div key={i} className="min-w-[4px] h-4 mr-0.5 bg-gradient-to-r from-gray-400 to-red-500" title={`${i+1}: ${t}`} />
-                              );
-                            }
-                            const cls = (() => {
-                              switch (t) {
-                                case '3': return 'bg-gray-400';
-                                case '1': return 'bg-red-500';
-                                case '0': return 'bg-pink-300';
-                                case 'F': return 'bg-yellow-400';
-                                case '_': return 'bg-blue-200';
-                                default: return 'bg-gray-300';
-                              }
-                            })();
-                            return <div key={i} className={`${cls} min-w-[4px] h-4 mr-0.5`} title={`${i+1}: ${t}`} />;
-                          })}
+                  {manualStageSelection[idx] && (() => {
+                    const trackStr = tracks[manualStageSelection[idx]];
+                    const finishIndex = trackStr.indexOf('F');
+                    const fieldCount = finishIndex !== -1 ? finishIndex : trackStr.length;
+                    return (
+                      <div className="mt-3">
+                        <div className="text-xs text-gray-600 mb-2">
+                          Længde: {fieldCount} felter
+                        </div>
+                        {/* Track preview with colored numbers matching draft screen */}
+                        <div className="overflow-x-auto">
+                          <div className="flex items-center font-mono text-sm">
+                            {colourTrackTokens(trackStr).map((t, i) => (
+                              <span key={i} className={t.className}>{t.char}</span>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               ))}
               
