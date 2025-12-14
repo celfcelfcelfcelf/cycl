@@ -2775,8 +2775,26 @@ return { pace, updatedCards, doubleLead };
               return prev;
             }
 
-            // Choose the candidate with the lowest win_chance
-            candidates.sort((a, b) => (a.win_chance || 0) - (b[1].win_chance || 0));
+            // Choose the candidate: if multiple riders have the same selected_value,
+            // prefer the one who submitted first (lowest timestamp in teamPaceMeta).
+            // Get timestamp for each candidate's team submission
+            const getTeamTimestamp = (rider) => {
+              try {
+                const paceKey = `${groupNum}-${rider.team}`;
+                const meta = newMeta && newMeta[paceKey];
+                return (meta && typeof meta.timestamp === 'number') ? meta.timestamp : Infinity;
+              } catch (e) {
+                return Infinity;
+              }
+            };
+            
+            // Sort by: 1) timestamp (earlier = first), 2) win_chance (lower = better for close calls)
+            candidates.sort((a, b) => {
+              const tsA = getTeamTimestamp(a);
+              const tsB = getTeamTimestamp(b);
+              if (tsA !== tsB) return tsA - tsB; // Earlier timestamp wins
+              return (a.win_chance || 0) - (b.win_chance || 0); // Tie-breaker: lower win_chance
+            });
             const bestName = candidates[0].name;
 
             // Clear takes_lead/selected_value for all riders in group
