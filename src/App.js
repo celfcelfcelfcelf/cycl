@@ -5429,6 +5429,17 @@ const checkCrash = () => {
               <button 
                 onClick={() => {
                   if (isStageRace && !gcTestMode) {
+                    // Generate random default stages if not already set
+                    if (manualStageSelection.length === 0) {
+                      const availableTracks = Object.keys(tracks).filter(name => !name.toLowerCase().includes('test'));
+                      const shuffled = [...availableTracks];
+                      for (let i = shuffled.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                      }
+                      const randomSelection = shuffled.slice(0, numberOfStages);
+                      setManualStageSelection(randomSelection);
+                    }
                     // Show stage selector for multi-stage races
                     setShowStageSelector(true);
                   } else {
@@ -5471,8 +5482,33 @@ const checkCrash = () => {
                     }
                   </select>
                   {manualStageSelection[idx] && (
-                    <div className="mt-2 text-xs text-gray-600">
-                      Længde: {getLength(tracks[manualStageSelection[idx]])} km
+                    <div className="mt-3">
+                      <div className="text-xs text-gray-600 mb-2">
+                        Længde: {getLength(tracks[manualStageSelection[idx]])} km
+                      </div>
+                      {/* Track preview with colors and numbers */}
+                      <div className="flex flex-wrap gap-0.5">
+                        {tracks[manualStageSelection[idx]].slice(0, tracks[manualStageSelection[idx]].indexOf('F')).split('').map((char, i) => {
+                          const colorClass = char === '0' ? 'bg-red-400' :
+                                           char === '1' ? 'bg-orange-400' :
+                                           char === '2' ? 'bg-yellow-400' :
+                                           char === '3' ? 'bg-green-400' :
+                                           char === '_' ? 'bg-blue-300' :
+                                           'bg-gray-300';
+                          return (
+                            <div
+                              key={i}
+                              className={`${colorClass} text-[10px] font-mono w-5 h-5 flex items-center justify-center text-gray-800`}
+                              title={`Position ${i}: ${char}`}
+                            >
+                              {char}
+                            </div>
+                          );
+                        })}
+                        <div className="bg-black text-white text-[10px] font-mono w-5 h-5 flex items-center justify-center">
+                          F
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -5484,9 +5520,25 @@ const checkCrash = () => {
                     setShowStageSelector(false);
                     setManualStageSelection([]);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold"
+                  className="px-4 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold"
                 >
                   Annuller
+                </button>
+                <button
+                  onClick={() => {
+                    // Randomize stage selection
+                    const availableTracks = Object.keys(tracks).filter(name => !name.toLowerCase().includes('test'));
+                    const shuffled = [...availableTracks];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                      const j = Math.floor(Math.random() * (i + 1));
+                      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                    const randomSelection = shuffled.slice(0, numberOfStages);
+                    setManualStageSelection(randomSelection);
+                  }}
+                  className="px-4 py-3 bg-purple-600 text-white rounded-lg font-semibold"
+                >
+                  🎲 Tilfældige
                 </button>
                 <button
                   onClick={() => {
