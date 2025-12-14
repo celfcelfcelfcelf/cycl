@@ -129,6 +129,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [finalStandings, setFinalStandings] = useState([]); // accumulated finished riders {pos,name,time,timeSec,team}
   const [showClassifications, setShowClassifications] = useState(false); // modal for GC/prize/points
   const [showStages, setShowStages] = useState(false); // modal for showing stages in race
+  const [showPrizeMoney, setShowPrizeMoney] = useState(false); // modal for prize money rules
   const [intermediateSprintOpen, setIntermediateSprintOpen] = useState(false); // modal for intermediate sprint at stage start
   const [intermediateSprintSelections, setIntermediateSprintSelections] = useState({}); // {riderName: value (0,1,2)}
   const [intermediateSprintResults, setIntermediateSprintResults] = useState(null); // {results: [{name, intSprintPoint, effort, points, timeBonus}]}
@@ -652,8 +653,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Award Points classification bonus
       if (pointsRanking.length > 0 && pointsRanking[0].points > 0) {
         const points1 = pointsRanking[0].name;
-        updatedCards[points1].prize_money = (updatedCards[points1].prize_money || 0) + 7000;
-        addLog(`🟢 Points Winner: ${points1} receives 7,000 prize money!`);
+        updatedCards[points1].prize_money = (updatedCards[points1].prize_money || 0) + 5000;
+        addLog(`🟢 Points Winner: ${points1} receives 5,000 prize money!`);
       }
       
       setCards(updatedCards);
@@ -4012,7 +4013,7 @@ const confirmIntermediateSprint = () => {
   // STEP 4: Award points, time bonuses, and prize money
   const pointsAwards = [10, 7, 4, 1];
   const timeAwards = [-5, -2]; // in seconds
-  const prizeMoney = 500; // $500 for winner
+  const prizeMoney = 500; // $500 for intermediate sprint winner
   
   // Prepare results for modal display
   const resultsForModal = sprintPoints.map((entry, index) => ({
@@ -7026,6 +7027,13 @@ const checkCrash = () => {
                     >
                       Show Stages
                     </button>
+                    <button 
+                      onClick={() => setShowPrizeMoney(true)} 
+                      className="w-full mt-2 bg-green-600 hover:bg-green-700 text-white py-2 rounded text-sm font-semibold"
+                      style={{ touchAction: 'manipulation', zIndex: 30 }}
+                    >
+                      Show Prize Money
+                    </button>
                   </>
                 )}
                 <button onClick={() => { setEliminateSelection(Object.keys(cards).reduce((acc, k) => { acc[k] = false; return acc; }, {})); setEliminateOpen(true); }} className="w-full mt-3 bg-red-600 text-white py-2 rounded text-sm font-semibold" style={{ touchAction: 'manipulation', zIndex: 30 }}>
@@ -7660,7 +7668,46 @@ const checkCrash = () => {
         </div>
       </div>
     )}
-  </> );
+
+    {/* Prize Money Modal */}
+    {showPrizeMoney && (
+      <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[1100]" onClick={() => setShowPrizeMoney(false)}>
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-lg w-full relative" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => setShowPrizeMoney(false)}
+            className="absolute top-3 right-4 text-gray-500 hover:text-gray-700 text-2xl"
+            aria-label="Close Prize Money Modal"
+          >
+            ×
+          </button>
+          <h2 className="text-2xl font-bold mb-4 text-blue-700">💰 Prize Money Rules</h2>
+          <ul className="list-disc pl-6 space-y-2 text-gray-800 text-base">
+            <li><strong>Stage Victory:</strong> $6,000 to the winner of each stage.</li>
+            <li><strong>General Classification (GC):</strong>
+              <ul className="list-disc pl-6">
+                <li>1st place: $20,000</li>
+                <li>2nd place: $12,000</li>
+                <li>3rd place: $8,000</li>
+              </ul>
+            </li>
+            <li><strong>Points Classification (Green Jersey):</strong> $5,000 to the overall points winner.</li>
+            <li><strong>Intermediate Sprint:</strong> $500 to the winner of each intermediate sprint.</li>
+            <li><strong>Other bonuses:</strong> Points and time bonuses are also awarded for sprints and stage results.</li>
+          </ul>
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setShowPrizeMoney(false)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+
+    )}
+  </> 
+  );
 };
 
 export default CyclingGame;
