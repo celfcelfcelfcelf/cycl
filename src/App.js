@@ -3877,6 +3877,37 @@ const startNextStage = () => {
     addLog(`Stage ${nextStageIndex + 1}: ${nextStage.name}`);
   }
   
+  // Recalculate GC stats after stage transition (gc_time was updated in prepareNextStage)
+  if (isStageRace && selectedStages.length > 0) {
+    for (const riderName in preparedCards) {
+      const rider = preparedCards[riderName];
+      
+      // Use pre-computed e_moves_left_gc_array
+      const futureStages = rider.e_moves_left_gc_array.slice(nextStageIndex + 1);
+      const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+      rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
+      
+      // Recalculate GC favorit points with updated gc_time
+      rider.favorit_points_gc = getFavoritPointsGC(rider);
+    }
+    
+    // Recalculate GC win chances
+    const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - nextStageIndex - 1);
+    const totalPointsGC = getTotalMovesLeftGC(preparedCards, factorGC);
+    
+    for (const riderName in preparedCards) {
+      const rider = preparedCards[riderName];
+      rider.win_chance_gc = getWinChanceGC(rider, factorGC, totalPointsGC);
+      
+      // Update XprizeMoney
+      const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+      const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+      rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+      
+      addLog(`${riderName}: GC stats after stage ${nextStageIndex} - gc_time=${rider.gc_time}, favorit_points_gc=${rider.favorit_points_gc.toFixed(4)}, win_chance_gc=${rider.win_chance_gc.toFixed(1)}%`);
+    }
+  }
+  
   // Reset game state for new stage
   setCards(preparedCards);
   setRound(0);
@@ -3997,46 +4028,75 @@ const confirmIntermediateSprint = () => {
   // Sort by int_sprint_point descending
   sprintPoints.sort((a, b) => b.intSprintPoint - a.intSprintPoint);
   
-  // STEP 3: Add 2|2 cards to each rider based on sprint_effort
-  setCards(prev => {
-    const updated = { ...prev };
-    
-    Object.entries(sprintEfforts).forEach(([name, effort]) => {
-      if (updated[name] && effort > 0) {
-        // Add 'effort' number of 2|2 cards as proper card objects (kort: 16)
-        const existingCards = updated[name].cards || [];
-        const newCards = Array(effort).fill(null).map(() => ({
-          id: 'kort: 16',
-          flat: 2,
-          uphill: 2
-        }));
-        const combinedCards = [...existingCards, ...newCards];
-        
-        // Shuffle the hand (Fisher-Yates)
-        for (let i = combinedCards.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
-        }
-        
-        updated[name] = {
-          ...updated[name],
-          cards: combinedCards
-        };
-      }
-    });
-    
-    return updated;
-  });
-  
-  // STEP 4: Award points, time bonuses, and prize money
+  // STEP 3 & 4: Build updated cards object with all changes, then recalculate GC stats
   const pointsAwards = [10, 7, 4, 1];
   const timeAwards = [-5, -2]; // in seconds
   const prizeMoney = 500; // $500 for intermediate sprint winner
   
+  // Start with current cards
+  let updatedCards = { ...cards };
+  
+  // Add 2|2 cards to each rider based on sprint_effort
+  Object.entries(sprintEfforts).forEach(([name, effort]) => {
+    if (updatedCards[name] && effort > 0) {
+      // Add 'effort' number of 2|2 cards as proper card objects (kort: 16)
+      const existingCards = updatedCards[name].cards || [];
+      const newCards = Array(effort).fill(null).map(() => ({
+        id: 'kort: 16',
+        flat: 2,
+        uphill: 2
+      }));
+      const combinedCards = [...existingCards, ...newCards];
+      
+      // Shuffle the hand (Fisher-Yates)
+      for (let i = combinedCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
+      }
+      
+      updatedCards[name] = {
+        ...updatedCards[name],
+        cards: combinedCards
+      };
+    }
+  });
+  
+  // Award points, time bonuses, and prize money
+  sprintPoints.forEach((entry, index) => {
+    const { name } = entry;
+    if (!updatedCards[name]) return;
+    
+    // Award points (top 4)
+    if (index < pointsAwards.length) {
+      const points = pointsAwards[index];
+      updatedCards[name] = {
+        ...updatedCards[name],
+        points: (updatedCards[name].points || 0) + points
+      };
+    }
+    
+    // Award time bonus (top 2)
+    if (index < timeAwards.length) {
+      const timeBonusSec = timeAwards[index];
+      updatedCards[name] = {
+        ...updatedCards[name],
+        gc_time: (updatedCards[name].gc_time || 0) + timeBonusSec
+      };
+    }
+    
+    // Award prize money (winner only)
+    if (index === 0) {
+      updatedCards[name] = {
+        ...updatedCards[name],
+        prize_money: (updatedCards[name].prize_money || 0) + prizeMoney
+      };
+    }
+  });
+  
   // Prepare results for modal display
   const resultsForModal = sprintPoints.map((entry, index) => ({
     name: entry.name,
-    team: cards[entry.name]?.team || '',
+    team: updatedCards[entry.name]?.team || '',
     intSprintPoint: entry.intSprintPoint,
     effort: entry.effort,
     points: index < pointsAwards.length ? pointsAwards[index] : 0,
@@ -4044,43 +4104,43 @@ const confirmIntermediateSprint = () => {
     prizeMoney: index === 0 ? prizeMoney : 0
   }));
   
-  // Award points, time bonuses, and prize money
-  setCards(prev => {
-    const updated = { ...prev };
+  // Recalculate GC stats with updated gc_time values
+  if (isStageRace && selectedStages.length > 0) {
+    for (const riderName in updatedCards) {
+      const rider = updatedCards[riderName];
+      
+      // Use pre-computed e_moves_left_gc_array
+      const futureStages = rider.e_moves_left_gc_array.slice(currentStageIndex + 1);
+      const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
+      rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
+      
+      // Recalculate GC favorit points with updated gc_time
+      rider.favorit_points_gc = getFavoritPointsGC(rider);
+    }
     
-    sprintPoints.forEach((entry, index) => {
-      const { name } = entry;
-      if (!updated[name]) return;
-      
-      // Award points (top 4)
-      if (index < pointsAwards.length) {
-        const points = pointsAwards[index];
-        updated[name] = {
-          ...updated[name],
-          points: (updated[name].points || 0) + points
-        };
-      }
-      
-      // Award time bonus (top 2)
-      if (index < timeAwards.length) {
-        const timeBonusSec = timeAwards[index];
-        updated[name] = {
-          ...updated[name],
-          gc_time: (updated[name].gc_time || 0) + timeBonusSec
-        };
-      }
-      
-      // Award prize money (winner only)
-      if (index === 0) {
-        updated[name] = {
-          ...updated[name],
-          prize_money: (updated[name].prize_money || 0) + prizeMoney
-        };
-      }
-    });
+    // Recalculate GC win chances
+    const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - currentStageIndex - 1);
+    const totalPointsGC = getTotalMovesLeftGC(updatedCards, factorGC);
     
-    return updated;
-  });
+    for (const riderName in updatedCards) {
+      const rider = updatedCards[riderName];
+      rider.win_chance_gc = getWinChanceGC(rider, factorGC, totalPointsGC);
+      
+      // Update XprizeMoney
+      const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
+      const stagePrizes = rider.win_chance_stages_array.reduce((sum, wc) => sum + (wc / 100) * 7000, 0);
+      rider.XprizeMoney = Math.round(gcPrize + stagePrizes);
+      
+      addLog(`${riderName}: GC stats updated - gc_time=${rider.gc_time}, favorit_points_gc=${rider.favorit_points_gc.toFixed(4)}, win_chance_gc=${rider.win_chance_gc.toFixed(1)}%`);
+    }
+  }
+  
+  // Recompute initial stats (for single stage stats)
+  const nextStage = selectedStages[currentStageIndex];
+  computeInitialStats(updatedCards, nextStage ? nextStage.track : track, groupToSet, numberOfTeams);
+  
+  // Update state with all changes
+  setCards(updatedCards);
   
   // Close intermediate sprint selection modal
   setIntermediateSprintOpen(false);
@@ -4092,10 +4152,6 @@ const confirmIntermediateSprint = () => {
   setCurrentGroup(groupToSet);
   setCurrentTeam(firstTeam);
   setMovePhase('input');
-  
-  // Recompute initial stats
-  const nextStage = selectedStages[currentStageIndex];
-  computeInitialStats(cards, nextStage ? nextStage.track : track, groupToSet, numberOfTeams);
   
   addLog('Stage ready to race!');
   
