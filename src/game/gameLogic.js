@@ -1975,28 +1975,27 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
     const tk1Cards = allCards.filter(c => c.id === 'TK-1: 99');
     const exhaustionCards = allCards.filter(c => c.id === 'kort: 16');
     
-    const totalTK = tk1Cards.length + exhaustionCards.length;
-    const halfTK = Math.floor(totalTK / 2);
+    // Convert all TK-1 cards to regular TK (kort: 16)
+    // Keep half of existing exhaustion cards
+    const convertedTKFromTK1 = tk1Cards.length; // Each TK-1 becomes one TK
+    const halfExhaustion = Math.floor(exhaustionCards.length / 2);
     
-    logs.push(`${name}: Total TK=${totalTK}, keeping half=${halfTK}`);
+    logs.push(`${name}: TK-1=${tk1Cards.length} (converted to TK), Exhaustion=${exhaustionCards.length} (keeping half=${halfExhaustion})`);
     
     // Generate fresh cards for the rider
     const freshCards = generateCards(originalRider, isBreakaway);
     
-    // Add back half of the TK cards (rounded down)
+    // Add converted TK-1 cards and half of exhaustion cards
     const cardsToAdd = [];
-    let addedTK1 = 0;
-    let addedExhaustion = 0;
     
-    // Prioritize TK-1 first, then exhaustion
-    for (let i = 0; i < halfTK; i++) {
-      if (addedTK1 < tk1Cards.length) {
-        cardsToAdd.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
-        addedTK1++;
-      } else if (addedExhaustion < exhaustionCards.length) {
-        cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-        addedExhaustion++;
-      }
+    // Add all TK-1 as regular TK (kort: 16)
+    for (let i = 0; i < convertedTKFromTK1; i++) {
+      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+    }
+    
+    // Add half of exhaustion cards
+    for (let i = 0; i < halfExhaustion; i++) {
+      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     }
     
     // Combine fresh cards with kept TK cards and shuffle
@@ -2007,7 +2006,7 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
       [allNewCards[i], allNewCards[j]] = [allNewCards[j], allNewCards[i]];
     }
     
-    logs.push(`${name}: Added ${addedTK1} TK-1 and ${addedExhaustion} exhaustion cards`);
+    logs.push(`${name}: Added ${cardsToAdd.length} TK cards (${convertedTKFromTK1} from TK-1 conversion, ${halfExhaustion} from exhaustion)`);
     
     updatedCards[name] = {
       ...rider,
