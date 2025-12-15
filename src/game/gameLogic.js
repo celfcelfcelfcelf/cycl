@@ -1940,7 +1940,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const takesLeadStr = chosenValue > 0 ? ' (lead)' : '';
     const followChar = eligibleForSlip ? '✓' : '✗';
     const managedInfo = managed ? '' : ' (auto)';
-    logs.push(`Group ${groupNum}: ${name} (${rider.team}) spiller ${chosenCard.id} (${cardFlat}-${cardUphill}) ${oldPosition}→${newPos}${takesLeadStr} ${followChar}${managedInfo}`);
+    const top4Cards = (rider.cards || []).slice(0, 4).map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', ');
+    logs.push(`Group ${groupNum}: ${name} (${rider.team}) spiller ${chosenCard.id} (${cardFlat}-${cardUphill}) ${oldPosition}→${newPos}${takesLeadStr} ${followChar}${managedInfo} [havde: ${top4Cards}]`);
     logs.push(`${name} DEBUG: sv=${slipstream} penalty=${penalty} cardVal=${cardValue} effective=${effectiveValue} minReq=${minRequiredToFollow} eligible=${eligibleForSlip} moveBy=${moveBy} finalPos=${newPos} groupsNewPositionsTop=${groupsNewPositions.map(g=>g[0]).slice(0,5).join(',')}`);
 
     groupsNewPositions.push([newPos, slipstream]);
