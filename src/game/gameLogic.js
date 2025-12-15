@@ -1793,18 +1793,6 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const minRequiredToFollow = Math.max(0, groupSpeed - slipstream);
     let eligibleForSlip = effectiveValue >= minRequiredToFollow;
     let moveBy = eligibleForSlip ? Math.min(effectiveValue + slipstream, groupSpeed) : effectiveValue;
-    
-    // Dobbeltføring leaders get +1 extra field if landing on non-mountain terrain
-    if (isLeadRider && isDobbeltføringLeader && eligibleForSlip) {
-      const tentativePos = (rider.position || 0) + moveBy;
-      const landingTerrain = track[tentativePos] || '';
-      // Can land on flat (3), downhill (_), finish (F), sprint (B), etc. - just not mountain fields (0,1,2)
-      if (!['0', '1', '2'].includes(landingTerrain)) {
-        moveBy = moveBy + 1;
-        logs.push(`${name}: Dobbeltføring leader gets +1 extra field (landing on '${landingTerrain}')`);
-      }
-    }
-    
     let newPos = (rider.position || 0) + moveBy;
     let caughtOtherGroup = false;
 

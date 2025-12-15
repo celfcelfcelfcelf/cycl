@@ -3210,6 +3210,9 @@ const confirmMove = (cardsSnapshot) => {
     try { addLog(msg); } catch (e) {}
   });
   
+  // Debug: log computed speed
+  try { addLog(`Group ${currentGroup}: Using computedSpeed=${computedSpeed}, computedSlipstream=${computedSlipstream} for movement`); } catch (e) {}
+  
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
   // Pass the updatedCards (with dobbeltføring_leader flags set) to the engine helper
