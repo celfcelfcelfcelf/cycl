@@ -14,9 +14,11 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
   const segment = track.slice(pos1, pos2 + 1);
   const nedk = (segment.match(/_/g) || []).length;
   const adjustedPos2 = pos2 + nedk;
-  if (track.slice(pos1, adjustedPos2 + 1).includes('0')) return 0;
-  if (track.slice(pos1, adjustedPos2 + 1).includes('1')) return 1;
-  if (track.slice(pos1, adjustedPos2 + 1).includes('2')) return 2;
+  // Get the terrain segment excluding downhill fields
+  const terrainSegment = track.slice(pos1, adjustedPos2 + 1).replace(/_/g, '');
+  if (terrainSegment.includes('0')) return 0;
+  if (terrainSegment.includes('1')) return 1;
+  if (terrainSegment.includes('2')) return 2;
   return 3;
 };
 
@@ -776,7 +778,7 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
 };
 
 // AI helper: choose a card to play from a rider's hand (pure function)
-export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false) => {
+export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false, riderName = '') => {
   // (function body preserved from App.js)
   let chosenCard = null;
   let bestCardNumber = 999;
@@ -784,6 +786,12 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   const hasECOnHand = riderCards.some(c => c.id === 'kort: 16');
   const availableCardsBase = [...riderCards.slice(0, 4)];
   let availableCards = [...availableCardsBase];
+  
+  // Debug logging
+  if (riderName) {
+    console.log(`🎴 chooseCardToPlay ${riderName}: sv=${sv} penalty=${penalty} speed=${speed} chosenValue=${chosenValue} isDownhill=${isDownhill}`);
+    console.log(`🎴 Top 4 cards:`, availableCardsBase.map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', '));
+  }
 
   if (chosenValue > 0 && chosenValue === speed) {
     let fallbackTK = null;
@@ -827,8 +835,10 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
       availableCards = [...availableCardsBase];
     }
 
+    if (riderName) console.log(`🎴 ${riderName}: Looking for cards >= minimumRequired (${minimumRequired})`);
     for (const card of availableCards) {
       const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
+      if (riderName) console.log(`🎴   ${card.id}: cardValue=${cardValue} (need >= ${minimumRequired})`);
       if (cardValue >= minimumRequired) {
         const cardNum = card.id === 'tk_extra 99' ? 99 : parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (card.id && card.id.startsWith('TK-1')) {
@@ -836,6 +846,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
             chosenCard = card;
             bestCardNumber = cardNum;
             managed = true;
+            if (riderName) console.log(`🎴     ✓ Chose TK-1: ${card.id}`);
           }
         } else {
         // Prefer higher card numbers (worse cards) to save good cards
@@ -844,6 +855,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
             chosenCard = card;
             bestCardNumber = cardNum;
             managed = true;
+            if (riderName) console.log(`🎴     ✓ New choice: ${card.id} (cardNum=${cardNum} > bestCardNumber=${bestCardNumber})`);
           }
         }
       }
@@ -855,6 +867,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
     // to move as far as possible. Prefer highest value card (lowest card number).
     let bestValue = -1;
     let lowestNum = 999;
+    if (riderName) console.log(`🎴 ${riderName}: No card met minimum requirement, choosing best available`);
     for (const card of availableCards.slice(0, 4)) {
       if (!card || !card.id) continue;
       // Skip TK-1 cards as they will be replaced anyway
@@ -863,11 +876,14 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
       const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
       const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
       
+      if (riderName) console.log(`🎴   ${card.id}: cardValue=${cardValue} cardNum=${cardNum} (bestValue=${bestValue} lowestNum=${lowestNum})`);
+      
       // Choose card with highest value (best card), or if equal value, lowest card number
       if (cardValue > bestValue || (cardValue === bestValue && cardNum < lowestNum)) {
         chosenCard = card;
         bestValue = cardValue;
         lowestNum = cardNum;
+        if (riderName) console.log(`🎴     ✓ New best card: ${card.id}`);
       }
     }
     
@@ -1733,7 +1749,7 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
     if (!chosenCard) {
   const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
-  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown);
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name);
       chosenCard = res.chosenCard;
       managed = res.managed;
     }
@@ -2376,7 +2392,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (!chosenCard) {
   const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
-  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown);
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name);
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
