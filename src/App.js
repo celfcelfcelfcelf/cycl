@@ -5847,8 +5847,6 @@ const checkCrash = () => {
                           
                           // Find leaders for styling
                           const allRiders = Object.entries(cards).filter(([, r]) => !r.finished);
-                          const maxPosition = allRiders.length > 0 ? Math.max(...allRiders.map(([, r]) => r.position || 0)) : 0;
-                          const raceLeader = allRiders.find(([, r]) => r.position === maxPosition)?.[0];
                           
                           const maxPoints = allRiders.length > 0 ? Math.max(...allRiders.map(([, r]) => r.points || 0)) : 0;
                           const pointsLeader = allRiders.find(([, r]) => r.points === maxPoints)?.[0];
@@ -5857,9 +5855,9 @@ const checkCrash = () => {
                           const gcLeader = allRiders.find(([, r]) => r.win_chance_gc === maxWinChanceGC)?.[0];
                           
                           return entries.map(([n, r], idx) => {
-                            const isRaceLeader = n === raceLeader;
+                            const isGCLeaderYellow = n === gcLeader; // Yellow jersey = GC leader
                             const isPointsLeader = n === pointsLeader;
-                            const isGCLeader = n === gcLeader;
+                            const isGCLeaderItalic = n === gcLeader; // Also show in italic
                             
                             return (
                               <span key={n} className="inline">
@@ -5869,7 +5867,7 @@ const checkCrash = () => {
                                   onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} 
                                   onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} 
                                   onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} 
-                                  className={`cursor-pointer hover:underline ${isRaceLeader ? 'bg-yellow-300 px-1 rounded' : ''} ${isPointsLeader ? 'text-green-600 font-semibold' : ''} ${isGCLeader ? 'italic' : ''}`}
+                                  className={`cursor-pointer hover:underline ${isGCLeaderYellow ? 'bg-yellow-300 px-1 rounded' : ''} ${isPointsLeader ? 'text-green-600 font-semibold' : ''} ${isGCLeaderItalic ? 'italic' : ''}`}
                                 >
                                   {n}
                                 </span>
