@@ -5845,17 +5845,25 @@ const checkCrash = () => {
                           const entries = Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished);
                           if (entries.length === 0) return <span className="text-gray-400">(no riders)</span>;
                           
-                          // Find leaders for styling
+                          // Find leaders for styling (same logic as footer)
                           const allRiders = Object.entries(cards).filter(([, r]) => !r.finished);
                           
                           const maxPoints = allRiders.length > 0 ? Math.max(...allRiders.map(([, r]) => r.points || 0)) : 0;
                           const pointsLeader = allRiders.find(([, r]) => r.points === maxPoints)?.[0];
                           
-                          const maxWinChanceGC = allRiders.length > 0 ? Math.max(...allRiders.map(([, r]) => r.win_chance_gc || 0)) : 0;
-                          const gcLeader = allRiders.find(([, r]) => r.win_chance_gc === maxWinChanceGC)?.[0];
+                          // GC leader = rider with lowest gc_time (same as footer)
+                          const gcLeader = (() => {
+                            if (!isStageRace) return null;
+                            const ridersWithTime = allRiders.map(([name, r]) => ({
+                              name,
+                              gc_time: typeof r.gc_time === 'number' ? r.gc_time : Infinity
+                            }));
+                            const sorted = ridersWithTime.sort((a, b) => a.gc_time - b.gc_time);
+                            return sorted.length > 0 && sorted[0].gc_time !== Infinity ? sorted[0].name : null;
+                          })();
                           
                           return entries.map(([n, r], idx) => {
-                            const isGCLeaderYellow = n === gcLeader; // Yellow jersey = GC leader
+                            const isGCLeaderYellow = n === gcLeader; // Yellow jersey = GC leader (lowest gc_time)
                             const isPointsLeader = n === pointsLeader;
                             const isGCLeaderItalic = n === gcLeader; // Also show in italic
                             
