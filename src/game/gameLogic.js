@@ -794,19 +794,23 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   }
 
   if (chosenValue > 0 && chosenValue === speed) {
+    if (riderName) console.log(`🎴 ${riderName}: chosenValue === speed (${chosenValue} === ${speed}), looking for exact match`);
     let fallbackTK = null;
     for (const card of availableCards.slice(0, 4)) {
       const cardValue = isFlatTerrain(sv, speed) ? card.flat - penalty : card.uphill - penalty;
+      if (riderName) console.log(`🎴   ${card.id}: cardValue=${cardValue} (flat=${card.flat} uphill=${card.uphill} penalty=${penalty} isFlatTerrain=${isFlatTerrain(sv, speed)})`);
       if (cardValue === chosenValue) {
         const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (card.id && card.id.startsWith('TK-1')) {
           if (!fallbackTK || cardNum < parseInt(fallbackTK.match(/\d+/)?.[0] || '15')) fallbackTK = card.id;
+          if (riderName) console.log(`🎴     TK-1 card, saving as fallback`);
           continue;
         }
         if (cardNum < bestCardNumber) {
           chosenCard = card;
           bestCardNumber = cardNum;
           managed = true;
+          if (riderName) console.log(`🎴     ✓ New best match: ${card.id}`);
         }
       }
     }
@@ -817,9 +821,11 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
         if (tkIdx !== -1) {
           chosenCard = availableCards[tkIdx];
           managed = true;
+          if (riderName) console.log(`🎴 ${riderName}: Using TK-1 fallback: ${fallbackTK}`);
         }
       }
     }
+    if (riderName && !chosenCard) console.log(`🎴 ${riderName}: No exact match found for speed=${speed}, falling through to else block`);
   } else {
   let minimumRequired = speed - getEffectiveSV(sv, speed);
   // If we are on a downhill '_' tile and the required minimum is modest
@@ -889,15 +895,19 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
     
     // If still no card found (all were TK-1), pick any non-TK card or lowest number
     if (!chosenCard) {
+      if (riderName) console.log(`🎴 ${riderName}: Still no card found, picking lowest number`);
       for (const card of availableCards.slice(0, 4)) {
         const cardNum = parseInt(card.id.match(/\d+/)?.[0] || '15');
         if (cardNum < lowestNum) {
           chosenCard = card;
           lowestNum = cardNum;
+          if (riderName) console.log(`🎴     ${card.id} (num=${cardNum})`);
         }
       }
     }
   }
+
+  if (riderName && chosenCard) console.log(`🎴 ${riderName}: FINAL CHOICE: ${chosenCard.id} (flat=${chosenCard.flat} uphill=${chosenCard.uphill})`);
 
   if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
     const nonTkTop4 = riderCards.slice(0, Math.min(4, riderCards.length)).find(c => c && c.id && !c.id.startsWith('TK-1'));
