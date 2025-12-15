@@ -837,8 +837,10 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
 
     if (minimumRequired <= 2 && !hasECOnHand) {
       availableCards = [...availableCardsBase, { id: 'tk_extra 99', flat: 2, uphill: 2 }];
+      if (riderName) console.log(`🎴 ${riderName}: TK-extra added (minimumRequired=${minimumRequired}, hasECOnHand=${hasECOnHand})`);
     } else {
       availableCards = [...availableCardsBase];
+      if (riderName) console.log(`🎴 ${riderName}: NO TK-extra (minimumRequired=${minimumRequired}, hasECOnHand=${hasECOnHand})`);
     }
 
     if (riderName) console.log(`🎴 ${riderName}: Looking for cards >= minimumRequired (${minimumRequired})`);
