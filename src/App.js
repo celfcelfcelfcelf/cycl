@@ -3527,17 +3527,9 @@ const confirmMove = (cardsSnapshot) => {
                   const groupNum = rider.group || '?';
                   const cardPlayed = rider.played_card || '?';
                   const valuePlayed = rider.played_effective || '?';
-                  const crossing = detectMountainCrossing(oldPos, newPos, track);
-                  
-                  // Find random tiebreaker for this rider if they crossed
-                  const riderData = allRidersData.find(r => r.name === name);
-                  const randomNum = riderData ? riderData.randomTiebreaker.toFixed(4) : '?';
-                  
-                  addLog(`🔍 Mountain check: ${name} ${oldPos}→${newPos}, group=${groupNum}, value_played=${valuePlayed}, card_played=${cardPlayed}, random=${randomNum}, track[${oldPos}]='${track[oldPos] || ''}', track[${newPos}]='${track[newPos] || ''}', crossed=${crossing.crossedMountain}, length=${crossing.mountainLength}`);
-                }
+                const crossing = detectMountainCrossing(oldPos, newPos, track);
               }
-              
-              // If we crossed a mountain, award points
+            }              // If we crossed a mountain, award points
               if (mountainCrossed && mountainLength > 0) {
                 addLog(`⛰️  Mountain crossed! Length: ${mountainLength} fields`);
                 
