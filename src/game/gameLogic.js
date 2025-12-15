@@ -2174,18 +2174,18 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
     }
 
     // Normalize within each sprint group.
-    // Use the group's latest assigned prel_time (max) so riders who crossed
-    // later don't get clamped down to an earlier time from another rider.
+    // Use the group's earliest assigned prel_time (min) so all riders in the
+    // sprint group get the same best time from their group.
     for (const sprintGroupId of sprintGroups) {
       const groupRidersAtFinish = Object.entries(updatedCards)
         .filter(([n, r]) => r.group === sprintGroupId && !r.finished && typeof r.position === 'number' && r.position >= finishPos);
       const groupPrels = groupRidersAtFinish.map(([, r]) => r.prel_time).filter(t => typeof t === 'number' && t !== 10000);
       if (groupPrels.length > 0) {
-        const groupMax = Math.max(...groupPrels);
+        const groupMin = Math.min(...groupPrels);
         for (const [n] of groupRidersAtFinish) {
-          updatedCards[n] = { ...updatedCards[n], prel_time: groupMax };
+          updatedCards[n] = { ...updatedCards[n], prel_time: groupMin };
         }
-        logs.push(`Normalized prel_time for group ${sprintGroupId} to group max ${convertToSeconds(groupMax)}`);
+        logs.push(`Normalized prel_time for group ${sprintGroupId} to group min ${convertToSeconds(groupMin)}`);
       }
     }
 
