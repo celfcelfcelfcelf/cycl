@@ -3140,20 +3140,6 @@ const confirmMove = (cardsSnapshot) => {
     }
   }
 
-  // THEN: Mark NEW dobbeltføring leaders for THIS group's movement
-  const leadersToMark = dobbeltføringLeadersRef.current || [];
-  if (leadersToMark.length > 0) {
-    addLog(`🔍 DEBUG: Marking ${leadersToMark.length} dobbeltføring leaders: ${leadersToMark.join(', ')}`);
-    for (const leaderName of leadersToMark) {
-      if (updatedCards[leaderName]) {
-        updatedCards[leaderName] = { ...updatedCards[leaderName], dobbeltføring_leader: true };
-        addLog(`🔍 DEBUG: Set dobbeltføring_leader=true on ${leaderName}`);
-      }
-    }
-    // Clear the ref after using it
-    dobbeltføringLeadersRef.current = [];
-  }
-
   // Capture old positions and planned cards for all riders in this group
   const oldPositions = {};
   const plannedCards = {};
@@ -3186,6 +3172,7 @@ const confirmMove = (cardsSnapshot) => {
   }
   
   // Calculate speed using the same logic as handlePaceSubmit
+  // Use dobbeltføringLeadersRef from handlePaceSubmit (contains manual dobbeltføring leaders)
   const speedResult = calculateGroupSpeed({
     teamPacesForGroup,
     teamPaceMeta: teamPaceMeta || {},
@@ -3197,6 +3184,20 @@ const confirmMove = (cardsSnapshot) => {
     dobbeltforingEnabled: dobbeltføring,
     manualDobbeltforingLeaders: dobbeltføringLeadersRef.current || []
   });
+  
+  // Now mark the dobbeltføring leaders in updatedCards (after speed calculation)
+  const leadersToMark = dobbeltføringLeadersRef.current || [];
+  if (leadersToMark.length > 0) {
+    addLog(`🔍 DEBUG: Marking ${leadersToMark.length} dobbeltføring leaders: ${leadersToMark.join(', ')}`);
+    for (const leaderName of leadersToMark) {
+      if (updatedCards[leaderName]) {
+        updatedCards[leaderName] = { ...updatedCards[leaderName], dobbeltføring_leader: true };
+        addLog(`🔍 DEBUG: Set dobbeltføring_leader=true on ${leaderName}`);
+      }
+    }
+    // Clear the ref after using it
+    dobbeltføringLeadersRef.current = [];
+  }
   
   const computedSpeed = speedResult.speed;
   
