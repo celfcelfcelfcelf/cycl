@@ -833,6 +833,14 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   // tk_extra (2|2) becomes a considered candidate. This follows the
   // suggested rule: if minimumRequired <= 5 && groupPosition === '_' -> 2
   if (isDownhill && minimumRequired <= 5) minimumRequired = 2;
+  
+  // If chosenValue is provided and higher than minimumRequired, use it as the minimum
+  // This ensures riders play at least the value they chose
+  if (chosenValue > 0 && chosenValue > minimumRequired) {
+    minimumRequired = chosenValue;
+    if (riderName) console.log(`🎴 ${riderName}: Raising minimumRequired to chosenValue (${chosenValue})`);
+  }
+  
     bestCardNumber = 0;
 
     if (minimumRequired <= 2 && !hasECOnHand) {
