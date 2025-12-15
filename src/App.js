@@ -1487,7 +1487,7 @@ return { pace, updatedCards, doubleLead };
   setLogs(prev => [...prev, `Level: ${level}`]);
 };
 
-  const startDraft = () => {
+  const startDraft = (preselectedStages = null) => {
     // Start an interactive draft: clear previous riders and build pool
     // Ensure a fresh set of riders each time Start Game is clicked.
     // Defensive reset of all draft state to avoid stale values when re-entering the draft
@@ -1515,6 +1515,9 @@ return { pace, updatedCards, doubleLead };
           name: `Stage ${i + 1} (Sprint Test)`, 
           track: sprinttest 
         }));
+      } else if (preselectedStages && preselectedStages.length === numberOfStages) {
+        // Use preselected stages passed as parameter (from stage selector modal)
+        selected = preselectedStages;
       } else if (selectedStages.length === numberOfStages) {
         // Use manually selected stages (already set when stage selector was confirmed)
         selected = selectedStages;
@@ -5538,23 +5541,15 @@ const checkCrash = () => {
                       return;
                     }
                     
-                    // Set selected stages
+                    // Build selected stages array
                     const selected = manualStageSelection.map((trackName, idx) => ({
                       name: `${trackName}`,
                       track: tracks[trackName]
                     }));
-                    setSelectedStages(selected);
-                    setCurrentStageIndex(0);
                     
-                    // Set first stage as current track
-                    if (selected.length > 0) {
-                      setTrackName(selected[0].name);
-                      setTrack(selected[0].track);
-                    }
-                    
-                    // Close modal and start draft
+                    // Close modal and start draft with preselected stages
                     setShowStageSelector(false);
-                    startDraft();
+                    startDraft(selected);
                   }}
                   disabled={manualStageSelection.length !== numberOfStages || manualStageSelection.some(s => !s)}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold disabled:bg-gray-400 disabled:cursor-not-allowed"
