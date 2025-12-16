@@ -534,10 +534,19 @@ export function calculateGroupSpeed({
     `DEBUG Group ${groupNum}: speed after minimum=${speed}, groupPos=${groupPos}, track[${groupPos}]='${track[groupPos] || ''}'`
   );
   
-  // Step 4: Check for dobbeltføring (if not manually applied)
+  // Step 4: Check for dobbeltføring
   const manualApplied = manualDobbeltforingLeaders.length > 0;
   
-  if (!manualApplied && dobbeltforingEnabled) {
+  if (manualApplied) {
+    // Manual dobbeltføring leaders already set - just apply the speed bonus
+    speed = speed + 1;
+    result.dobbeltforingApplied = true;
+    result.dobbeltforingLeaders = manualDobbeltforingLeaders;
+    result.logMessages.push(
+      `⚡ Manual dobbeltføring applied: speed ${speed - 1} → ${speed} (leaders: ${manualDobbeltforingLeaders.join(', ')})`
+    );
+  } else if (dobbeltforingEnabled) {
+    // Automatic dobbeltføring - detect and apply
     const dobbeltforingResult = processDobbeltforing({
       teamPacesForGroup,
       teamPaceMeta,
