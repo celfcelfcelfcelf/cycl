@@ -239,7 +239,10 @@ function countFlatDistance(track, groupPos) {
 }
 
 /**
- * Select the two dobbeltføring leaders based on submission order
+ * Select the two dobbeltføring leaders based on submission order and pace
+ * 
+ * Leader 1: First rider (in submission order) who declared speed = max(paces)
+ * Leader 2: First rider (in submission order) who declared speed = max(paces) or max(paces)-1, excluding leader 1
  */
 function selectDobbeltforingLeaders({
   teamPacesForGroup,
@@ -249,45 +252,43 @@ function selectDobbeltforingLeaders({
   cards
 }) {
   const leaders = [];
-  const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum);
+  const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
   
-  // Get all teams with their submission timestamps and paces
-  const teamsWithTimestamps = [];
-  for (const [team, pace] of Object.entries(teamPacesForGroup)) {
+  // Find max pace
+  const allPaces = Object.values(teamPacesForGroup).filter(p => p > 0);
+  if (allPaces.length === 0) return leaders;
+  const maxPace = Math.max(...allPaces);
+  
+  // Get all riders with their paces and submission timestamps
+  const ridersWithPaces = [];
+  for (const [name, rider] of groupRidersAll) {
+    const paceKey = `${groupNum}-${rider.team}`;
+    const meta = teamPaceMeta[paceKey];
+    const timestamp = meta && meta.timestamp ? meta.timestamp : 0;
+    const pace = rider.selected_value || 0;
     if (pace > 0) {
-      const paceKey = `${groupNum}-${team}`;
-      const meta = teamPaceMeta[paceKey];
-      const timestamp = meta && meta.timestamp ? meta.timestamp : 0;
-      teamsWithTimestamps.push({ team, pace, timestamp });
+      ridersWithPaces.push({ name, pace, timestamp, team: rider.team });
     }
   }
   
-  // Sort by timestamp (earliest first)
-  teamsWithTimestamps.sort((a, b) => a.timestamp - b.timestamp);
+  // Sort by timestamp (earliest first = submission order)
+  ridersWithPaces.sort((a, b) => a.timestamp - b.timestamp);
   
-  // Find leader 1: First team with pace within 1 of final speed
-  let leader1Team = null;
-  for (const { team, pace } of teamsWithTimestamps) {
-    if (Math.abs(pace - finalSpeed) <= 1) {
-      leader1Team = team;
-      const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
-      if (teamRiders.length > 0) {
-        teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-        leaders.push(teamRiders[0][0]);
-      }
+  // Leader 1: First rider with pace = maxPace
+  let leader1 = null;
+  for (const rider of ridersWithPaces) {
+    if (rider.pace === maxPace) {
+      leader1 = rider.name;
+      leaders.push(rider.name);
       break;
     }
   }
   
-  // Find leader 2: First team (excluding leader 1) with pace within 2 of final speed
-  for (const { team, pace } of teamsWithTimestamps) {
-    if (team === leader1Team) continue;
-    if (Math.abs(pace - finalSpeed) <= 2) {
-      const teamRiders = groupRidersAll.filter(([, r]) => r.team === team && r.takes_lead > 0);
-      if (teamRiders.length > 0) {
-        teamRiders.sort((a, b) => (a[1].win_chance || 0) - (b[1].win_chance || 0));
-        leaders.push(teamRiders[0][0]);
-      }
+  // Leader 2: First rider with pace = maxPace or maxPace-1, excluding leader 1
+  for (const rider of ridersWithPaces) {
+    if (rider.name === leader1) continue;
+    if (rider.pace === maxPace || rider.pace === maxPace - 1) {
+      leaders.push(rider.name);
       break;
     }
   }
