@@ -4036,7 +4036,7 @@ const confirmIntermediateSprint = () => {
       const combinedCards = [...existingCards, ...newCards];
       
       // Shuffle the hand (Fisher-Yates)
-      for- (let i = combinedCards.length - 1; i > 0; i--) {
+      for (let i = combinedCards.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
       }
