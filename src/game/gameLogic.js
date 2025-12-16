@@ -348,16 +348,32 @@ export function processDobbeltforing({
     const p1 = parseInt(pace1);
     const p2 = parseInt(pace2);
     
-    if (Math.abs(p1 - p2) <= 1) {
-      result.applied = true;
-      result.newSpeed = currentSpeed + 1;
-      result.leaders = [rider1, rider2];
-      result.type = 'manual';
+    // Check if paces are within 1 of each other
+    if (Math.abs(p1 - p2) > 1) {
+      return result;
+    }
+    
+    // Check terrain: count flat fields from groupPos
+    const flatDistance = countFlatDistance(track, groupPos);
+    const newSpeed = currentSpeed + 1;
+    
+    // Validate terrain allows the speed bonus
+    if (flatDistance === 0 || newSpeed > flatDistance) {
       result.logMessages.push(
-        `Manual dobbeltføring: ${rider1}(${p1}), ${rider2}(${p2}) → speed ${result.newSpeed}`
+        `Dobbeltføring rejected: insufficient flat terrain (flat=${flatDistance}, speed+1=${newSpeed})`
       );
       return result;
     }
+    
+    // Dobbeltføring is valid
+    result.applied = true;
+    result.newSpeed = newSpeed;
+    result.leaders = [rider1, rider2];
+    result.type = 'manual';
+    result.logMessages.push(
+      `Manual dobbeltføring: ${rider1}(${p1}), ${rider2}(${p2}) → speed ${result.newSpeed}`
+    );
+    return result;
   }
   
   // === AUTOMATIC DOBBELTFØRING ===

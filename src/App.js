@@ -1078,8 +1078,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
   }
 
-  // AI dobbeltføring: If dobbeltføring setting is on and we have 2+ non-finished riders,
-  // check if manual dobbeltføring is advantageous (two own riders with paces within 1).
+  // AI dobbeltføring: Check if team has 2+ riders with paces within 1, and use processDobbeltforing for validation
   let doubleLead = null;
   if (dobbeltføring) {
     try {
@@ -1094,60 +1093,44 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
       if (leadCandidates.length >= 2) {
         // Find the two highest paces that are within 1 of each other
-        let rider1 = null, rider2 = null, pace1 = 0, pace2 = 0;
         for (let i = 0; i < leadCandidates.length - 1; i++) {
           const c1 = leadCandidates[i];
           const c2 = leadCandidates[i + 1];
           if (Math.abs(c1.pace - c2.pace) <= 1) {
-            rider1 = c1.name;
-            rider2 = c2.name;
-            pace1 = c1.pace;
-            pace2 = c2.pace;
-            break;
-          }
-        }
-
-        if (rider1 && rider2) {
-          // Check terrain: dobbeltføring only allowed on flat (3-fields)
-          // and the bonus field must also be flat
-          const groupPos = updatedCards[rider1].position;
-          const currentField = track[groupPos];
-          
-          if (currentField === '3') {
-            // Calculate max allowed speed: count flat fields ahead
-            let distance = 0;
-            for (let i = groupPos + 1; i < track.length; i++) {
-              const ch = track[i];
-              if (ch === '0' || ch === '1' || ch === '2') break;
-              if (ch === '3' || ch === 'F') {
-                distance++;
-              } else if (ch === '_') {
-                continue;
-              } else {
-                break;
-              }
-            }
-            const maxSpeed = distance;
-            const doubleSpeed = Math.max(pace1, pace2) + 1;
+            // Found potential dobbeltføring - validate with processDobbeltforing
+            const groupPos = updatedCards[c1.name].position;
+            const currentSpeed = Math.max(c1.pace, c2.pace);
+            const testResult = processDobbeltforing({
+              teamPacesForGroup: {},
+              teamPaceMeta: {},
+              groupNum,
+              groupPos,
+              currentSpeed,
+              track,
+              cards: updatedCards,
+              manualDobbeltforing: { rider1: c1.name, rider2: c2.name, pace1: c1.pace, pace2: c2.pace },
+              enabled: true
+            });
             
-            if (doubleSpeed <= maxSpeed) {
-              // Dobbeltføring is valid and beneficial
-              doubleLead = { rider1, rider2, pace1, pace2 };
-              pace = doubleSpeed;
+            if (testResult.applied) {
+              // Dobbeltføring is valid
+              doubleLead = { rider1: c1.name, rider2: c2.name, pace1: c1.pace, pace2: c2.pace };
+              pace = testResult.newSpeed;
               
               // Mark both riders to take lead
-              updatedCards[rider1] = { ...updatedCards[rider1], takes_lead: 1, selected_value: pace1 };
-              updatedCards[rider2] = { ...updatedCards[rider2], takes_lead: 1, selected_value: pace2 };
+              updatedCards[c1.name] = { ...updatedCards[c1.name], takes_lead: 1, selected_value: c1.pace };
+              updatedCards[c2.name] = { ...updatedCards[c2.name], takes_lead: 1, selected_value: c2.pace };
               
               // Clear other riders
               for (const [name] of teamRiders) {
-                if (name !== rider1 && name !== rider2) {
+                if (name !== c1.name && name !== c2.name) {
                   updatedCards[name] = { ...updatedCards[name], takes_lead: 0, selected_value: 0 };
                 }
               }
               
-              addLog(`${teamName} AI dobbeltføring: ${rider1}(${pace1}), ${rider2}(${pace2}) → speed ${doubleSpeed}`);
+              addLog(`${teamName} AI dobbeltføring: ${c1.name}(${c1.pace}), ${c2.name}(${c2.pace}) → speed ${pace}`);
             }
+            break;
           }
         }
       }
@@ -4053,7 +4036,7 @@ const confirmIntermediateSprint = () => {
       const combinedCards = [...existingCards, ...newCards];
       
       // Shuffle the hand (Fisher-Yates)
-      for (let i = combinedCards.length - 1; i > 0; i--) {
+      for- (let i = combinedCards.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
       }
