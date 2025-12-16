@@ -79,7 +79,10 @@ const tracks = {
   'Sparkassen Münsterland Giro': '33333333333333333333333333333333333333333333333333333333333333FFFFFFFFFF',
   'Visegrad 4 Kerekparverseny': '33333333333333333333333333333333333333333333333111333333111FFFFFFFFFF',
   'Barcelona  ›  Barcelona, Catalonia (25, 7)': '322200_3333111322200_3333111322200_3333111322200_3333FFFFFFFF',
-  'Huilongzhen  ›  Binhan Village  (Tour of Taihu Lake, 25, 3)': '333333333333333333333333333333333333333333333333FFFFFFFFFF'
+  'Huilongzhen  ›  Binhan Village  (Tour of Taihu Lake, 25, 3)': '333333333333333333333333333333333333333333333333FFFFFFFFFF',
+  'Rundt um den Finanzplatz Eschborn-Frankfurt (2019)': '20011___3333333320011___3333333333333333333333333333333333333333FFFFFFFFFF',
+  'Łańcut  ›  Rzeszów (Polen, 22, 5)': '31133333333331111333333333333333333333333333333333222_33333333333FFFFFFFFFF',
+  'Gran Piemonte': '333111111112222__33333333333333333333111111112222__33333333333FFFFFFFFFF'
 };
 
 // ========== MAIN COMPONENT ==========
@@ -5144,7 +5147,7 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold">CYCL 2.1</h1>
+                <h1 className="text-3xl font-bold">CYCL 2.2</h1>
                
               </>
             )}
