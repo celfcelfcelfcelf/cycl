@@ -1078,66 +1078,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
   }
 
-  // AI dobbeltføring: Check if team has 2+ riders with paces within 1, and use processDobbeltforing for validation
+  // AI dobbeltføring: DISABLED - Dobbeltføring is between different teams, not within same team
+  // The automatic inter-team dobbeltføring will be detected by calculateGroupSpeed
   let doubleLead = null;
-  if (dobbeltføring) {
-    try {
-      // Find non-finished, non-attacker riders with selected_value > 0
-      const leadCandidates = teamRiders
-        .filter(([name]) => {
-          const r = updatedCards[name];
-          return !r.finished && r.attacking_status !== 'attacker' && r.selected_value > 0;
-        })
-        .map(([name]) => ({ name, pace: Math.round(updatedCards[name].selected_value) }))
-        .sort((a, b) => b.pace - a.pace); // Sort descending by pace
-
-      if (leadCandidates.length >= 2) {
-        // Find the two highest paces that are within 1 of each other
-        for (let i = 0; i < leadCandidates.length - 1; i++) {
-          const c1 = leadCandidates[i];
-          const c2 = leadCandidates[i + 1];
-          if (Math.abs(c1.pace - c2.pace) <= 1) {
-            // Found potential dobbeltføring - validate with processDobbeltforing
-            const groupPos = updatedCards[c1.name].position;
-            const currentSpeed = Math.max(c1.pace, c2.pace);
-            const testResult = processDobbeltforing({
-              teamPacesForGroup: {},
-              teamPaceMeta: {},
-              groupNum,
-              groupPos,
-              currentSpeed,
-              track,
-              cards: updatedCards,
-              manualDobbeltforing: { rider1: c1.name, rider2: c2.name, pace1: c1.pace, pace2: c2.pace },
-              enabled: true
-            });
-            
-            if (testResult.applied) {
-              // Dobbeltføring is valid
-              doubleLead = { rider1: c1.name, rider2: c2.name, pace1: c1.pace, pace2: c2.pace };
-              pace = testResult.newSpeed;
-              
-              // Mark both riders to take lead
-              updatedCards[c1.name] = { ...updatedCards[c1.name], takes_lead: 1, selected_value: c1.pace };
-              updatedCards[c2.name] = { ...updatedCards[c2.name], takes_lead: 1, selected_value: c2.pace };
-              
-              // Clear other riders
-              for (const [name] of teamRiders) {
-                if (name !== c1.name && name !== c2.name) {
-                  updatedCards[name] = { ...updatedCards[name], takes_lead: 0, selected_value: 0 };
-                }
-              }
-              
-              addLog(`${teamName} AI dobbeltføring: ${c1.name}(${c1.pace}), ${c2.name}(${c2.pace}) → speed ${pace}`);
-            }
-            break;
-          }
-        }
-      }
-    } catch (e) {
-      addLog(`AI dobbeltføring error: ${e.message}`);
-    }
-  }
 
   const msg = pace === 0 ? `${currentTeam}: 0` : `${currentTeam}: ${pace}`;
   // Show a short-lived AI message for UX, but avoid adding a log here because
@@ -2324,7 +2267,8 @@ return { pace, updatedCards, doubleLead };
     if (dobbeltforingResult.applied) {
       finalPace = dobbeltforingResult.newSpeed;
       isDoubleLead = true;
-      dobbeltføringLeadersRef.current = [...(dobbeltføringLeadersRef.current || []), ...dobbeltforingResult.leaders];
+      // Replace (not append) leaders - each submission should override previous
+      dobbeltføringLeadersRef.current = dobbeltforingResult.leaders;
       dobbeltforingResult.logMessages.forEach(msg => addLog(msg));
       addLog(`🔍 DEBUG: Manual dobbeltføring - marking ${dobbeltforingResult.leaders.join(', ')} as leaders`);
     }
