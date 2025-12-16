@@ -378,17 +378,23 @@ export function processDobbeltforing({
   
   // === AUTOMATIC DOBBELTFØRING ===
   
-  // Find teams with non-zero pace values
-  const teamsWithPace = Object.entries(teamPacesForGroup)
-    .filter(([t, p]) => p > 0)
-    .sort((a, b) => b[1] - a[1]); // sort by pace descending
+  // Find all riders in the group with their paces (from cards.selected_value)
+  const ridersWithPaces = Object.entries(cards)
+    .filter(([name, rider]) => 
+      rider.group === groupNum && 
+      !rider.finished && 
+      rider.attacking_status !== 'attacker' &&
+      rider.selected_value > 0
+    )
+    .map(([name, rider]) => ({ name, pace: rider.selected_value, team: rider.team }))
+    .sort((a, b) => b.pace - a.pace); // sort by pace descending
   
-  if (teamsWithPace.length < 2) {
+  if (ridersWithPaces.length < 2) {
     return result;
   }
   
-  const topPace = teamsWithPace[0][1];
-  const secondPace = teamsWithPace[1][1];
+  const topPace = ridersWithPaces[0].pace;
+  const secondPace = ridersWithPaces[1].pace;
   
   // Check if top two paces are within 1 of each other
   if (Math.abs(topPace - secondPace) > 1) {
@@ -409,14 +415,14 @@ export function processDobbeltforing({
   
   // Dobbeltføring is valid!
   const newSpeed = currentSpeed + 1;
-  const team1 = teamsWithPace[0][0];
-  const team2 = teamsWithPace[1][0];
+  const rider1 = ridersWithPaces[0].name;
+  const rider2 = ridersWithPaces[1].name;
   
   result.applied = true;
   result.newSpeed = newSpeed;
   result.type = 'automatic';
   result.logMessages.push(
-    `⚡ Dobbeltføring detected! ${team1}(${topPace}) + ${team2}(${secondPace}) → speed ${newSpeed} (before: ${currentSpeed})`
+    `⚡ Dobbeltføring detected! ${rider1}(${topPace}) + ${rider2}(${secondPace}) → speed ${newSpeed} (before: ${currentSpeed})`
   );
   
   // Find leaders based on submission order
@@ -538,12 +544,12 @@ export function calculateGroupSpeed({
   const manualApplied = manualDobbeltforingLeaders.length > 0;
   
   if (manualApplied) {
-    // Manual dobbeltføring leaders already set - just apply the speed bonus
-    speed = speed + 1;
+    // Manual dobbeltføring leaders already set - speed bonus already included in base speed calculation
+    // Just record that dobbeltføring is active
     result.dobbeltforingApplied = true;
     result.dobbeltforingLeaders = manualDobbeltforingLeaders;
     result.logMessages.push(
-      `⚡ Manual dobbeltføring applied: speed ${speed - 1} → ${speed} (leaders: ${manualDobbeltforingLeaders.join(', ')})`
+      `⚡ Manual dobbeltføring active (leaders: ${manualDobbeltforingLeaders.join(', ')})`
     );
   } else if (dobbeltforingEnabled) {
     // Automatic dobbeltføring - detect and apply

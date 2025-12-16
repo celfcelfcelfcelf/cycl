@@ -154,6 +154,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
   const dobbeltføringLeadersRef = useRef([]);
+  const teamPacesForGroupRef = useRef({});
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
   const abbrevFirstName = (fullName) => {
     if (!fullName || typeof fullName !== 'string') return fullName || '';
@@ -1078,9 +1079,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
   }
 
-  // AI dobbeltføring: DISABLED - Dobbeltføring is between different teams, not within same team
-  // The automatic inter-team dobbeltføring will be detected by calculateGroupSpeed
+  // AI dobbeltføring: Check if team has 2+ riders with paces within 1
+  // Automatic dobbeltføring detection happens in calculateGroupSpeed
+  // AI just needs to decide if it's advantageous for this team
   let doubleLead = null;
+  
+  // AI doesn't need to do anything special - automatic detection in calculateGroupSpeed
+  // will find the two leaders based on submission order and paces
 
   const msg = pace === 0 ? `${currentTeam}: 0` : `${currentTeam}: ${pace}`;
   // Show a short-lived AI message for UX, but avoid adding a log here because
@@ -2483,8 +2488,8 @@ return { pace, updatedCards, doubleLead };
     // Determine the maximum chosen pace among teams (0 if none)
     const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
 
-    // Get positions of groups ahead for catch-up logic
-    const aheadPositions = Object.values(cards).filter(r => r.group > groupNum).map(r => r.position);
+    // Get positions of groups ahead for catch-up logic (exclude finished riders)
+    const aheadPositions = Object.values(cards).filter(r => r.group > groupNum && !r.finished).map(r => r.position);
     
     // Calculate group speed using consolidated logic
     const speedResult = calculateGroupSpeed({
@@ -2504,7 +2509,21 @@ return { pace, updatedCards, doubleLead };
     // Apply dobbeltføring leaders if automatic dobbeltføring was applied
     if (speedResult.dobbeltforingApplied) {
       dobbeltføringLeadersRef.current = speedResult.dobbeltforingLeaders;
+      
+      // Update teamPacesForGroup with the new speed (includes +1 from dobbeltføring)
+      // Find which team(s) contributed to dobbeltføring and update their pace
+      for (const leaderName of speedResult.dobbeltforingLeaders) {
+        const leader = cards[leaderName];
+        if (leader && teamPacesForGroup[leader.team] !== undefined) {
+          // Update to the new speed (which already includes the +1 bonus)
+          teamPacesForGroup[leader.team] = speed;
+        }
+      }
     }
+    
+    // Save teamPacesForGroup in ref AFTER dobbeltføring has been calculated and applied
+    // This ensures confirmMove gets the correct speed including any dobbeltføring bonus
+    teamPacesForGroupRef.current = { ...teamPacesForGroup };
     
     // Log all messages from speed calculation
     speedResult.logMessages.forEach(msg => {
@@ -3079,24 +3098,11 @@ const confirmMove = (cardsSnapshot) => {
   // Calculate speed for this group from riders' selected_value (don't rely on teamPaces state as it may not be updated yet)
   // This handles the case where confirmMove is called immediately after handlePaceSubmit
   const groupPos = Math.max(...Object.values(preCards).filter(r => r.group === currentGroup && !r.finished).map(r => r.position));
-  const aheadPositions = Object.values(preCards).filter(r => r.group > currentGroup).map(r => r.position);
+  const aheadPositions = Object.values(preCards).filter(r => r.group > currentGroup && !r.finished).map(r => r.position);
   
-  // Get team paces for this group from riders' selected_value
-  const teamPacesForGroup = {};
-  const teamsInGroup = [...new Set(Object.values(preCards).filter(r => r.group === currentGroup && !r.finished).map(r => r.team))];
-  for (const t of teamsInGroup) {
-    // Calculate team pace as max of selected_value for non-attackers in this team
-    const teamRiders = Object.values(preCards).filter(r => 
-      r.group === currentGroup && 
-      !r.finished && 
-      r.team === t && 
-      r.attacking_status !== 'attacker'
-    );
-    const teamPace = teamRiders.length > 0 
-      ? Math.max(...teamRiders.map(r => r.selected_value || 0))
-      : 0;
-    teamPacesForGroup[t] = teamPace;
-  }
+  // Get team paces from ref (saved by handleAutoChoice before selected_value was cleared)
+  // This contains the correct pace values including dobbeltføring bonuses
+  const teamPacesForGroup = teamPacesForGroupRef.current || {};
   
   // Calculate speed using the same logic as handlePaceSubmit
   // Use dobbeltføringLeadersRef from handlePaceSubmit (contains manual dobbeltføring leaders)
