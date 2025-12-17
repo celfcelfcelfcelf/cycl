@@ -1606,11 +1606,6 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     }
 
     ideal_move = ideal_move - len_left / 20;
-
-    if (trackStr[rider.position] === '_') {
-      // On downhill start fields ideal move should be treated as 0 (user rule change)
-      ideal_move = 0;
-    }
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
@@ -1674,7 +1669,14 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
   // Return the value the selected card can produce (after penalty)
   // Don't snap to other cards' values - the AI chose this card for a reason
-  const finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
+  let finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
+  
+  // Apply downhill rule at the end: if on '_' and selection < 7, return 0
+  if (trackStr[rider.position] === '_') {
+    if (finalValue < 7) {
+      finalValue = 0;
+    }
+  }
   
   return finalValue;
 };
