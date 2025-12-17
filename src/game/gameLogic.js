@@ -2399,6 +2399,10 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
   const attackers = names.filter(n => updatedCards[n].attacking_status === 'attacker');
   if (attackers.length > 0) logs.push(`Attackers moving separately: ${attackers.join(', ')}`);
 
+  // Calculate group position (max position of non-attackers in this group)
+  const nonAttackers = names.filter(n => (updatedCards[n].attacking_status || '') !== 'attacker');
+  const groupPosition = nonAttackers.length > 0 ? Math.max(...nonAttackers.map(n => updatedCards[n].position || 0)) : undefined;
+
   const attackerMoves = [];
   for (const name of attackers) {
     const rider = updatedCards[name];
@@ -2519,11 +2523,20 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     const finishPos = track.indexOf('F');
 
     let extra = (i === 0) ? 1 : 0;
+    let absorbedIntoGroup = false;
+    
     if (extra === 1) {
       // Deny extra field if attacker speed is less than group speed
       if (effectiveValue < groupSpeed) {
         extra = 0;
         logs.push(`Lead attacker extra denied (attacker speed ${effectiveValue} < group speed ${groupSpeed}): ${name}`);
+        
+        // Check if attacker should be absorbed back into group (within slipstream range)
+        const attackerNewPos = rider.position + effectiveValue;
+        if (groupPosition !== undefined && attackerNewPos < groupPosition && groupPosition - attackerNewPos <= slipstream) {
+          absorbedIntoGroup = true;
+          logs.push(`Attacker absorbed into group (within SV=${slipstream}): ${name} would be at ${attackerNewPos}, group at ${groupPosition}`);
+        }
       } else if (finishPos !== -1) {
         if (rider.position + effectiveValue >= finishPos) {
           extra = 0;
@@ -2544,8 +2557,14 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     let moveBy = effectiveValue + extra;
     let newPos = rider.position + moveBy;
+    
+    // If absorbed into group, move to group position instead
+    if (absorbedIntoGroup && groupPosition !== undefined) {
+      newPos = groupPosition;
+      moveBy = newPos - rider.position;
+    }
 
-    if (maxAttackerPos !== -Infinity) {
+    if (maxAttackerPos !== -Infinity && !absorbedIntoGroup) {
       const baseReach = rider.position + effectiveValue;
       if (maxAttackerPos - slipstream <= baseReach) {
         newPos = Math.max(newPos, maxAttackerPos);
