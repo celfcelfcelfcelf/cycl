@@ -3337,6 +3337,7 @@ const confirmMove = (cardsSnapshot) => {
         // because the engine inserts 'TK-1: 99' and 'kort: 16' into hands/discards.
         let ecTaken = 0;
         let tkTaken = 0;
+        let penaltyCount = 0;
         try {
           const pre = cards[n] || { cards: [], discarded: [] };
           const post = updatedCards[n] || { cards: [], discarded: [] };
@@ -3348,13 +3349,19 @@ const confirmMove = (cardsSnapshot) => {
           const postEC = postAll.filter(c => c && String(c.id) === 'kort: 16').length;
           tkTaken = Math.max(0, postTK - preTK);
           ecTaken = Math.max(0, postEC - preEC);
+          
+          // Count penalty cards (TK-1 in top 4) BEFORE the move
+          const preCards = (pre.cards || []).slice(0, 4);
+          for (let i = 0; i < preCards.length; i++) {
+            if (preCards[i] && preCards[i].id === 'TK-1: 99') penaltyCount++;
+          }
         } catch (e) {
           // fallback: legacy leader heuristic
           if (isLead) ecTaken = 1;
         }
 
         const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ${failed ? '✗' : '✓'}`;
-        msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken });
+        msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken, penaltyCount });
         // Also write the plain textual line to the global log so it appears in the Log panel
         addLog(plainLine);
       } catch (e) {
@@ -3796,6 +3803,66 @@ if (potentialLeaders.length > 0) {
   // NOTE: Do NOT reset latestPrelTime - it should only decrease across the entire game
   setSprintResults([]);
 };
+
+// Emergency recovery function - call from browser console if game gets stuck
+const forceProgressGame = () => {
+  try {
+    addLog('🚨 EMERGENCY: Forcing game progression');
+    
+    // Check if there are any non-finished riders
+    const nonFinished = Object.entries(cards).filter(([, r]) => !r.finished);
+    if (nonFinished.length === 0) {
+      addLog('⚠️ All riders finished - cannot progress');
+      return;
+    }
+    
+    // Reassign groups based on positions
+    setCards(prev => {
+      const updated = { ...prev };
+      const notFinished = Object.entries(updated).filter(([, r]) => !r.finished);
+      const sorted = notFinished.sort((a, b) => b[1].position - a[1].position);
+      
+      let gNum = 1;
+      let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
+      
+      sorted.forEach(([n, r]) => {
+        if (r.position < curPos) {
+          gNum++;
+          curPos = r.position;
+        }
+        updated[n] = { ...updated[n], group: gNum };
+      });
+      
+      addLog(`✓ Groups reassigned: ${gNum} groups created`);
+      return updated;
+    });
+    
+    // Clear stuck states
+    setTeamPaces({});
+    setTeamPaceMeta({});
+    setGroupSpeed(0);
+    setPostMoveInfo(null);
+    setSprintGroupsPending([]);
+    
+    // Find max group and start new round
+    setTimeout(() => {
+      const maxGroup = Math.max(...Object.values(cards).filter(r => !r.finished).map(r => r.group));
+      setCurrentGroup(maxGroup);
+      const firstTeam = findNextTeamWithRiders(0, maxGroup);
+      if (firstTeam) setCurrentTeam(firstTeam);
+      setMovePhase('input');
+      addLog(`✓ Ready to continue with group ${maxGroup}`);
+    }, 100);
+    
+  } catch (e) {
+    addLog(`❌ Emergency recovery failed: ${e.message}`);
+  }
+};
+
+// Expose emergency function to browser console
+if (typeof window !== 'undefined') {
+  window.forceProgressGame = forceProgressGame;
+}
 
 // Start the next stage in a stage race
 const startNextStage = () => {
@@ -6435,6 +6502,7 @@ const checkCrash = () => {
                               <span className={`${isAttacker ? 'font-semibold' : ''}`}>{m.name} ({m.team})</span>
                             )}{' '}
                             <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
+                            {m.penaltyCount > 0 && <span className="text-orange-600 font-semibold"> P{m.penaltyCount}</span>}
                             {/* Additional consequences for riders who took TK-1 or EC */}
                             { (m.tkTaken || m.ecTaken) && (
                               <div className="text-xs text-gray-700 ml-3">
