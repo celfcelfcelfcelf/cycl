@@ -7106,6 +7106,27 @@ const checkCrash = () => {
                             return sorted.length > 0 && sorted[0].points > 0 ? sorted[0].name : null;
                           })();
                           
+                          // Virtual leader = rider with best current timing (GC time + current stage time gap)
+                          const virtualLeader = (() => {
+                            const allRiders = Object.entries(cards).filter(([, r]) => !r.finished);
+                            if (allRiders.length === 0) return null;
+                            
+                            if (isStageRace) {
+                              // For stage races: gc_time + current time gap
+                              const ridersWithTiming = allRiders.map(([name, r]) => ({
+                                name,
+                                totalTime: (typeof r.gc_time === 'number' ? r.gc_time : Infinity) + 
+                                          (typeof groupTimeGaps !== 'undefined' && typeof groupTimeGaps[r.group] === 'number' ? groupTimeGaps[r.group] : 0)
+                              }));
+                              const sorted = ridersWithTiming.sort((a, b) => a.totalTime - b.totalTime);
+                              return sorted.length > 0 && sorted[0].totalTime !== Infinity ? sorted[0].name : null;
+                            } else {
+                              // For single stages: furthest position (or closest to finish)
+                              const sorted = allRiders.sort((a, b) => (b[1].position || 0) - (a[1].position || 0));
+                              return sorted.length > 0 ? sorted[0][0] : null;
+                            }
+                          })();
+                          
                           return (
                             <div key={g} className="mb-0.5">
                               <div className="flex items-center gap-3">
@@ -7118,11 +7139,20 @@ const checkCrash = () => {
                                         const txt = (teamTextColors && teamTextColors[team]) || '#111827';
                                         const hasYellowJersey = isStageRace && name === gcLeader;
                                         const hasGreenJersey = isStageRace && name === pointsLeader;
+                                        const isVirtualLeader = name === virtualLeader;
+                                        const displayName = abbrevFirstName(name);
                                         return (
                                             <div key={name} className="whitespace-nowrap inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: bg, color: txt }}>
                                             {hasYellowJersey && <span className="text-yellow-400" title="GC Leader">👕</span>}
                                             {hasGreenJersey && <span className="text-green-500" title="Points Leader">⭐</span>}
-                                            <span>{abbrevFirstName(name)}</span>
+                                            <span>
+                                              {isVirtualLeader && displayName.length > 0 ? (
+                                                <>
+                                                  <span style={{ color: '#DC2626' }}>{displayName.charAt(0)}</span>
+                                                  {displayName.slice(1)}
+                                                </>
+                                              ) : displayName}
+                                            </span>
                                             <button
                                               type="button"
                                               className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100 border-0 bg-transparent p-0 m-0"
