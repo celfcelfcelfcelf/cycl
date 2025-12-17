@@ -5799,8 +5799,8 @@ const checkCrash = () => {
                             return sorted.length > 0 && sorted[0].gc_time !== Infinity ? sorted[0].name : null;
                           })();
                           
-                          // GC favorite = rider with highest win_chance_gc
-                          const gcFavorite = (() => {
+                          // GC favorite in entire field = rider with highest win_chance_gc (italic + underline)
+                          const gcFavoriteOverall = (() => {
                             if (!isStageRace) return null;
                             const ridersWithChance = allRiders.map(([name, r]) => ({
                               name,
@@ -5810,10 +5810,22 @@ const checkCrash = () => {
                             return sorted.length > 0 && sorted[0].win_chance_gc !== -Infinity ? sorted[0].name : null;
                           })();
                           
+                          // GC favorite in this group = rider in group with highest win_chance_gc (italic only)
+                          const gcFavoriteInGroup = (() => {
+                            if (!isStageRace) return null;
+                            const ridersInGroup = entries.map(([name, r]) => ({
+                              name,
+                              win_chance_gc: typeof r.win_chance_gc === 'number' ? r.win_chance_gc : -Infinity
+                            }));
+                            const sorted = ridersInGroup.sort((a, b) => b.win_chance_gc - a.win_chance_gc);
+                            return sorted.length > 0 && sorted[0].win_chance_gc !== -Infinity ? sorted[0].name : null;
+                          })();
+                          
                           return entries.map(([n, r], idx) => {
                             const isGCLeaderYellow = n === gcLeader; // Yellow jersey = GC leader (lowest gc_time)
                             const isPointsLeader = n === pointsLeader;
-                            const isGCLeaderItalic = n === gcFavorite; // Show GC favorite (highest win_chance_gc) in italic
+                            const isGCFavoriteOverall = n === gcFavoriteOverall; // Overall GC favorite (underline)
+                            const isGCFavoriteInGroup = n === gcFavoriteInGroup; // Group GC favorite (italic)
                             
                             return (
                               <span key={n} className="inline">
@@ -5823,7 +5835,7 @@ const checkCrash = () => {
                                   onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} 
                                   onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name: n, x: e.clientX, y: e.clientY }); }} 
                                   onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name: n, x: t.clientX, y: t.clientY }); } }} 
-                                  className={`cursor-pointer hover:underline ${isGCLeaderYellow ? 'bg-yellow-300 px-1 rounded' : ''} ${isPointsLeader ? 'text-green-600 font-semibold' : ''} ${isGCLeaderItalic ? 'italic' : ''}`}
+                                  className={`cursor-pointer hover:underline ${isGCLeaderYellow ? 'bg-yellow-300 px-1 rounded' : ''} ${isPointsLeader ? 'text-green-600 font-semibold' : ''} ${isGCFavoriteInGroup ? 'italic' : ''} ${isGCFavoriteOverall ? 'underline' : ''}`}
                                 >
                                   {n}
                                 </span>
