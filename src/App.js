@@ -5799,10 +5799,21 @@ const checkCrash = () => {
                             return sorted.length > 0 && sorted[0].gc_time !== Infinity ? sorted[0].name : null;
                           })();
                           
+                          // GC favorite = rider with highest win_chance_gc
+                          const gcFavorite = (() => {
+                            if (!isStageRace) return null;
+                            const ridersWithChance = allRiders.map(([name, r]) => ({
+                              name,
+                              win_chance_gc: typeof r.win_chance_gc === 'number' ? r.win_chance_gc : -Infinity
+                            }));
+                            const sorted = ridersWithChance.sort((a, b) => b.win_chance_gc - a.win_chance_gc);
+                            return sorted.length > 0 && sorted[0].win_chance_gc !== -Infinity ? sorted[0].name : null;
+                          })();
+                          
                           return entries.map(([n, r], idx) => {
                             const isGCLeaderYellow = n === gcLeader; // Yellow jersey = GC leader (lowest gc_time)
                             const isPointsLeader = n === pointsLeader;
-                            const isGCLeaderItalic = n === gcLeader; // Also show in italic
+                            const isGCLeaderItalic = n === gcFavorite; // Show GC favorite (highest win_chance_gc) in italic
                             
                             return (
                               <span key={n} className="inline">
