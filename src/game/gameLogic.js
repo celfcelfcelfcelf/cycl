@@ -502,28 +502,7 @@ export function calculateGroupSpeed({
     `DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, allPaces=[${allPaces.join(',')}], maxChosen=${maxChosen}`
   );
   
-  // Step 2: Check if group ahead forces higher speed (BEFORE minimums/dobbeltføring)
-  // If distance to group ahead > maxChosen, override speed and skip dobbeltføring
-  if (aheadPositions.length > 0) {
-    const maxAheadPos = Math.max(...aheadPositions);
-    if (maxAheadPos > groupPos) {
-      const distance = maxAheadPos - groupPos;
-      result.logMessages.push(`DEBUG Distance to group ahead=${distance}`);
-      
-      if (distance > maxChosen) {
-        speed = distance;
-        result.speed = speed;
-        result.forcedByCatchUp = true;
-        result.logMessages.push(
-          `Group ${groupNum}: distance ${distance} > max chosen ${maxChosen}, setting speed=${speed} and clearing selected_value/takes_lead`
-        );
-        // Early return: when forced by catch-up, no dobbeltføring or other modifications
-        return result;
-      }
-    }
-  }
-  
-  // Step 3: Apply minimum speed constraints
+  // Step 2: Apply minimum speed constraints FIRST
   const beforeMinimum = speed;
   speed = Math.max(2, speed);
   
@@ -540,7 +519,28 @@ export function calculateGroupSpeed({
     `DEBUG Group ${groupNum}: speed after minimum=${speed}, groupPos=${groupPos}, track[${groupPos}]='${track[groupPos] || ''}'`
   );
   
-  // Step 4: Check for dobbeltføring
+  // Step 3: Check if group ahead forces higher speed (AFTER minimums, BEFORE dobbeltføring)
+  // If distance to group ahead > speed (after minimum), override speed and skip dobbeltføring
+  if (aheadPositions.length > 0) {
+    const maxAheadPos = Math.max(...aheadPositions);
+    if (maxAheadPos > groupPos) {
+      const distance = maxAheadPos - groupPos;
+      result.logMessages.push(`DEBUG Distance to group ahead=${distance}`);
+      
+      if (distance > speed) {
+        speed = distance;
+        result.speed = speed;
+        result.forcedByCatchUp = true;
+        result.logMessages.push(
+          `Group ${groupNum}: distance ${distance} > current speed ${speed}, setting speed=${speed} and clearing selected_value/takes_lead`
+        );
+        // Early return: when forced by catch-up, no dobbeltføring or other modifications
+        return result;
+      }
+    }
+  }
+  
+  // Step 4: Check for dobbeltføring (AFTER minimum speed, BEFORE collision check)
   const manualApplied = manualDobbeltforingLeaders.length > 0;
   
   if (manualApplied) {
