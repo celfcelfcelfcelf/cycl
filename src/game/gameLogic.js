@@ -633,13 +633,13 @@ export const getFavoritPointsGC = (rider) => {
 export const getTotalMovesLeftGC = (cards, factor) => {
   let sum = 0;
   for (const rider of Object.values(cards)) {
-    sum += Math.pow(Math.pow(rider.favorit_points_gc, factor), 1.5);
+    sum += Math.pow(rider.favorit_points_gc, factor);
   }
   return sum;
 };
 
 export const getWinChanceGC = (rider, factor, sum) => {
-  return 100 * (Math.pow(Math.pow(rider.favorit_points_gc, factor), 1.5) / sum);
+  return 100 * (Math.pow(rider.favorit_points_gc, factor) / sum);
 };
 
 export const getPullValue = (paces, sv) => {

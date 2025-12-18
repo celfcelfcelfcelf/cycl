@@ -1576,11 +1576,11 @@ return { pace, updatedCards, doubleLead };
       const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - 0 - 1);
       let totalPointsGC = 0;
       for (const rider of pick) {
-        totalPointsGC += Math.pow(Math.pow(rider.favorit_points_gc, factorGC), 1.5);
+        totalPointsGC += Math.pow(rider.favorit_points_gc, factorGC);
       }
       
       for (const rider of pick) {
-        rider.win_chance_gc = 100 * (Math.pow(Math.pow(rider.favorit_points_gc, factorGC), 1.5) / totalPointsGC);
+        rider.win_chance_gc = 100 * (Math.pow(rider.favorit_points_gc, factorGC) / totalPointsGC);
         
         // Calculate XprizeMoney
         const gcPrize = 12000 * (1 - Math.pow(1 - rider.win_chance_gc / 100, 3));
@@ -4346,10 +4346,7 @@ const checkCrash = () => {
             setFinalStandings(prev => {
               // Append new finished entries, avoid duplicates by rider name
               const byName = new Map(prev.map(p => [p.name, p]));
-              for (const f of res.finishedThisRun) {
-                // Add current stage index to track which stage this rider finished
-                byName.set(f.name, { ...f, stageIndex: currentStageIndex });
-              }
+              for (const f of res.finishedThisRun) byName.set(f.name, f);
               return Array.from(byName.values()).sort((a,b) => (a.pos || 9999) - (b.pos || 9999));
             });
           }
@@ -7595,14 +7592,11 @@ const checkCrash = () => {
                 return sorted.map((r, idx) => {
                   const gap = r.gc_time - minTime;
                   const isGCLeader = idx === 0;
-                  const riderData = cards[r.name];
-                  const winChanceGC = riderData && typeof riderData.win_chance_gc === 'number' ? riderData.win_chance_gc : 0;
                   return (
                     <div key={r.name} className={`flex justify-between border-b pb-1 ${isGCLeader ? 'border-2 border-yellow-400 bg-yellow-50 rounded px-1' : ''}`}>
                       <div>
                         {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
                         <span className="text-xs text-gray-500 ml-2">({r.team})</span>
-                        <span className="text-xs text-gray-600 font-light ml-2 border border-gray-300 px-1 rounded">{winChanceGC.toFixed(0)}%</span>
                       </div>
                       <div className="text-xs text-yellow-600">
                         {gap === 0 ? convertToSeconds(r.gc_time) : `+${convertToSeconds(gap)}`}
@@ -7757,52 +7751,6 @@ const checkCrash = () => {
                 ));
               })()}
             </div>
-          </div>
-
-          {/* Stage Results */}
-          <div className="mt-8 pt-6 border-t-2">
-            <h3 className="text-xl font-bold mb-4">Stage Results</h3>
-            {selectedStages && selectedStages.map((stage, stageIdx) => {
-              // Get riders who finished this stage from finalStandings
-              const stageFinishers = finalStandings.filter(r => r.stageIndex === stageIdx);
-              
-              if (stageFinishers.length === 0) {
-                return (
-                  <div key={stageIdx} className="mb-6">
-                    <h4 className="text-lg font-semibold mb-2">Stage {stageIdx + 1}:</h4>
-                    <div className="text-sm text-gray-600 mb-1">{stage.name}</div>
-                    <div className="text-sm text-gray-500">Not completed yet</div>
-                  </div>
-                );
-              }
-
-              // Sort by finish time
-              const sorted = [...stageFinishers].sort((a, b) => a.timeSec - b.timeSec);
-              const winnerTime = sorted[0].timeSec;
-
-              return (
-                <div key={stageIdx} className="mb-6">
-                  <h4 className="text-lg font-semibold mb-2">Stage {stageIdx + 1}:</h4>
-                  <div className="text-sm text-gray-600 mb-2">{stage.name}</div>
-                  <div className="text-sm space-y-1">
-                    {sorted.map((r, idx) => {
-                      const gap = r.timeSec - winnerTime;
-                      return (
-                        <div key={r.name} className="flex justify-between border-b pb-1">
-                          <div>
-                            {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
-                            <span className="text-xs text-gray-500 ml-2">({r.team})</span>
-                          </div>
-                          <div className="text-xs">
-                            {gap === 0 ? r.time : `+${convertToSeconds(gap)}`}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
