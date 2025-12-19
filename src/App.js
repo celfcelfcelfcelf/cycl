@@ -6321,6 +6321,9 @@ const checkCrash = () => {
                                           .map(([, r]) => r.team);
                                         const uniqueTeams = Array.from(new Set(teamsInGroup));
                                         
+                                        // Build accumulated cards state through the loop
+                                        let accumulatedCards = { ...cards };
+                                        
                                         // Auto-play each team
                                         for (let i = 0; i < uniqueTeams.length; i++) {
                                           const team = uniqueTeams[i];
@@ -6333,7 +6336,8 @@ const checkCrash = () => {
                                           
                                           const result = autoPlayTeam(currentGroup, team, currentRound === 2 ? prevPace : undefined);
                                           if (result) {
-                                            setCards(result.updatedCards);
+                                            // Merge result.updatedCards into accumulatedCards instead of calling setCards
+                                            accumulatedCards = { ...accumulatedCards, ...result.updatedCards };
                                             const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === team).map(([n, r]) => ({ name: n, ...r }));
                                             const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
                                             let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
@@ -6346,10 +6350,10 @@ const checkCrash = () => {
                                             
                                             const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                                             addLog(`${team} chose ${aiTeamPace}`);
-                                            handlePaceSubmit(currentGroup, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead);
+                                            handlePaceSubmit(currentGroup, aiTeamPace, team, aiIsAttack, aiAttackerName, aiDoubleLead, accumulatedCards);
                                           } else {
                                             addLog(`${team} chose 0`);
-                                            handlePaceSubmit(currentGroup, 0, team, false, null, null);
+                                            handlePaceSubmit(currentGroup, 0, team, false, null, null, accumulatedCards);
                                           }
                                           
                                           // Small delay between teams for visual feedback
@@ -6357,6 +6361,9 @@ const checkCrash = () => {
                                             await new Promise(r => setTimeout(r, 100));
                                           }
                                         }
+                                        
+                                        // Update cards state once with all accumulated changes
+                                        setCards(accumulatedCards);
                                         
                                         // After last team submission, wait briefly then auto-trigger card selection
                                         await new Promise(r => setTimeout(r, 200));
@@ -6391,12 +6398,12 @@ const checkCrash = () => {
                                         // Set a short-lived AI message for UX
                                         const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
                                         setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName, aiDoubleLead);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, aiAttackerName, aiDoubleLead, result.updatedCards);
                                       } else {
                                         const aiTeamPace = 0;
                                         const aiIsAttack = false;
                                         setAiMessage(`${teamAtCall} has chosen ${aiTeamPace}`);
-                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null, null);
+                                        handlePaceSubmit(currentGroup, aiTeamPace, teamAtCall, aiIsAttack, null, null, cards);
                                       }
                                       setTimeout(() => { setAiMessage(''); }, 1500);
                                     }}
