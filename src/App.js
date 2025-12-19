@@ -3393,6 +3393,7 @@ const confirmMove = (cardsSnapshot) => {
       setCurrentGroup(nextGroup);
   setTeamPaces({});
   setTeamPaceMeta({});
+  setTeamPaceRound({});  // Reset round tracking for new group
   setGroupSpeed(0);  // Reset groupSpeed for the new group
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
