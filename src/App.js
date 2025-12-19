@@ -2419,7 +2419,7 @@ return { pace, updatedCards, doubleLead };
     // announced team paces.
     const teamPacesForGroup = {};
     if (Object.keys(submittedPaces).length > 0) {
-      for (const t of teams) {
+      for (const t of teamsWithRiders) {
         if (!teamsWithRiders.includes(t)) {
           teamPacesForGroup[t] = 0;
           try { addLog(`${t}: Team has no rider in the group`); } catch(e) {}
@@ -2429,7 +2429,7 @@ return { pace, updatedCards, doubleLead };
       }
     } else {
       // No submitted paces -> compute per-rider values (attackers excluded)
-      for (const t of teams) {
+      for (const t of teamsWithRiders) {
         let teamMax = 0;
         const teamRiders = groupRidersAll.filter(([, r]) => r.team === t);
         if (teamRiders.length === 0) {
@@ -2591,8 +2591,8 @@ return { pace, updatedCards, doubleLead };
     setSlipstream(getEffectiveSV(sv, speed));
     setIsFlat(sv === 3);
 
-    // Ensure each team has a value (default 0)
-    for (const t of teams) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
+    // Ensure each team has a value (default 0) - only for teams with riders in this group
+    for (const t of teamsWithRiders) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
 
     const maxPace = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
 
