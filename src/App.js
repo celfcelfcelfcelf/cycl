@@ -1569,7 +1569,8 @@ return { pace, updatedCards, doubleLead };
         const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
         rider.e_moves_left_total = tempCards[riderName].e_moves_left + sumFutureStages;
         rider.gc_time = 0;
-        rider.favorit_points_gc = 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / 60));
+        const seconds_per_round = 100;
+        rider.favorit_points_gc = 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / seconds_per_round));
       }
       
       // Calculate GC win chances

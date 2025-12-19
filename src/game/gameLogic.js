@@ -627,7 +627,8 @@ export const getEMoveLeftGC = (rider, stages) => {
 };
 
 export const getFavoritPointsGC = (rider) => {
-  return 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / 60));
+  const seconds_per_round = 100;
+  return 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / seconds_per_round));
 };
 
 export const getTotalMovesLeftGC = (cards, factor) => {
