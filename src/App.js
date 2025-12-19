@@ -4346,7 +4346,10 @@ const checkCrash = () => {
             setFinalStandings(prev => {
               // Append new finished entries, avoid duplicates by rider name
               const byName = new Map(prev.map(p => [p.name, p]));
-              for (const f of res.finishedThisRun) byName.set(f.name, f);
+              for (const f of res.finishedThisRun) {
+                // Add current stage index to track which stage this rider finished
+                byName.set(f.name, { ...f, stageIndex: currentStageIndex });
+              }
               return Array.from(byName.values()).sort((a,b) => (a.pos || 9999) - (b.pos || 9999));
             });
           }
@@ -7592,11 +7595,17 @@ const checkCrash = () => {
                 return sorted.map((r, idx) => {
                   const gap = r.gc_time - minTime;
                   const isGCLeader = idx === 0;
+                  // Get win_chance_gc from cards
+                  const riderCard = cards[r.name];
+                  const winChanceGC = riderCard && typeof riderCard.win_chance_gc === 'number' ? riderCard.win_chance_gc : null;
                   return (
                     <div key={r.name} className={`flex justify-between border-b pb-1 ${isGCLeader ? 'border-2 border-yellow-400 bg-yellow-50 rounded px-1' : ''}`}>
                       <div>
                         {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
                         <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                        {winChanceGC !== null && (
+                          <span className="text-xs text-gray-600 font-light ml-2 border border-gray-300 px-1 rounded">{winChanceGC.toFixed(0)}%</span>
+                        )}
                       </div>
                       <div className="text-xs text-yellow-600">
                         {gap === 0 ? convertToSeconds(r.gc_time) : `+${convertToSeconds(gap)}`}
@@ -7751,6 +7760,52 @@ const checkCrash = () => {
                 ));
               })()}
             </div>
+          </div>
+
+          {/* Stage Results */}
+          <div className="mt-8 pt-6 border-t-2">
+            <h3 className="text-xl font-bold mb-4">Stage Results</h3>
+            {selectedStages && selectedStages.map((stage, stageIdx) => {
+              // Get riders who finished this stage from finalStandings
+              const stageFinishers = finalStandings.filter(r => r.stageIndex === stageIdx);
+              
+              if (stageFinishers.length === 0) {
+                return (
+                  <div key={stageIdx} className="mb-6">
+                    <h4 className="text-lg font-semibold mb-2">Stage {stageIdx + 1}:</h4>
+                    <div className="text-sm text-gray-600 mb-1">{stage.name}</div>
+                    <div className="text-sm text-gray-500">Not completed yet</div>
+                  </div>
+                );
+              }
+
+              // Sort by finish time
+              const sorted = [...stageFinishers].sort((a, b) => a.timeSec - b.timeSec);
+              const winnerTime = sorted[0].timeSec;
+
+              return (
+                <div key={stageIdx} className="mb-6">
+                  <h4 className="text-lg font-semibold mb-2">Stage {stageIdx + 1}:</h4>
+                  <div className="text-sm text-gray-600 mb-2">{stage.name}</div>
+                  <div className="text-sm space-y-1">
+                    {sorted.map((r, idx) => {
+                      const gap = r.timeSec - winnerTime;
+                      return (
+                        <div key={r.name} className="flex justify-between border-b pb-1">
+                          <div>
+                            {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                            <span className="text-xs text-gray-500 ml-2">({r.team})</span>
+                          </div>
+                          <div className="text-xs">
+                            {gap === 0 ? r.time : `+${convertToSeconds(gap)}`}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
