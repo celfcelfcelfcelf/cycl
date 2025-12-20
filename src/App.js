@@ -2619,6 +2619,8 @@ return { pace, updatedCards, doubleLead };
     
     // If speed was forced by catch-up, clear selected_value/takes_lead for all riders
     if (speedResult.forcedByCatchUp) {
+      addLog(`⚡ Group ${groupNum} overtaget bagfra — ingen lead rider (ingen træthedskort)`);
+      
       // Clear dobbeltføring leaders since catch-up forcing overrides manual selection
       dobbeltføringLeadersRef.current = [];
       

@@ -132,7 +132,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
           <div className="flex-1">
             <label className="block font-semibold mb-2">Choose track</label>
             <select value={selectedTrack} onChange={e => setSelectedTrack(e.target.value)} className="w-full p-2 border rounded">
-              {Object.keys(tracks).map(t => <option key={t} value={t}>{t}</option>)}
+              {Object.keys(tracks).sort().map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
 
