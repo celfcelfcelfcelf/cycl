@@ -3443,6 +3443,19 @@ const confirmMove = (cardsSnapshot) => {
   setTeamPaceMeta({});
   setTeamPaceRound({});  // Reset round tracking for new group
   setGroupSpeed(0);  // Reset groupSpeed for the new group
+      
+      // Reset selected_value and takes_lead for ALL riders to prevent values from
+      // previous groups affecting speed calculations in the new group
+      setCards(prev => {
+        const updated = { ...prev };
+        for (const [name, rider] of Object.entries(updated)) {
+          if (rider.selected_value !== 0 || rider.takes_lead !== 0) {
+            updated[name] = { ...rider, selected_value: 0, takes_lead: 0 };
+          }
+        }
+        return updated;
+      });
+      
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
       // choose first team that actually has non-attacker riders in the next group
@@ -6377,7 +6390,14 @@ const checkCrash = () => {
                                         const uniqueTeams = Array.from(new Set(teamsInGroup));
                                         
                                         // Build accumulated cards state through the loop
+                                        // IMPORTANT: Reset selected_value and takes_lead for ALL riders first
+                                        // to prevent values from previous groups affecting speed calculations
                                         let accumulatedCards = { ...cards };
+                                        for (const [name, rider] of Object.entries(accumulatedCards)) {
+                                          if (rider.selected_value !== 0 || rider.takes_lead !== 0) {
+                                            accumulatedCards[name] = { ...rider, selected_value: 0, takes_lead: 0 };
+                                          }
+                                        }
                                         
                                         // Auto-play each team
                                         for (let i = 0; i < uniqueTeams.length; i++) {
