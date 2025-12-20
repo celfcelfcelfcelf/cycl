@@ -872,15 +872,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // All helper implementations (getPenalty, takesLeadFC, humanResponsibility,
   // getTeamMatesInGroup, pickValue, takesLeadFCFloating) were moved to
   // `src/game/gameLogic.js`. App now imports and uses the shared versions.
-  const autoPlayTeam = (groupNum, teamName = currentTeam, minPace = undefined) => {
-  const teamRiders = Object.entries(cards).filter(([,r]) => r.group === groupNum && r.team === teamName && !r.finished);
+  const autoPlayTeam = (groupNum, teamName = currentTeam, minPace = undefined, cardsSnapshot = null) => {
+  const cardsToUse = cardsSnapshot || cards;
+  const teamRiders = Object.entries(cardsToUse).filter(([,r]) => r.group === groupNum && r.team === teamName && !r.finished);
   
   let pace = 0;
   if (teamRiders.length === 0) {
     addLog(`${currentTeam}: no riders`);
     // No riders to play for this team — return a result so the caller
     // (AI Play handler) can submit once. This prevents duplicate submissions.
-    return { pace: 0, updatedCards: { ...cards } };
+    return { pace: 0, updatedCards: { ...cardsToUse } };
   }
   
   // Build a map of team -> max pace from both submitted teamPaces and any
@@ -894,7 +895,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   });
 
   // Also incorporate any selected_value already present in cards for this group
-  Object.entries(cards).forEach(([, r]) => {
+  Object.entries(cardsToUse).forEach(([, r]) => {
     if (r.finished) return;
     if (r.group !== groupNum) return;
     // Do not include attacks (human attackers set attacking_status === 'attacker')
@@ -907,7 +908,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   
   const maxPaceSoFar = currentPaces.length > 0 ? Math.max(...currentPaces.filter(p => p > 0)) : 0;
   
-  const updatedCards = {...cards};
+  const updatedCards = {...cardsToUse};
   
   // Evaluate each rider individually
   const teamAttackDeclared = {};
@@ -6409,7 +6410,7 @@ const checkCrash = () => {
                                           const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
                                           const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
                                           
-                                          const result = autoPlayTeam(currentGroup, team, currentRound === 2 ? prevPace : undefined);
+                                          const result = autoPlayTeam(currentGroup, team, currentRound === 2 ? prevPace : undefined, accumulatedCards);
                                           if (result) {
                                             // Merge result.updatedCards into accumulatedCards instead of calling setCards
                                             accumulatedCards = { ...accumulatedCards, ...result.updatedCards };
