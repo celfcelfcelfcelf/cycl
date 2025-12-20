@@ -88,6 +88,7 @@ const tracks = {
 'Östersund-Funäsdalen': '3333333333333333333333222222222222____3333333333333333333333333FFFFFFFFFF',
 'Vitoria-Gasteiz  ›  Zamudio (Basque, 2022, 4)': '333333300000_33333333330000001111111111333333__3333333333333FFFFFFFFFF',
 'Donostia San Sebastian Klasikoa': '11111111111111___33333333111100000___33333333333333000000_3333333FFFFFFFFFF',
+'Brabantse Pijl': '33133313333333223332333331333133333332233323333313331333333322FFFFFFFFFFC',
 'La Fleche Wallone': '23333333333311333333000000333333333322223333333333311333333000000FFFFFFFFFF'};
 
 // ========== MAIN COMPONENT ==========
@@ -210,11 +211,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         ? trackStr
         : (tracks[trackName] || '');
       const longest = getLongestHill(selectedTrackStr);
-      const isBrosten = typeof selectedTrackStr === 'string' && /[B\*]$/.test(selectedTrackStr);
+      const isBrosten = typeof selectedTrackStr === 'string' && /[B\*C]$/.test(selectedTrackStr);
       // puncheur multiplier per-track (not multiplied by rider.PUNCHEUR)
   const puncheur_factor = Math.min(1, 3 / Math.max(longest, 3));
-      const puncheurField = Number(riderObj.PUNCHEUR) || 0;
       const puncheur_param = 1; // global control placeholder
+      
+      // Declare puncheurField once here (will be used later for both rpf and C-track calculations)
+      const puncheurField = Number(riderObj.puncheur || riderObj.PUNCHEUR) || 0;
       const rpf = Math.trunc(puncheurField * puncheur_factor * puncheur_param);
 
       // build l[] per same logic used for card generation
@@ -242,6 +245,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       let modifiedBJERG;
       if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) {
         modifiedBJERG = Math.round(fladField + brostenField);
+      } else if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) {
+        // For Brostensbakke+Puncheur tracks (ending with 'C'), use BJERG + (BROSTENSBAKKE + PUNCHEUR)/2
+        modifiedBJERG = Math.round(bjergField + (brostensbakkeField + puncheurField) / 2);
       } else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) {
         // For Brostensbakke tracks (ending with 'B'), use BJERG + BROSTENSBAKKE
         modifiedBJERG = Math.round(bjergField + brostensbakkeField);
@@ -252,7 +258,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
 
       let label = 'BJERG';
-  if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Brostensbakke';
+  if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) label = '(BROSTENS)BAKKE';
+  else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Brostensbakke';
   else if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) label = 'Brosten';
       else if (puncheur_factor > 0.3) label = 'BAKKE';
 
@@ -1057,6 +1064,42 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
     } else {
       updatedCards[name].selected_value = 0;
+    }
+  }
+  
+  // Enforce: Only ONE rider can be declared as lead (takes_lead=1, not attacker)
+  // Find all non-attacker riders with takes_lead=1 and selected_value>0
+  const nonAttackerLeads = teamRiders
+    .map(([name]) => ({ name, ...updatedCards[name] }))
+    .filter(r => r.takes_lead === 1 && r.selected_value > 0 && r.attacking_status !== 'attacker');
+  
+  if (nonAttackerLeads.length > 1) {
+    // Find the highest selected_value
+    const maxSelected = Math.max(...nonAttackerLeads.map(r => r.selected_value));
+    const topRiders = nonAttackerLeads.filter(r => r.selected_value === maxSelected);
+    
+    // If multiple riders have the same max selected_value, pick by win_chance_gc (or win_chance if not stage race)
+    let chosenLead;
+    if (topRiders.length === 1) {
+      chosenLead = topRiders[0].name;
+    } else {
+      // Pick the one with LOWEST win_chance_gc (or win_chance if !isStageRace)
+      topRiders.sort((a, b) => {
+        const aChance = isStageRace ? (a.win_chance_gc || 0) : (a.win_chance || 0);
+        const bChance = isStageRace ? (b.win_chance_gc || 0) : (b.win_chance || 0);
+        return aChance - bChance; // ascending = lowest first
+      });
+      chosenLead = topRiders[0].name;
+    }
+    
+    // Clear takes_lead for all others
+    for (const r of nonAttackerLeads) {
+      if (r.name !== chosenLead) {
+        updatedCards[r.name].takes_lead = 0;
+        // Recalculate selected_value based on new takes_lead
+        updatedCards[r.name].selected_value = 0;
+        try { addLog(`🚫 ${r.name} demoted from lead (${chosenLead} has higher priority)`); } catch(e) {}
+      }
     }
   }
   
@@ -2230,7 +2273,7 @@ return { pace, updatedCards, doubleLead };
   // earlier by UI code (handleHumanChoices sets attacker state before
   // calling handlePaceSubmit).
   try {
-    const groupRidersAllCheck = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+    const groupRidersAllCheck = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && !r.finished);
     if (isAttack && groupRidersAllCheck.length < 3) {
       addLog(`${submittingTeam} attempted an attack but group has fewer than 3 riders — attack ignored`);
       // Clear any attacker flags that UI may have set for this team in this group
@@ -2373,8 +2416,11 @@ return { pace, updatedCards, doubleLead };
   const nextTeam = findNextTeamWithRiders(nextIdx, groupNum);
   if (nextTeam) setCurrentTeam(nextTeam);
 
+    // Use cardsSnapshot if provided (from Play Group), otherwise use current cards state
+    const cardsToUse = cardsSnapshot || cards;
+
     // Determine which teams actually have riders in this group
-  const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+  const groupRidersAll = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && !r.finished);
     // Only consider teams that have at least one non-attacker rider for the
     // purposes of submitting and finalizing the group's pace. Teams whose
     // only presence in the group is an attacker should not block the basic
@@ -2437,21 +2483,17 @@ return { pace, updatedCards, doubleLead };
           try { addLog(`${t}: Team has no rider in the group`); } catch (e) {}
           continue;
         }
+        try { addLog(`DEBUG ${t}: teamRiders=${teamRiders.map(([n, r]) => `${n}(sv=${r.selected_value},tl=${r.takes_lead})`).join(',')}`); } catch(e) {}
         for (const [name, rider] of teamRiders) {
           let riderValue = 0;
           if (rider.attacking_status === 'attacker') {
             riderValue = 0;
           } else if (rider.takes_lead === 0) {
             riderValue = 0;
-          } else if (rider.takes_lead === 2) {
+          } else if (rider.takes_lead > 0) {
+            // Use selected_value directly - it was already calculated in autoPlayTeam()
             riderValue = typeof rider.selected_value === 'number' && rider.selected_value > 0 ? Math.round(rider.selected_value) : 0;
-          } else if (rider.takes_lead === 1) {
-            try {
-              const val = pickValue(name, cards, track, Object.values(submittedPaces));
-              riderValue = Math.round(val || 0);
-            } catch (e) {
-              riderValue = 0;
-            }
+            try { addLog(`DEBUG ${t}: ${name} takes_lead=${rider.takes_lead} selected_value=${rider.selected_value} -> riderValue=${riderValue}`); } catch(e) {}
           }
           if (riderValue > teamMax) teamMax = riderValue;
         }
@@ -2461,7 +2503,7 @@ return { pace, updatedCards, doubleLead };
 
     // DEBUG: dump computed paces and contributors to help diagnose incorrect speeds
     try {
-      const nonAttackerValues = Object.entries(cards)
+      const nonAttackerValues = Object.entries(cardsToUse)
         .filter(([, r]) => r.group === groupNum && r.attacking_status !== 'attacker')
         .map(([n, r]) => ({ name: n, team: r.team, selected_value: r.selected_value }));
       addLog(`DEBUG teamsWithRiders=${JSON.stringify(teamsWithRiders)}`);
@@ -2492,13 +2534,13 @@ return { pace, updatedCards, doubleLead };
     const allPaces = Object.values(teamPacesForGroup);
 
     // Determine group's current position
-  const groupPos = Math.max(...Object.values(cards).filter(r => r.group === groupNum && !r.finished).map(r => r.position));
+  const groupPos = Math.max(...Object.values(cardsToUse).filter(r => r.group === groupNum && !r.finished).map(r => r.position));
 
     // Determine the maximum chosen pace among teams (0 if none)
     const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
 
     // Get positions of groups ahead for catch-up logic (exclude finished riders)
-    const aheadPositions = Object.values(cards).filter(r => r.group > groupNum && !r.finished).map(r => r.position);
+    const aheadPositions = Object.values(cardsToUse).filter(r => r.group > groupNum && !r.finished).map(r => r.position);
     
     // Calculate group speed using consolidated logic
     const speedResult = calculateGroupSpeed({
@@ -2507,7 +2549,7 @@ return { pace, updatedCards, doubleLead };
       groupNum,
       groupPos,
       track,
-      cards,
+      cards: cardsToUse,
       aheadPositions,
       dobbeltforingEnabled: dobbeltføring,
       manualDobbeltforingLeaders: dobbeltføringLeadersRef.current || []
@@ -2522,7 +2564,7 @@ return { pace, updatedCards, doubleLead };
       // Update teamPacesForGroup with the new speed (includes +1 from dobbeltføring)
       // Find which team(s) contributed to dobbeltføring and update their pace
       for (const leaderName of speedResult.dobbeltforingLeaders) {
-        const leader = cards[leaderName];
+        const leader = cardsToUse[leaderName];
         if (leader && teamPacesForGroup[leader.team] !== undefined) {
           // Update to the new speed (which already includes the +1 bonus)
           teamPacesForGroup[leader.team] = speed;
@@ -2603,14 +2645,14 @@ return { pace, updatedCards, doubleLead };
       // If slipstream catch-up, choose any team with a rider in the group
       const teamsWithMax = maxPace > 0 
         ? Object.entries(teamPacesForGroup).filter(([t, p]) => p === maxPace).map(([t]) => t)
-        : teams.filter(t => Object.values(cards).some(r => r.group === groupNum && r.team === t));
+        : teams.filter(t => Object.values(cardsToUse).some(r => r.group === groupNum && r.team === t));
       
       let chosenTeam = teamsWithMax[0] || null;
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
       if (chosenTeam) {
         // Special handling for manual dobbeltføring: both riders are already marked as leaders
-        const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cards[name] && cards[name].group === groupNum);
+        const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cardsToUse[name] && cardsToUse[name].group === groupNum);
         
         if (manualDobbeltføringLeaders.length === 2) {
           // For manual dobbeltføring, both riders are already leaders - just set their takes_lead and planned cards
@@ -3418,7 +3460,14 @@ const confirmMove = (cardsSnapshot) => {
               gNum++;
               curPos = r.position;
             }
-            updatedCards2[n] = { ...updatedCards2[n], group: gNum };
+            // Reset selected_value and takes_lead when reassigning groups to prevent
+            // values from previous groups affecting speed calculations in new groups
+            updatedCards2[n] = { 
+              ...updatedCards2[n], 
+              group: gNum,
+              selected_value: 0,
+              takes_lead: 0
+            };
           });
 
           // Detect sprint groups now that groups have been reassigned
