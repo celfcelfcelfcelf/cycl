@@ -5602,6 +5602,7 @@ const checkCrash = () => {
                     <option value="">-- Vælg bane --</option>
                     {Object.keys(tracks)
                       .filter(name => !name.toLowerCase().includes('test'))
+                      .sort()
                       .map(name => (
                         <option key={name} value={name}>{name}</option>
                       ))
