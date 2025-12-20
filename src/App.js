@@ -158,6 +158,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const processedInvestsRef = useRef(new Set());
   const addingInvestRef = useRef(new Set());
   const pullInvestHandledRef = useRef(new Set());
+  const teamPacesRef = useRef({}); // Sync accumulator for teamPaces to avoid React state timing issues
+  const teamPaceMetaRef = useRef({}); // Sync accumulator for teamPaceMeta to avoid React state timing issues
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
@@ -1434,6 +1436,8 @@ return { pace, updatedCards, doubleLead };
   setRound(0);
   setTeamPaces({});
   setTeamPaceMeta({});
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
   setMovePhase('input');
   setGroupSpeed(0);
   setSlipstream(0);
@@ -2255,6 +2259,7 @@ return { pace, updatedCards, doubleLead };
   const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null, cardsSnapshot = null) => {
     // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
+    addLog(`🚀 handlePaceSubmit START: group=${groupNum}, team=${team || currentTeam}, pace=${pace}, hasSnapshot=${!!cardsSnapshot}`);
     const submittingTeam = team || currentTeam;
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -2338,8 +2343,13 @@ return { pace, updatedCards, doubleLead };
     }
   }
   
-  const newTeamPaces = { ...teamPaces, [paceKey]: finalPace };
+  // Update refs synchronously for immediate use
+  teamPacesRef.current = { ...teamPacesRef.current, [paceKey]: finalPace };
+  const newTeamPaces = teamPacesRef.current;
+  
+  // Also update React state (asynchronous)
   setTeamPaces(newTeamPaces);
+  
   // If this is a round-2 resubmission and the team previously declared an
   // attack in round-1, enforce that the attacker remains attacker.
   let effectiveIsAttack = !!isAttack;
@@ -2391,8 +2401,14 @@ return { pace, updatedCards, doubleLead };
     timestamp: Date.now() // Add timestamp to track submission order
   };
   if (currentRound === 2 && typeof prevPaceForThisTeam !== 'undefined') metaEntry.prevPace = prevPaceForThisTeam;
-  const newMeta = { ...teamPaceMeta, [paceKey]: metaEntry };
+  
+  // Update refs synchronously for immediate use
+  teamPaceMetaRef.current = { ...teamPaceMetaRef.current, [paceKey]: metaEntry };
+  const newMeta = teamPaceMetaRef.current;
+  
+  // Also update React state (asynchronous)
   setTeamPaceMeta(newMeta);
+  
   // If we're enforcing attacker persistence on revise, also ensure the
   // rider's card state marks them as attacker so movement helpers use it.
   if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
@@ -2428,6 +2444,12 @@ return { pace, updatedCards, doubleLead };
 
     // Determine which teams actually have riders in this group
   const groupRidersAll = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && !r.finished);
+    
+    // DEBUG: Log what riders are actually in this group
+    try {
+      addLog(`DEBUG groupRidersAll for group ${groupNum}: ${groupRidersAll.map(([n, r]) => `${n}(team=${r.team},sv=${r.selected_value},tl=${r.takes_lead})`).join(', ')}`);
+    } catch(e) {}
+    
     // Only consider teams that have at least one non-attacker rider for the
     // purposes of submitting and finalizing the group's pace. Teams whose
     // only presence in the group is an attacker should not block the basic
@@ -2438,6 +2460,7 @@ return { pace, updatedCards, doubleLead };
     // submissions that belong to the current round and from teams that
     // actually have non-attacker riders in the group.
     const submittedPaces = {};
+    addLog(`🔍 newTeamPaces keys: ${JSON.stringify(Object.keys(newTeamPaces).filter(k => k.startsWith(`${groupNum}-`)))}`);
     Object.entries(newTeamPaces).forEach(([k, v]) => {
       if (!k.startsWith(`${groupNum}-`)) return;
       const t = k.split('-')[1];
@@ -2446,6 +2469,7 @@ return { pace, updatedCards, doubleLead };
       const metaRound = meta && meta.round ? meta.round : 1;
       if (metaRound === currentRound) submittedPaces[t] = Math.max(submittedPaces[t] || 0, parseInt(v));
     });
+    addLog(`🔍 submittedPaces built: ${JSON.stringify(submittedPaces)}, teamsWithRiders=${JSON.stringify(teamsWithRiders)}, will continue=${Object.keys(submittedPaces).length >= teamsWithRiders.length && (!teamsWithRiders.includes('Me') || submittedPaces['Me'] !== undefined)}`);
 
   // If the player's team ('Me') has riders in this group, require that
   // the player submits in the current round before finalizing.
@@ -2471,6 +2495,7 @@ return { pace, updatedCards, doubleLead };
     // treated as 0. This prevents an attacker's selected_value from overriding
     // announced team paces.
     const teamPacesForGroup = {};
+    addLog(`🔍 Building teamPacesForGroup for group ${groupNum}: submittedPaces keys=${Object.keys(submittedPaces).length}, teamsWithRiders=${JSON.stringify(teamsWithRiders)}`);
     if (Object.keys(submittedPaces).length > 0) {
       for (const t of teamsWithRiders) {
         if (!teamsWithRiders.includes(t)) {
@@ -2478,7 +2503,9 @@ return { pace, updatedCards, doubleLead };
           try { addLog(`${t}: Team has no rider in the group`); } catch(e) {}
           continue;
         }
-        teamPacesForGroup[t] = Math.max(submittedPaces[t] || 0, 0);
+        const submittedValue = submittedPaces[t] || 0;
+        teamPacesForGroup[t] = Math.max(submittedValue, 0);
+        addLog(`🔍 ${t}: submittedValue=${submittedValue} -> teamPacesForGroup[${t}]=${teamPacesForGroup[t]}`);
       }
     } else {
       // No submitted paces -> compute per-rider values (attackers excluded)
@@ -2515,9 +2542,11 @@ return { pace, updatedCards, doubleLead };
         .map(([n, r]) => ({ name: n, team: r.team, selected_value: r.selected_value }));
       addLog(`DEBUG teamsWithRiders=${JSON.stringify(teamsWithRiders)}`);
       addLog(`DEBUG submittedPaces=${JSON.stringify(submittedPaces)}`);
-      addLog(`DEBUG teamPacesForGroup=${JSON.stringify(teamPacesForGroup)}`);
+      addLog(`DEBUG teamPacesForGroup BEFORE calculateGroupSpeed=${JSON.stringify(teamPacesForGroup)}`);
       addLog(`DEBUG nonAttackerSelected=${JSON.stringify(nonAttackerValues)}`);
-    } catch (e) {}
+    } catch (e) {
+      addLog(`ERROR in debug logging: ${e.message || e}`);
+    }
 
     // If any team has declared an attacker in this group, clear selected_value
     // and takes_lead for the other riders from that team in this group. This
@@ -3444,6 +3473,10 @@ const confirmMove = (cardsSnapshot) => {
   setTeamPaceMeta({});
   setTeamPaceRound({});  // Reset round tracking for new group
   setGroupSpeed(0);  // Reset groupSpeed for the new group
+  
+  // Reset refs to match cleared state
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
       
       // Reset selected_value and takes_lead for ALL riders to prevent values from
       // previous groups affecting speed calculations in the new group
@@ -3587,6 +3620,8 @@ const confirmMove = (cardsSnapshot) => {
       setCurrentGroup(p => p - 1);
   setTeamPaces({});
   setTeamPaceMeta({});
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
       const shuffled = [...teams].sort(() => Math.random() - 0.5);
       setTeams(shuffled);
       setCurrentTeam(shuffled[0]);
@@ -3612,6 +3647,8 @@ const moveToNextGroup = () => {
     setCurrentGroup(nextGroup);
   setTeamPaces({});
   setTeamPaceMeta({});
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new group
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
@@ -3669,6 +3706,8 @@ const moveToNextGroup = () => {
   setPullInvestOutcome({});
   setTeamPaces({});
   setTeamPaceMeta({});
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new round
   // Compute deterministic team order for this round based on base order
   const base = teamBaseOrder && teamBaseOrder.length === teams.length ? teamBaseOrder : [...teams];
@@ -3911,6 +3950,8 @@ const forceProgressGame = () => {
     // Clear stuck states
     setTeamPaces({});
     setTeamPaceMeta({});
+    teamPacesRef.current = {};
+    teamPaceMetaRef.current = {};
     setGroupSpeed(0);
     setPostMoveInfo(null);
     setSprintGroupsPending([]);
@@ -4035,6 +4076,8 @@ const startNextStage = () => {
   setGroupsMovedThisRound([]);
   setTeamPaces({});
   setTeamPaceMeta({});
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new stage
   setPullInvestOutcome({});
   setPostMoveInfo(null);
