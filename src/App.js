@@ -211,7 +211,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         ? trackStr
         : (tracks[trackName] || '');
       const longest = getLongestHill(selectedTrackStr);
-      const isBrosten = typeof selectedTrackStr === 'string' && /[B\*C]$/.test(selectedTrackStr);
+      const isBrosten = typeof selectedTrackStr === 'string' && /[B\*CX]$/.test(selectedTrackStr);
       // puncheur multiplier per-track (not multiplied by rider.PUNCHEUR)
   const puncheur_factor = Math.min(1, 3 / Math.max(longest, 3));
       const puncheur_param = 1; // global control placeholder
@@ -245,6 +245,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       let modifiedBJERG;
       if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) {
         modifiedBJERG = Math.round(fladField + brostenField);
+      } else if (typeof selectedTrackStr === 'string' && /X$/.test(selectedTrackStr)) {
+        // For Brostens(bakke) tracks (ending with 'X'), use BJERG + Brostens(bakke)
+        // where Brostens(bakke) = (FLAD + BROSTEN + BJERG + BROSTENSBAKKE) / 2 - BJERG
+        const brostensBakke = (fladField + brostenField + bjergField + brostensbakkeField) / 2 - bjergField;
+        modifiedBJERG = Math.round(bjergField + brostensBakke);
       } else if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) {
         // For Brostensbakke+Puncheur tracks (ending with 'C'), use BJERG + (BROSTENSBAKKE + PUNCHEUR)/2
         modifiedBJERG = Math.round(bjergField + (brostensbakkeField + puncheurField) / 2);
@@ -258,7 +263,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
 
       let label = 'BJERG';
-  if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) label = '(BROSTENS)BAKKE';
+  if (typeof selectedTrackStr === 'string' && /X$/.test(selectedTrackStr)) label = 'BROSTENS(BAKKE)';
+  else if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) label = '(BROSTENS)BAKKE';
   else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Brostensbakke';
   else if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) label = 'Brosten';
       else if (puncheur_factor > 0.3) label = 'BAKKE';
