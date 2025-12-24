@@ -1319,10 +1319,14 @@ return { pace, updatedCards, doubleLead };
       // On any error fall back to original rider
     }
 
+    const allCards = generateCards(modifiedRider, isBreakaway);
+    const tk16Cards = allCards.filter(c => c.id === 'kort: 16');
+    const regularCards = allCards.filter(c => c.id !== 'kort: 16');
+    
     cardsObj[rider.NAVN] = {
       position: isBreakaway ? attackerLeadFields : 0,
-      cards: generateCards(modifiedRider, isBreakaway),
-      discarded: [],
+      cards: regularCards,
+      discarded: tk16Cards,
       group: isBreakaway ? 1 : 2,
       prel_time: 10000,
       time_after_winner: 10000,
@@ -1796,10 +1800,14 @@ return { pace, updatedCards, doubleLead };
         // so the draft AI evaluates riders using the same adjusted stat used
         // when starting a game. computeModifiedBJERG returns { modifiedBJERG, label, puncheur_factor }.
         const modified = computeModifiedBJERG(rider, selectedTrack);
+        const allCards = generateCards(rider, false);
+        const tk16Cards = allCards.filter(c => c.id === 'kort: 16');
+        const regularCards = allCards.filter(c => c.id !== 'kort: 16');
+        
         cardsObj[rider.NAVN] = {
             position: 0,
-            cards: generateCards(rider, false),
-            discarded: [],
+            cards: regularCards,
+            discarded: tk16Cards,
             group: 2,
             prel_time: 10000,
             time_after_winner: 10000,
