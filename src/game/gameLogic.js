@@ -1911,11 +1911,36 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
     // reshuffle if under 5
     if (updatedHandCards.length < 5) {
-      updatedHandCards.push(...updatedDiscarded);
+      // Count TK kort: 16 cards in discarded
+      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
+      const tk1ToAdd = Math.floor(tk16Count / 2); // 2 TK-16 → 1 TK-1
+      const tk16ToKeep = tk16Count % 2; // Keep 1 if odd number
+      
+      // Remove all kort: 16 from discarded
+      const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      
+      // Add non-TK cards back to hand
+      updatedHandCards.push(...nonTK16);
+      
+      // Add TK-1 penalty cards to hand (2 TK-16 → 1 TK-1)
+      for (let i = 0; i < tk1ToAdd; i++) {
+        updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      }
+      
+      // Keep 1 TK-16 in discarded if odd number
+      updatedDiscarded = [];
+      if (tk16ToKeep > 0) {
+        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      }
+      
       // shuffle using Fisher-Yates with injected rng
       shuffle(updatedHandCards, rng);
-      updatedDiscarded = [];
-      logs.push(`${name}: kort blandet`);
+      
+      if (tk1ToAdd > 0) {
+        logs.push(`${name}: kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ' + 1 TK-16 gemt' : ''})`);
+      } else {
+        logs.push(`${name}: kort blandet`);
+      }
     }
 
     // add EC / TK-1 handling simplified
@@ -2609,10 +2634,35 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
 
     if (updatedHandCards.length < 5) {
-      updatedHandCards.push(...updatedDiscarded);
-      shuffle(updatedHandCards, rng);
+      // Count TK kort: 16 cards in discarded
+      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
+      const tk1ToAdd = Math.floor(tk16Count / 2); // 2 TK-16 → 1 TK-1
+      const tk16ToKeep = tk16Count % 2; // Keep 1 if odd number
+      
+      // Remove all kort: 16 from discarded
+      const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      
+      // Add non-TK cards back to hand
+      updatedHandCards.push(...nonTK16);
+      
+      // Add TK-1 penalty cards to hand (2 TK-16 → 1 TK-1)
+      for (let i = 0; i < tk1ToAdd; i++) {
+        updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      }
+      
+      // Keep 1 TK-16 in discarded if odd number
       updatedDiscarded = [];
-      logs.push(`${name} (attacker): kort blandet`);
+      if (tk16ToKeep > 0) {
+        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      }
+      
+      shuffle(updatedHandCards, rng);
+      
+      if (tk1ToAdd > 0) {
+        logs.push(`${name} (attacker): kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ' + 1 TK-16 gemt' : ''})`);
+      } else {
+        logs.push(`${name} (attacker): kort blandet`);
+      }
     }
 
     try {
