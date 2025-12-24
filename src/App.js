@@ -4175,24 +4175,17 @@ const confirmIntermediateSprint = () => {
   // Add 2|2 cards to each rider based on sprint_effort
   Object.entries(sprintEfforts).forEach(([name, effort]) => {
     if (updatedCards[name] && effort > 0) {
-      // Add 'effort' number of 2|2 cards as proper card objects (kort: 16)
-      const existingCards = updatedCards[name].cards || [];
-      const newCards = Array(effort).fill(null).map(() => ({
+      // Add 'effort' number of TK kort: 16 to discarded pile (not hand)
+      const existingDiscarded = updatedCards[name].discarded || [];
+      const newTKCards = Array(effort).fill(null).map(() => ({
         id: 'kort: 16',
         flat: 2,
         uphill: 2
       }));
-      const combinedCards = [...existingCards, ...newCards];
-      
-      // Shuffle the hand (Fisher-Yates)
-      for (let i = combinedCards.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [combinedCards[i], combinedCards[j]] = [combinedCards[j], combinedCards[i]];
-      }
       
       updatedCards[name] = {
         ...updatedCards[name],
-        cards: combinedCards
+        discarded: [...existingDiscarded, ...newTKCards]
       };
     }
   });
