@@ -1730,7 +1730,7 @@ export const computeInitialStats = (cardsObj, selectedTrack, round = 0, numberOf
 
 // Compute non-attacker moves for a group as a pure function.
 // Returns updatedCards (new object), groupsNewPositions array and logs array.
-export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random) => {
+export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 0, previousGroupPositions = []) => {
   // Deep clone cardsObj to avoid mutating caller state
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const groupsNewPositions = [];
@@ -1847,15 +1847,20 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     let newPos = (rider.position || 0) + moveBy;
     let caughtOtherGroup = false;
 
-    // If rider cannot follow own group, check if they can catch other groups (including already-moved groups)
-    if (!eligibleForSlip && groupsNewPositions.length > 0) {
+    // If rider cannot follow own group, check if they can catch other groups
+    // This includes both riders from the same group who have already moved (groupsNewPositions)
+    // AND groups that moved earlier in this turn (previousGroupPositions)
+    if (!eligibleForSlip) {
       const riderStartPos = rider.position || 0;
       const maxReachWithSV = riderStartPos + effectiveValue + slipstream;
       const maxReachWithoutSV = riderStartPos + effectiveValue;
       
+      // Combine both same-group positions and previous-group positions
+      const allAvailablePositions = [...groupsNewPositions, ...previousGroupPositions];
+      
       // Find the furthest group position this rider can reach
       let bestTargetPos = newPos; // default to their solo movement
-      for (const [targetPos, targetSV] of groupsNewPositions) {
+      for (const [targetPos, targetSV] of allAvailablePositions) {
         // Rider can catch this group if it's within their card value + slipstream range
         if (targetPos >= maxReachWithoutSV && targetPos <= maxReachWithSV) {
           if (targetPos > bestTargetPos) {
@@ -1872,9 +1877,11 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     }
 
     // For riders who CAN follow their group, also check if overlapping with already-moved groups
-    if (eligibleForSlip && groupsNewPositions.length > 0) {
+    if (eligibleForSlip) {
       const potPosition = (rider.position || 0) + effectiveValue + slipstream;
-      for (const [targetPos] of groupsNewPositions) {
+      // Check both same-group and previous-group positions
+      const allAvailablePositions = [...groupsNewPositions, ...previousGroupPositions];
+      for (const [targetPos] of allAvailablePositions) {
         if (potPosition >= targetPos) newPos = Math.max(newPos, targetPos);
       }
     }
@@ -2395,7 +2402,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
 // Compute attacker moves for a group as a pure function.
 // Accepts the cards object (which should already include non-attacker updates),
 // and returns { updatedCards, groupsNewPositions, logs }.
-export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random) => {
+export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 0, previousGroupPositions = []) => {
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const logs = [];
   const groupsNewPositions = [];
@@ -2580,10 +2587,29 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       moveBy = newPos - rider.position;
     }
 
+    // Check if attacker can catch other attackers from same group
     if (maxAttackerPos !== -Infinity && !absorbedIntoGroup) {
       const baseReach = rider.position + effectiveValue;
       if (maxAttackerPos - slipstream <= baseReach) {
         newPos = Math.max(newPos, maxAttackerPos);
+      }
+    }
+    
+    // Check if attacker can catch groups that moved earlier in this turn
+    if (!absorbedIntoGroup && previousGroupPositions.length > 0) {
+      const riderStartPos = rider.position || 0;
+      const maxReachWithSV = riderStartPos + effectiveValue + slipstream;
+      const maxReachWithoutSV = riderStartPos + effectiveValue;
+      
+      // Find the furthest group position this attacker can reach
+      for (const [targetPos, targetSV] of previousGroupPositions) {
+        // Attacker can catch this group if it's within their card value + slipstream range
+        if (targetPos >= maxReachWithoutSV && targetPos <= maxReachWithSV) {
+          if (targetPos > newPos) {
+            newPos = targetPos;
+            logs.push(`${name} (attacker): Catches group at pos ${targetPos} with slipstream`);
+          }
+        }
       }
     }
 
