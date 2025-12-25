@@ -5343,9 +5343,10 @@ const checkCrash = () => {
                   href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
+                  className="block mt-2 text-base font-bold text-blue-600 hover:text-blue-800 underline"
                 >
-                  TK omdannes til MK - Test
+                  TEST VERSION:<br />
+                  Tk omdannes til MK
                 </a>
               </>
             )}
