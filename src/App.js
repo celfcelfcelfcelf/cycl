@@ -5541,6 +5541,30 @@ const checkCrash = () => {
                 </div>
               </div>
 
+              <div className="mt-4 p-3 bg-yellow-50 rounded border border-yellow-300">
+                <label className="block text-sm font-medium mb-2 text-yellow-900">TK-16 pr. TK-1: {tkPerTk1}</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="1"
+                    max="4"
+                    value={tkPerTk1}
+                    onChange={(e) => setTkPerTk1(Number(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="w-12 text-right font-bold text-yellow-900">{tkPerTk1}</div>
+                </div>
+                <div className="flex justify-between text-xs text-yellow-700 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                </div>
+                <div className="mt-2 text-xs text-yellow-800">
+                  Hvor mange TK-16 der skal til for at få 1 TK-1 ved omblanding
+                </div>
+              </div>
+
               <div className="mt-4 p-3 bg-white rounded border">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
