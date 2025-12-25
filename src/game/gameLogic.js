@@ -1607,6 +1607,14 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     }
 
     ideal_move = ideal_move - len_left / 20;
+
+    // Apply rider-specific adjustment based on track characteristics and rider abilities
+    const track_left = trackStr.slice(rider.position);
+    const get_value_track_left = getValue(track_left);
+    const FLAD = rider.flad || 50;
+    const BJERG = rider.bjerg || 50;
+    const multiplier = Math.pow((get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68, 1.5);
+    ideal_move = ideal_move * multiplier;
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
