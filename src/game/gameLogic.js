@@ -1603,6 +1603,14 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     }
 
     ideal_move = ideal_move - len_left / 20;
+
+    // Apply rider-specific adjustment based on track characteristics and rider abilities
+    const track_left = trackStr.slice(rider.position);
+    const get_value_track_left = getValue(track_left);
+    const FLAD = rider.flad || 50;
+    const BJERG = rider.bjerg || 50;
+    const multiplier = Math.pow((get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68, 1.5);
+    ideal_move = ideal_move * multiplier;
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
@@ -2481,31 +2489,38 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
-    // Attackers must never play TK-1 cards - they should use high-value cards (1-7)
-    // If chooseCardToPlay returned a TK-1, find a non-TK card from hand
-    if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
-      const nonTKCards = (rider.cards || []).filter(c => c && c.id && !c.id.startsWith('TK-1'));
+    // Attackers must never play TK-1 or tk_extra cards - they should use high-value cards (1-7)
+    // If chooseCardToPlay returned a TK-1 or tk_extra, find a non-TK card from hand
+    if (chosenCard && chosenCard.id && (chosenCard.id.startsWith('TK-1') || chosenCard.id === 'tk_extra 99')) {
+      const nonTKCards = (rider.cards || []).filter(c => c && c.id && !c.id.startsWith('TK-1') && c.id !== 'tk_extra 99');
       if (nonTKCards.length > 0) {
-        // Pick the highest value card for attacker
+        // Pick the highest value card for attacker (lowest card number = best card)
         const svCheck = getSlipstreamValue(rider.position, rider.position + 10, track);
         let bestCard = nonTKCards[0];
         let bestVal = svCheck > 2 ? bestCard.flat : bestCard.uphill;
+        let bestNum = parseInt(bestCard.id.match(/\d+/)?.[0] || '15');
         for (const c of nonTKCards) {
           const val = svCheck > 2 ? c.flat : c.uphill;
-          if (val > bestVal) { bestCard = c; bestVal = val; }
+          const num = parseInt(c.id.match(/\d+/)?.[0] || '15');
+          if (val > bestVal || (val === bestVal && num < bestNum)) { 
+            bestCard = c; 
+            bestVal = val;
+            bestNum = num;
+          }
         }
         chosenCard = bestCard;
         logs.push(`${name}: Attacker replacing TK-1 with best available card ${bestCard.id}`);
       }
     }
 
-    if (chosenCard && chosenCard.id && chosenCard.id.startsWith('TK-1')) {
+    // Final check: if still holding TK-1 or tk_extra, try to replace with a regular card
+    if (chosenCard && chosenCard.id && (chosenCard.id.startsWith('TK-1') || chosenCard.id === 'tk_extra 99')) {
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       const svCheck = getSlipstreamValue(rider.position, rider.position + Math.floor(targetNumeric), track);
-      // Prefer exact
+      // Prefer exact match
       let replacement = null;
       for (const c of top4) {
-        if (c.id && c.id.startsWith('TK-1')) continue;
+        if (c.id && (c.id.startsWith('TK-1') || c.id === 'tk_extra 99')) continue;
         const cardVal = svCheck > 2 ? c.flat : c.uphill;
         if (cardVal === targetNumeric) { replacement = c; break; }
       }
@@ -2515,7 +2530,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
         let candidateEff = Infinity;
   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
         for (const c of top4) {
-          if (c.id && c.id.startsWith('TK-1')) continue;
+          if (c.id && (c.id.startsWith('TK-1') || c.id === 'tk_extra 99')) continue;
           const cardVal = svCheck > 2 ? c.flat : c.uphill;
           const eff = cardVal - localPenalty;
           if (eff >= targetNumeric && eff < candidateEff) { candidate = c; candidateEff = eff; }
