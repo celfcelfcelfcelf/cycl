@@ -91,6 +91,96 @@ const tracks = {
 'La Fleche Wallone': '23333333333311333333000000333333333322223333333333311333333000000FFFFFFFFFF',
 'Omloop Het Nieuwsblad': '33323333323333333223311332233333333333311133113333333333333333FFFFFFFFFC'
 }
+// ========== TRACK BACKGROUND MAPPING ==========
+// Maps track names to location-based background images
+const getTrackBackground = (trackName) => {
+  const trackBackgrounds = {
+    // Classic Belgian Ardennes - Hilly forested regions
+    'Liege-Bastogne-Liege': 'url("https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=1600&q=80")', // Ardennes forest
+    'La Fleche Wallone': 'url("https://images.unsplash.com/photo-1555854877-bab0e564b8d5?w=1600&q=80")', // Ardennes
+    
+    // Northern France - Cobblestones
+    'Paris-Roubaix': 'url("https://images.unsplash.com/photo-1464207687429-7505649dae38?w=1600&q=80")', // Northern France countryside
+    
+    // Italian Riviera - Coastal
+    'Milano - San Remo': 'url("https://images.unsplash.com/photo-1534113414509-0bd4d187a7d0?w=1600&q=80")', // Italian coast
+    
+    // Belgian Flanders - Flat/cobbles
+    'FlandernRundt': 'url("https://images.unsplash.com/photo-1499678329028-101435549a4e?w=1600&q=80")', // Belgian countryside
+    'Omloop Het Nieuwsblad': 'url("https://images.unsplash.com/photo-1499678329028-101435549a4e?w=1600&q=80")', // Belgium
+    'Gent-Wevelgem': 'url("https://images.unsplash.com/photo-1499678329028-101435549a4e?w=1600&q=80")', // Flanders
+    'Dwars door Vlanderen': 'url("https://images.unsplash.com/photo-1499678329028-101435549a4e?w=1600&q=80")', // Flanders
+    'Brabantse Pijl': 'url("https://images.unsplash.com/photo-1499678329028-101435549a4e?w=1600&q=80")', // Belgium
+    
+    // Netherlands - Flat/hilly
+    'Amstel Gold Race': 'url("https://images.unsplash.com/photo-1534313314376-a34a6c5e7e9f?w=1600&q=80")', // Dutch hills
+    
+    // UK Yorkshire - Rolling hills
+    'World Championship 2019 (Yorkshire)': 'url("https://images.unsplash.com/photo-1590268337347-9ac12e86b02a?w=1600&q=80")', // Yorkshire moors
+    'Yorkshire': 'url("https://images.unsplash.com/photo-1590268337347-9ac12e86b02a?w=1600&q=80")', // Yorkshire
+    
+    // Mountain stages
+    'Hautacam': 'url("https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600&q=80")', // Pyrenees
+    'GiroStage20 Finestre': 'url("https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600&q=80")', // Italian Alps
+    
+    // Switzerland - Alpine
+    'VM 2018 (Innsbruck)': 'url("https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=1600&q=80")', // Austrian/Swiss Alps
+    'Küsnacht  ›  Küsnacht (Schweiz, 22, 1)': 'url("https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=1600&q=80")', // Switzerland
+    'VM 24 Zurich': 'url("https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=1600&q=80")', // Zurich
+    
+    // Spain - Varied terrain
+    'Donostia San Sebastian Klasikoa': 'url("https://images.unsplash.com/photo-1543783207-ec64e4d95325?w=1600&q=80")', // Basque Country
+    'Vitoria-Gasteiz  ›  Zamudio (Basque, 2022, 4)': 'url("https://images.unsplash.com/photo-1543783207-ec64e4d95325?w=1600&q=80")', // Basque
+    'Barcelona  ›  Barcelona, Catalonia (25, 7)': 'url("https://images.unsplash.com/photo-1583422409516-2895a77efded?w=1600&q=80")', // Barcelona
+    
+    // Germany - Varied
+    'Rundt um den Finanzplatz Eschborn-Frankfurt (2019)': 'url("https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=1600&q=80")', // German countryside
+    'Sparkassen Münsterland Giro': 'url("https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=1600&q=80")', // Germany
+    'Kassel-Winterberg': 'url("https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=1600&q=80")', // Germany
+    
+    // Scandinavia
+    'Askersund-Ludvika': 'url("https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=1600&q=80")', // Swedish forest
+    'Östersund-Funäsdalen': 'url("https://images.unsplash.com/photo-1509316975850-ff9c5deb0cd9?w=1600&q=80")', // Sweden
+    
+    // Italy - Various regions
+    'Gran Piemonte': 'url("https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1600&q=80")', // Piedmont
+    'Giro DellEmilia': 'url("https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1600&q=80")', // Italian hills
+    'Parma-Genova': 'url("https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1600&q=80")', // Northern Italy
+    'GP Industria': 'url("https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1600&q=80")', // Italy
+    
+    // Canada
+    'GP Montreal': 'url("https://images.unsplash.com/photo-1517935706615-2717063c2225?w=1600&q=80")', // Montreal cityscape
+    
+    // Japan
+    'Utsunomiya Japan Cup Road Race': 'url("https://images.unsplash.com/photo-1528164344705-47542687000d?w=1600&q=80")', // Japanese countryside
+    
+    // Middle East
+    'UAE Tour': 'url("https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1600&q=80")', // Dubai desert
+    
+    // Australia
+    'Tour Down Under (24, E2 - Norwood-Lobethal)': 'url("https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1600&q=80")', // Australian landscape
+    
+    // Poland
+    'Bukowina Resort  ›  Bukowina Tatrzańska (Polen, 25)': 'url("https://images.unsplash.com/photo-1505832018823-50331d70d237?w=1600&q=80")', // Polish Tatras
+    'Łańcut  ›  Rzeszów (Polen, 22, 5)': 'url("https://images.unsplash.com/photo-1505832018823-50331d70d237?w=1600&q=80")', // Poland
+    
+    // France - Various
+    'Classic Bretagne': 'url("https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1600&q=80")', // Brittany coast
+    'Saint-Julien-en-Saint-Alban  ›  Berre lÉtang': 'url("https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1600&q=80")', // French countryside
+    
+    // Default: general cycling image
+  };
+  
+  return trackBackgrounds[trackName] || 'url("https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80")'; // Default cycling image
+};
+
+// ========== RIDER PHOTO MAPPING ==========
+// Maps rider names to their photos - using UI Avatars with initials
+const getRiderPhoto = (riderName) => {
+  const encodedName = encodeURIComponent(riderName);
+  return `https://ui-avatars.com/api/?name=${encodedName}&size=200&background=random&color=fff&bold=true`;
+};
+
 // ========== MAIN COMPONENT ==========
 const CyclingGame = () => {
   const [gameState, setGameState] = useState('setup');
@@ -5331,7 +5421,7 @@ const checkCrash = () => {
   return (<>
     <div className="min-h-screen p-4" style={{
       backgroundColor: '#dcfce7',
-      backgroundImage: 'url("https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80")',
+      backgroundImage: getTrackBackground(trackName),
       backgroundSize: 'cover',
       backgroundPosition: 'center',
       backgroundAttachment: 'fixed',
@@ -5339,7 +5429,7 @@ const checkCrash = () => {
     }}>
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <div>
+          <div className="bg-white bg-opacity-80 p-4 rounded-lg shadow-md">
             {gameState === 'playing' ? (
               <>
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
@@ -5879,43 +5969,45 @@ const checkCrash = () => {
                       className={`w-full text-left p-2 rounded border ${isClickable ? 'bg-white hover:bg-blue-50 cursor-pointer' : 'bg-gray-50 opacity-60 cursor-not-allowed'}`}
                       style={{ zIndex: 60, pointerEvents: 'auto' }}
                     >
-                      <div className="font-semibold flex items-center gap-1">
-                        <span>{r.NAVN}</span>
-                        <Info 
-                          size={14} 
-                          className="text-blue-500 hover:text-blue-700 cursor-pointer flex-shrink-0"
-                          data-rider={r.NAVN}
-                          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                          onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                          onClick={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
-                          onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
-                        />
-                        {!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
+                      <div>
+                        <div className="font-semibold flex items-center gap-1">
+                            <span>{r.NAVN}</span>
+                            <Info 
+                              size={14} 
+                              className="text-blue-500 hover:text-blue-700 cursor-pointer flex-shrink-0"
+                              data-rider={r.NAVN}
+                              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: e.clientX, y: e.clientY }); }}
+                              onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); e.preventDefault(); setRiderTooltip({ name: r.NAVN, x: t.clientX, y: t.clientY }); } }}
+                            />
+                            {!inRemaining && <span className="ml-2 text-xs text-gray-500">(taken)</span>}
+                          </div>
+                          {(() => {
+                            // If multi-stage race, show stats for all stages
+                            if (isStageRace) {
+                              const cardInDraft = draftPool.find(c => c.NAVN === r.NAVN);
+                              const xpm = cardInDraft && cardInDraft.XprizeMoney ? cardInDraft.XprizeMoney : 0;
+                              return (
+                                <div className="text-xs text-gray-600 mt-1">
+                                  <div className="font-semibold mb-0.5">FLAD: {r.FLAD} | SPRINT: {r.SPRINT}</div>
+                                  {selectedStages.map((stage, idx) => {
+                                    const { modifiedBJERG, label } = computeModifiedBJERG(r, stage.track);
+                                    return (
+                                      <div key={idx} className={`${idx === currentStageIndex ? 'text-green-700 font-semibold' : ''}`}>
+                                        E{idx + 1}: {label}: {modifiedBJERG}
+                                      </div>
+                                    );
+                                  })}
+                                  <div className="font-semibold text-purple-700 mt-1">XPM: {xpm.toLocaleString()}</div>
+                                </div>
+                              );
+                            }
+                            // Single stage - show as before
+                            const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
+                            return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
+                          })()}
                       </div>
-                      {(() => {
-                        // If multi-stage race, show stats for all stages
-                        if (isStageRace) {
-                          const cardInDraft = draftPool.find(c => c.NAVN === r.NAVN);
-                          const xpm = cardInDraft && cardInDraft.XprizeMoney ? cardInDraft.XprizeMoney : 0;
-                          return (
-                            <div className="text-xs text-gray-600 mt-1">
-                              <div className="font-semibold mb-0.5">FLAD: {r.FLAD} | SPRINT: {r.SPRINT}</div>
-                              {selectedStages.map((stage, idx) => {
-                                const { modifiedBJERG, label } = computeModifiedBJERG(r, stage.track);
-                                return (
-                                  <div key={idx} className={`${idx === currentStageIndex ? 'text-green-700 font-semibold' : ''}`}>
-                                    E{idx + 1}: {label}: {modifiedBJERG}
-                                  </div>
-                                );
-                              })}
-                              <div className="font-semibold text-purple-700 mt-1">XPM: {xpm.toLocaleString()}</div>
-                            </div>
-                          );
-                        }
-                        // Single stage - show as before
-                        const { modifiedBJERG, label } = computeModifiedBJERG(r, track);
-                        return (<div className="text-xs text-gray-500">FLAD: {r.FLAD} {label}: {modifiedBJERG} SPRINT: {r.SPRINT}</div>);
-                      })()}
                     </button>
                   );
                 })}
