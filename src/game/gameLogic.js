@@ -25,18 +25,14 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 // Helper function: get effective slipstream value for card selection
 // When sv=3 (flat), return speed/2 instead of 3
 export const getEffectiveSV = (sv, speed) => {
-  if (sv === 3) return speed / 2;
+  if (sv === 3) return 3;
   return sv;
 };
 
 // Helper function: check if terrain is flat (for card value selection)
 export const isFlatTerrain = (sv, speed) => {
-  // Check if we're on flat terrain (original SV = 3)
-  // sv can be either:
-  // - Original SV value (3 for flat)
-  // - Effective SV value (speed/2 for flat terrain after getEffectiveSV)
-  // To handle both cases: flat terrain means sv === 3 OR sv === speed/2
-  return sv === 3 || sv === speed / 2;
+  // Flat terrain means sv === 3 (original or effective)
+  return sv === 3;
 };
 
 export const getLength = (track) => {

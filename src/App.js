@@ -5351,6 +5351,7 @@ const checkCrash = () => {
                   <div>• Alle Trætkort ryger i bunden</div>
                   <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
                   <div>• Når man spiller TK-ekstra mister man et TK</div>
+                  <div>• Slipstream på flad er altid 3.</div>
                 </div>
               </>
             )}
