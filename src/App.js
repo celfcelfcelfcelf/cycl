@@ -5329,7 +5329,14 @@ const checkCrash = () => {
   // Group UI removed per user request.
 
   return (<>
-    <div className="min-h-screen bg-green-100 p-4">
+    <div className="min-h-screen p-4" style={{
+      backgroundColor: '#dcfce7',
+      backgroundImage: 'url("https://images.unsplash.com/photo-1517649763962-0c623066013b?w=1600&q=80")',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundAttachment: 'fixed',
+      backgroundBlend: 'overlay'
+    }}>
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
