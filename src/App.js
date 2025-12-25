@@ -5336,6 +5336,12 @@ const checkCrash = () => {
             {gameState === 'playing' ? (
               <>
                 <h1 className="text-3xl font-bold">{trackName}</h1>
+                <div className="text-xs text-gray-700 mt-2 space-y-0.5">
+                  <div className="font-semibold">CYCL v. TEST1</div>
+                  <div>• Alle Trætkort ryger i bunden</div>
+                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
+                  <div>• Når man spiller TK-ekstra mister man et TK</div>
+                </div>
                 <div className="text-[11px] text-gray-600 mt-1">Level {level}</div>
               </>
             ) : (
