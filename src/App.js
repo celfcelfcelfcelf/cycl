@@ -5339,7 +5339,14 @@ const checkCrash = () => {
             ) : (
               <>
                 <h1 className="text-3xl font-bold">CYCL 2.2</h1>
-               
+                <a 
+                  href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:text-blue-800 underline mt-1 inline-block"
+                >
+                  TK omdannes til MK - Test
+                </a>
               </>
             )}
           </div>
