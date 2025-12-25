@@ -5454,9 +5454,14 @@ const checkCrash = () => {
             )}
           </div>
           <div>
-            <button onClick={() => setShowEngineUI(s => !s)} className="py-2 px-3 bg-indigo-600 text-white rounded">
-              {showEngineUI ? 'Hide Engine UI' : 'Show Engine UI'}
-            </button>
+            <a 
+              href="https://docs.google.com/document/d/13MRZW8XQ0AIlg6cBjSI_f951bEpFaq4x/edit" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-block py-2 px-3 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+            >
+              Regler
+            </a>
           </div>
         </div>
         {showEngineUI && (
