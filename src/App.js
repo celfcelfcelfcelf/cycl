@@ -5329,7 +5329,7 @@ const checkCrash = () => {
   // Group UI removed per user request.
 
   return (<>
-    <div className="min-h-screen bg-green-50 p-4">
+    <div className="min-h-screen bg-green-100 p-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
