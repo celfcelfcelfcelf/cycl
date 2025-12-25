@@ -5340,8 +5340,12 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold">CYCL 2.TESTVERSION</h1>
-                
+                <h1 className="text-3xl font-bold">CYCL v. TEST1</h1>
+                <div className="text-sm text-gray-700 mt-2 space-y-1">
+                  <div>• Alle Trætkort ryger i bunden</div>
+                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
+                  <div>• Når man spiller TK-ekstra mister man et TK</div>
+                </div>
               </>
             )}
           </div>
