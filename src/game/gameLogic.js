@@ -1885,7 +1885,16 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
-      logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard`);
+      
+      // Remove one TK kort: 16 from discarded as payment for using tk_extra
+      const tk16Index = updatedDiscarded.findIndex(c => c.id === 'kort: 16');
+      if (tk16Index !== -1) {
+        updatedDiscarded.splice(tk16Index, 1);
+        logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard, 1 TK-16 fjernet fra discard`);
+      } else {
+        logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard (ingen TK-16 at fjerne)`);
+      }
+      
       // Ensure any planned tk_extra marker is cleared
       try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
@@ -2602,7 +2611,16 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
-      logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard`);
+      
+      // Remove one TK kort: 16 from discarded as payment for using tk_extra
+      const tk16Index = updatedDiscarded.findIndex(c => c.id === 'kort: 16');
+      if (tk16Index !== -1) {
+        updatedDiscarded.splice(tk16Index, 1);
+        logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard, 1 TK-16 fjernet fra discard`);
+      } else {
+        logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard (ingen TK-16 at fjerne)`);
+      }
+      
       try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       // Remove exactly the chosen card instance (match by reference)
