@@ -124,6 +124,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
+  const [tkPerTk1, setTkPerTk1] = useState(2); // TK-16 per TK-1 conversion rate (1-4)
   const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
   const [gcTestMode, setGcTestMode] = useState(false); // GC test mode: all stages use sprinttest
   const [manualStageSelection, setManualStageSelection] = useState([]); // Manual stage selection for stage races
@@ -3247,7 +3248,7 @@ const confirmMove = (cardsSnapshot) => {
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
   // Pass the updatedCards (with dobbeltføring_leader flags set) to the engine helper
-  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track);
+  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random, tkPerTk1);
     // replace updated cards and collect logs
     for (const [n, r] of Object.entries(nonAttRes.updatedCards)) updatedCards[n] = r;
     for (const entry of nonAttRes.logs || []) addLog(entry);
@@ -3263,7 +3264,7 @@ const confirmMove = (cardsSnapshot) => {
 
   // Second phase: move attackers separately (delegated to pure helper)
   try {
-    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random);
+    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random, tkPerTk1);
     if (attRes && attRes.updatedCards) {
       for (const [n, r] of Object.entries(attRes.updatedCards)) updatedCards[n] = r;
     }
@@ -5339,8 +5340,8 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold">CYCL 2.2</h1>
-               
+                <h1 className="text-3xl font-bold">CYCL 2.TESTVERSION</h1>
+                
               </>
             )}
           </div>

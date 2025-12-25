@@ -1722,7 +1722,7 @@ export const computeInitialStats = (cardsObj, selectedTrack, round = 0, numberOf
 
 // Compute non-attacker moves for a group as a pure function.
 // Returns updatedCards (new object), groupsNewPositions array and logs array.
-export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random) => {
+export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 2) => {
   // Deep clone cardsObj to avoid mutating caller state
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const groupsNewPositions = [];
@@ -1922,8 +1922,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     if (updatedHandCards.length < 5) {
       // Count TK kort: 16 cards in discarded
       const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
-      const tk1ToAdd = Math.floor(tk16Count / 2); // 2 TK-16 → 1 TK-1
-      const tk16ToKeep = tk16Count % 2; // Keep 1 if odd number
+      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
+      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
       
       // Remove all kort: 16 from discarded
       const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
@@ -1931,22 +1931,24 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       // Add non-TK cards back to hand
       updatedHandCards.push(...nonTK16);
       
-      // Add TK-1 penalty cards to hand (2 TK-16 → 1 TK-1)
+      // Add TK-1 penalty cards to hand (X TK-16 → 1 TK-1)
       for (let i = 0; i < tk1ToAdd; i++) {
         updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
       }
       
-      // Keep 1 TK-16 in discarded if odd number
+      // Keep remainder TK-16 in discarded if not enough for full TK-1
       updatedDiscarded = [];
       if (tk16ToKeep > 0) {
-        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        for (let i = 0; i < tk16ToKeep; i++) {
+          updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        }
       }
       
       // shuffle using Fisher-Yates with injected rng
       shuffle(updatedHandCards, rng);
       
       if (tk1ToAdd > 0) {
-        logs.push(`${name}: kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ' + 1 TK-16 gemt' : ''})`);
+        logs.push(`${name}: kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
       } else {
         logs.push(`${name}: kort blandet`);
       }
@@ -2414,7 +2416,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
 // Compute attacker moves for a group as a pure function.
 // Accepts the cards object (which should already include non-attacker updates),
 // and returns { updatedCards, groupsNewPositions, logs }.
-export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random) => {
+export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 2) => {
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const logs = [];
   const groupsNewPositions = [];
@@ -2647,8 +2649,8 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     if (updatedHandCards.length < 5) {
       // Count TK kort: 16 cards in discarded
       const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
-      const tk1ToAdd = Math.floor(tk16Count / 2); // 2 TK-16 → 1 TK-1
-      const tk16ToKeep = tk16Count % 2; // Keep 1 if odd number
+      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
+      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
       
       // Remove all kort: 16 from discarded
       const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
@@ -2656,21 +2658,23 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       // Add non-TK cards back to hand
       updatedHandCards.push(...nonTK16);
       
-      // Add TK-1 penalty cards to hand (2 TK-16 → 1 TK-1)
+      // Add TK-1 penalty cards to hand (X TK-16 → 1 TK-1)
       for (let i = 0; i < tk1ToAdd; i++) {
         updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
       }
       
-      // Keep 1 TK-16 in discarded if odd number
+      // Keep remainder TK-16 in discarded if not enough for full TK-1
       updatedDiscarded = [];
       if (tk16ToKeep > 0) {
-        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        for (let i = 0; i < tk16ToKeep; i++) {
+          updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        }
       }
       
       shuffle(updatedHandCards, rng);
       
       if (tk1ToAdd > 0) {
-        logs.push(`${name} (attacker): kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ' + 1 TK-16 gemt' : ''})`);
+        logs.push(`${name} (attacker): kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
       } else {
         logs.push(`${name} (attacker): kort blandet`);
       }
