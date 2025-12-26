@@ -5441,24 +5441,16 @@ const checkCrash = () => {
             {gameState === 'playing' ? (
               <>
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
-                <div className="text-xs text-black mt-2 space-y-0.5">
-                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 hover:text-blue-800 underline">CYCL 2.2</a>
-                  <div>• Alle Trætkort ryger i bunden</div>
-                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
-                  <div>• Når man spiller TK-ekstra mister man et TK</div>
+                <div className="text-xs text-black mt-2">
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 hover:text-blue-800 underline">LINK TIL TESTVERSION</a>
                 </div>
                 <div className="text-[11px] text-black mt-1">Level {level}</div>
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold text-black">
-                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">CYCL 2.2</a>
-                </h1>
-                <div className="text-sm text-black mt-2 space-y-1">
-                  <div>• Alle Trætkort ryger i bunden</div>
-                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
-                  <div>• Når man spiller TK-ekstra mister man et TK</div>
-                  <div>• Slipstream på flad er altid 3.</div>
+                <h1 className="text-3xl font-bold text-black">CYCL 2.2</h1>
+                <div className="text-sm text-black mt-2">
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">LINK TIL TESTVERSION</a>
                 </div>
               </>
             )}
