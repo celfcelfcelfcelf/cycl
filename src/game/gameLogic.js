@@ -1183,6 +1183,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     attack_prob_percent = attack_prob_percent / Math.max(1, Object.keys(cardsState).length) * 9;
     attack_prob_percent = attack_prob_percent * (mentalitet / 4);
     attack_prob_percent = attack_prob_percent * fb_ratio;
+    attack_prob_percent = attack_prob_percent * (1.2 - (rider.fatigue || 0));  // Reduce attack probability when fatigued
 
     const attack_prob = Math.floor(1 / Math.max(1e-9, attack_prob_percent)) + 1;
     const attack_roll = Math.floor(rng() * (attack_prob + 1));
