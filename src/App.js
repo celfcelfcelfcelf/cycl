@@ -5442,7 +5442,7 @@ const checkCrash = () => {
               <>
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
                 <div className="text-xs text-black mt-2 space-y-0.5">
-                  <div className="font-semibold">CYCL v. TEST1</div>
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 hover:text-blue-800 underline">CYCL 2.2</a>
                   <div>• Alle Trætkort ryger i bunden</div>
                   <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
                   <div>• Når man spiller TK-ekstra mister man et TK</div>
@@ -5451,7 +5451,9 @@ const checkCrash = () => {
               </>
             ) : (
               <>
-                <h1 className="text-3xl font-bold text-black">CYCL v. TEST1</h1>
+                <h1 className="text-3xl font-bold text-black">
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">CYCL 2.2</a>
+                </h1>
                 <div className="text-sm text-black mt-2 space-y-1">
                   <div>• Alle Trætkort ryger i bunden</div>
                   <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
