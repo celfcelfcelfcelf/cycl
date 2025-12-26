@@ -166,6 +166,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const topTilesRef = useRef(null);
   const dobbeltføringLeadersRef = useRef([]);
   const teamPacesForGroupRef = useRef({});
+  const allGroupsThisTurnRef = useRef([]); // Track all group positions in current turn for slipstream catches
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
   const abbrevFirstName = (fullName) => {
     if (!fullName || typeof fullName !== 'string') return fullName || '';
@@ -3239,7 +3240,8 @@ const confirmMove = (cardsSnapshot) => {
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
   // Pass the updatedCards (with dobbeltføring_leader flags set) to the engine helper
-  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track);
+  // Also pass previousGroupPositions from allGroupsThisTurnRef so riders can catch earlier groups
+  const nonAttRes = computeNonAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random, allGroupsThisTurnRef.current);
     // replace updated cards and collect logs
     for (const [n, r] of Object.entries(nonAttRes.updatedCards)) updatedCards[n] = r;
     for (const entry of nonAttRes.logs || []) addLog(entry);
@@ -3255,7 +3257,7 @@ const confirmMove = (cardsSnapshot) => {
 
   // Second phase: move attackers separately (delegated to pure helper)
   try {
-    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random);
+    const attRes = computeAttackerMoves(updatedCards, currentGroup, computedSpeed, computedSlipstream, track, Math.random, allGroupsThisTurnRef.current);
     if (attRes && attRes.updatedCards) {
       for (const [n, r] of Object.entries(attRes.updatedCards)) updatedCards[n] = r;
     }
@@ -3267,6 +3269,11 @@ const confirmMove = (cardsSnapshot) => {
   } catch (e) {
     try { addLog('Error in computeAttackerMoves, falling back to inline attacker logic'); } catch (err) {}
   }
+  
+  // Store this group's final positions for future groups to use in slipstream catches
+  // This allows riders in later groups (e.g., Group 1) to catch earlier groups (e.g., Group 2)
+  allGroupsThisTurnRef.current.push(...groupsNewPositions);
+  allGroupsThisTurnRef.current.sort((a, b) => b[0] - a[0]); // Keep sorted by position descending
   
   // ===== OPDATER STATE ÉN GANG =====
   // Post-move adjustment: for riders who could not follow the group (moved
@@ -3710,6 +3717,7 @@ const moveToNextGroup = () => {
   setTeamPaceMeta({});
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
+  allGroupsThisTurnRef.current = []; // Clear group positions for new round
   setGroupSpeed(0);  // Reset groupSpeed for the new round
   // Compute deterministic team order for this round based on base order
   const base = teamBaseOrder && teamBaseOrder.length === teams.length ? teamBaseOrder : [...teams];
