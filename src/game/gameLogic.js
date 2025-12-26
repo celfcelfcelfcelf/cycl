@@ -1,8 +1,8 @@
 // Shared pure game logic utilities (exported for UI modules)
 // 
-// EXPERIMENTAL RULE (flat50 branch):
-// - On flat terrain (sv=3), slipstream value becomes speed/2 instead of fixed 3
-// - Card value selection unchanged: still use flat card values on flat terrain
+// TK-test branch rules:
+// - On flat terrain (sv=3), slipstream value stays as 3 (standard rules)
+// - Card value selection uses flat card values on flat terrain
 
 export const convertToSeconds = (number) => {
   const minutes = Math.floor(number / 60);
@@ -23,7 +23,7 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 };
 
 // Helper function: get effective slipstream value for card selection
-// When sv=3 (flat), return speed/2 instead of 3
+// In TK-test: sv=3 (flat) stays as 3 (standard slipstream rules)
 export const getEffectiveSV = (sv, speed) => {
   if (sv === 3) return 3;
   return sv;
