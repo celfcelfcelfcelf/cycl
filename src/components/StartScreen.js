@@ -84,6 +84,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
   const [selectedTrack, setSelectedTrack] = useState(Object.keys(tracks)[0]);
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
+  const [tkPerTk1, setTkPerTk1] = useState(2); // Default: 2 TK-16 → 1 TK-1
   
   // Calculate default number of attackers based on total riders
   const totalRiders = numberOfTeams * ridersPerTeam;
@@ -105,7 +106,8 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
       ridersPerTeam,
       totalRiders,
       numAttackers,
-      attackerLeadFields
+      attackerLeadFields,
+      tkPerTk1 // Add new setting
     };
     onStartGame && onStartGame(cfg);
   }
@@ -118,7 +120,8 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
       ridersPerTeam: 3,
       totalRiders: 9,
       numAttackers: 1,
-      attackerLeadFields: 5
+      attackerLeadFields: 5,
+      tkPerTk1: 2 // Default for quick start
     };
     onQuickStart ? onQuickStart(quickCfg) : onStartGame && onStartGame(quickCfg, true);
   }
@@ -192,6 +195,26 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
               <span>10</span>
             </div>
           </div>
+        </div>
+
+        {/* TK settings */}
+        <div className="mb-4">
+          <label className="block font-semibold mb-2">Trætkort per Minuskort: {tkPerTk1}</label>
+          <input 
+            type="range" 
+            min="1" 
+            max="4" 
+            value={tkPerTk1} 
+            onChange={e => setTkPerTk1(Number(e.target.value))}
+            className="w-full"
+          />
+          <div className="flex justify-between text-xs text-gray-600 mt-1">
+            <span>1</span>
+            <span>2</span>
+            <span>3</span>
+            <span>4</span>
+          </div>
+          <p className="text-xs text-gray-600 mt-1">Hvor mange TK kort: 16 der skal til for at lave 1 TK-1 når kort blandes</p>
         </div>
 
         {/* Show visualization for the currently selected track under the controls */}

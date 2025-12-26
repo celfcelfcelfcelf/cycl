@@ -25,18 +25,14 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 // Helper function: get effective slipstream value for card selection
 // When sv=3 (flat), return speed/2 instead of 3
 export const getEffectiveSV = (sv, speed) => {
-  if (sv === 3) return speed / 2;
+  if (sv === 3) return 3;
   return sv;
 };
 
 // Helper function: check if terrain is flat (for card value selection)
 export const isFlatTerrain = (sv, speed) => {
-  // Check if we're on flat terrain (original SV = 3)
-  // sv can be either:
-  // - Original SV value (3 for flat)
-  // - Effective SV value (speed/2 for flat terrain after getEffectiveSV)
-  // To handle both cases: flat terrain means sv === 3 OR sv === speed/2
-  return sv === 3 || sv === speed / 2;
+  // Flat terrain means sv === 3 (original or effective)
+  return sv === 3;
 };
 
 export const getLength = (track) => {
@@ -1730,7 +1726,7 @@ export const computeInitialStats = (cardsObj, selectedTrack, round = 0, numberOf
 
 // Compute non-attacker moves for a group as a pure function.
 // Returns updatedCards (new object), groupsNewPositions array and logs array.
-export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, previousGroupPositions = []) => {
+export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 2, previousGroupPositions = []) => {
   // Deep clone cardsObj to avoid mutating caller state
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const groupsNewPositions = [];
@@ -1900,7 +1896,16 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
-      logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard`);
+      
+      // Remove one TK kort: 16 from discarded as payment for using tk_extra
+      const tk16Index = updatedDiscarded.findIndex(c => c.id === 'kort: 16');
+      if (tk16Index !== -1) {
+        updatedDiscarded.splice(tk16Index, 1);
+        logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard, 1 TK-16 fjernet fra discard`);
+      } else {
+        logs.push(`${name}: tk_extra brugt - ${converted.length} kort til discard (ingen TK-16 at fjerne)`);
+      }
+      
       // Ensure any planned tk_extra marker is cleared
       try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
@@ -1926,11 +1931,38 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
     // reshuffle if under 5
     if (updatedHandCards.length < 5) {
-      updatedHandCards.push(...updatedDiscarded);
+      // Count TK kort: 16 cards in discarded
+      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
+      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
+      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
+      
+      // Remove all kort: 16 from discarded
+      const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      
+      // Add non-TK cards back to hand
+      updatedHandCards.push(...nonTK16);
+      
+      // Add TK-1 penalty cards to hand (X TK-16 → 1 TK-1)
+      for (let i = 0; i < tk1ToAdd; i++) {
+        updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      }
+      
+      // Keep remainder TK-16 in discarded if not enough for full TK-1
+      updatedDiscarded = [];
+      if (tk16ToKeep > 0) {
+        for (let i = 0; i < tk16ToKeep; i++) {
+          updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        }
+      }
+      
       // shuffle using Fisher-Yates with injected rng
       shuffle(updatedHandCards, rng);
-      updatedDiscarded = [];
-      logs.push(`${name}: kort blandet`);
+      
+      if (tk1ToAdd > 0) {
+        logs.push(`${name}: kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
+      } else {
+        logs.push(`${name}: kort blandet`);
+      }
     }
 
     // add EC / TK-1 handling simplified
@@ -1951,17 +1983,11 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const exhaustionCards = [];
     for (let i = 0; i < ecs; i++) exhaustionCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     const totalEx = exhaustionCards.length + (hasTK1 ? 1 : 0);
-    if (totalEx === 1) {
-      if (!hasTK1 && exhaustionCards.length === 1) updatedHandCards.unshift(exhaustionCards[0]);
-    } else if (totalEx >= 2) {
-      if (hasTK1) {
-        updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
-        logs.push(`${name}: ${exhaustionCards.length} exhaustion card(s) moved to discard`);
-      } else {
-        const frontCard = exhaustionCards.shift();
-        if (frontCard) updatedHandCards.unshift(frontCard);
-        if (exhaustionCards.length > 0) updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
-      }
+    
+    // All TK kort: 16 should go to discarded, not hand
+    if (exhaustionCards.length > 0) {
+      updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
+      logs.push(`${name}: ${exhaustionCards.length} TK kort moved to discard`);
     }
 
     // compute fatigue
@@ -2071,36 +2097,35 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
     // Generate fresh cards for the rider
     const freshCards = generateCards(originalRider, isBreakaway);
     
-    // Add converted TK-1 cards and half of exhaustion cards
-    const cardsToAdd = [];
+    // Separate TK-16 from fresh cards
+    const freshTK16 = freshCards.filter(c => c.id === 'kort: 16');
+    const freshRegular = freshCards.filter(c => c.id !== 'kort: 16');
+    
+    // Add converted TK-1 cards and half of exhaustion cards to discarded
+    const cardsToDiscard = [];
     
     // Add all TK-1 as regular TK (kort: 16)
     for (let i = 0; i < convertedTKFromTK1; i++) {
-      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      cardsToDiscard.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     }
     
     // Add half of exhaustion cards
     for (let i = 0; i < halfExhaustion; i++) {
-      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      cardsToDiscard.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     }
     
-    // Combine fresh cards with kept TK cards and shuffle
-    const allNewCards = [...freshCards, ...cardsToAdd];
-    // Shuffle using Fisher-Yates
-    for (let i = allNewCards.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [allNewCards[i], allNewCards[j]] = [allNewCards[j], allNewCards[i]];
-    }
+    // All TK-16 cards (fresh + converted + kept) go to discarded
+    const allTK16 = [...freshTK16, ...cardsToDiscard];
     
-    logs.push(`${name}: Added ${cardsToAdd.length} TK cards (${convertedTKFromTK1} from TK-1 conversion, ${halfExhaustion} from exhaustion)`);
+    logs.push(`${name}: ${cardsToDiscard.length} TK cards to discard (${convertedTKFromTK1} from TK-1 conversion, ${halfExhaustion} from exhaustion, ${freshTK16.length} fresh)`);
     
     updatedCards[name] = {
       ...rider,
       position: isBreakaway ? attackerLeadFields : 0,
       old_position: isBreakaway ? attackerLeadFields : 0,
       group: isBreakaway ? 1 : 2,
-      cards: allNewCards,
-      discarded: [],
+      cards: freshRegular,
+      discarded: allTK16,
       finished: false,
       prel_time: 10000,
       time_after_winner: 10000,
@@ -2109,7 +2134,7 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
       takes_lead: 0,
       selected_value: -1,
       attacking_status: 'no',
-      fatigue: cardsToAdd.length / allNewCards.length, // Recalculate fatigue based on TK ratio
+      fatigue: allTK16.length / (freshRegular.length + allTK16.length), // Recalculate fatigue based on TK ratio
       penalty: 0,
       sprint_points: 0, // Reset sprint points for new stage
       tk_penalty: 0, // Reset TK penalty for new stage
@@ -2402,7 +2427,7 @@ export const runSprintsPure = (cardsObj, trackStr, sprintGroup = null, round = 0
 // Compute attacker moves for a group as a pure function.
 // Accepts the cards object (which should already include non-attacker updates),
 // and returns { updatedCards, groupsNewPositions, logs }.
-export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, previousGroupPositions = []) => {
+export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream, track, rng = Math.random, tkPerTk1 = 2, previousGroupPositions = []) => {
   const updatedCards = JSON.parse(JSON.stringify(cardsObj));
   const logs = [];
   const groupsNewPositions = [];
@@ -2625,7 +2650,16 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
       const cardsToDiscard = updatedHandCards.splice(0, discardCount);
       const converted = cardsToDiscard.map(cd => (cd && cd.id && cd.id.startsWith('TK-1')) ? { id: 'kort: 16', flat: 2, uphill: 2 } : cd);
       updatedDiscarded = [...updatedDiscarded, ...converted];
-      logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard`);
+      
+      // Remove one TK kort: 16 from discarded as payment for using tk_extra
+      const tk16Index = updatedDiscarded.findIndex(c => c.id === 'kort: 16');
+      if (tk16Index !== -1) {
+        updatedDiscarded.splice(tk16Index, 1);
+        logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard, 1 TK-16 fjernet fra discard`);
+      } else {
+        logs.push(`${name}: (attacker) tk_extra brugt - ${converted.length} kort til discard (ingen TK-16 at fjerne)`);
+      }
+      
       try { delete updatedCards[name].planned_card_id; delete updatedCards[name].human_planned; } catch (e) {}
     } else {
       // Remove exactly the chosen card instance (match by reference)
@@ -2650,10 +2684,37 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
 
     if (updatedHandCards.length < 5) {
-      updatedHandCards.push(...updatedDiscarded);
-      shuffle(updatedHandCards, rng);
+      // Count TK kort: 16 cards in discarded
+      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
+      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
+      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
+      
+      // Remove all kort: 16 from discarded
+      const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      
+      // Add non-TK cards back to hand
+      updatedHandCards.push(...nonTK16);
+      
+      // Add TK-1 penalty cards to hand (X TK-16 → 1 TK-1)
+      for (let i = 0; i < tk1ToAdd; i++) {
+        updatedHandCards.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      }
+      
+      // Keep remainder TK-16 in discarded if not enough for full TK-1
       updatedDiscarded = [];
-      logs.push(`${name} (attacker): kort blandet`);
+      if (tk16ToKeep > 0) {
+        for (let i = 0; i < tk16ToKeep; i++) {
+          updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+        }
+      }
+      
+      shuffle(updatedHandCards, rng);
+      
+      if (tk1ToAdd > 0) {
+        logs.push(`${name} (attacker): kort blandet (${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
+      } else {
+        logs.push(`${name} (attacker): kort blandet`);
+      }
     }
 
     try {
