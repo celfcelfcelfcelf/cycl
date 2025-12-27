@@ -1001,8 +1001,6 @@ export const getPenalty = (riderName, cards) => {
   let penalty = 0;
   for (let i = 0; i < Math.min(4, realCards.length); i++) {
     if (realCards[i].id === 'TK-1: 99') penalty++;
-  }
-  return penalty;
 };
 
 export const getTeamMatesInGroup = (riderName, cards) => {
