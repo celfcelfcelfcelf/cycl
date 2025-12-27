@@ -1,8 +1,8 @@
 // Shared pure game logic utilities (exported for UI modules)
 // 
-// TK-test branch rules:
-// - On flat terrain (sv=3), slipstream value stays as 3 (standard rules)
-// - Card value selection uses flat card values on flat terrain
+// EXPERIMENTAL RULE (flat50 branch):
+// - On flat terrain (sv=3), slipstream value becomes speed/2 instead of fixed 3
+// - Card value selection unchanged: still use flat card values on flat terrain
 
 export const convertToSeconds = (number) => {
   const minutes = Math.floor(number / 60);
@@ -23,7 +23,7 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 };
 
 // Helper function: get effective slipstream value for card selection
-// In TK-test: sv=3 (flat) stays as 3 (standard slipstream rules)
+// When sv=3 (flat), return speed/2 instead of 3
 export const getEffectiveSV = (sv, speed) => {
   if (sv === 3) return 3;
   return sv;
@@ -992,9 +992,11 @@ export const shuffle = (arr, rng = Math.random) => {
 
 export const getPenalty = (riderName, cards) => {
   const riderCards = (cards[riderName] && cards[riderName].cards) || [];
+  // Filter out synthetic tk_extra cards before counting penalty, as they're temporarily injected
+  const realCards = riderCards.filter(c => !(c && c.id === 'tk_extra 99'));
   let penalty = 0;
-  for (let i = 0; i < Math.min(4, riderCards.length); i++) {
-    if (riderCards[i].id === 'TK-1: 99') penalty++;
+  for (let i = 0; i < Math.min(4, realCards.length); i++) {
+    if (realCards[i].id === 'TK-1: 99') penalty++;
   }
   return penalty;
 };
@@ -1271,7 +1273,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
     chance_tl = chance_tl * ((team_members_in_group - captain) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
     chance_tl = chance_tl * Math.pow(Math.max(1 / numberOfTeams, prob_front - prob_team_front * numberOfTeams, prob_back - prob_team_back * numberOfTeams) * numberOfTeams, 2);
-    chance_tl = chance_tl * Math.pow(1 - (rider.fatigue || 0), 0.5);
+    chance_tl = chance_tl * Math.pow(1 - (rider.fatigue || 0), 1);
     chance_tl = chance_tl * Math.pow(Math.min(1, 7 / Math.max(1, bestSelCard)), 2);
     chance_tl = chance_tl * Math.pow(60 / Math.max(1, lenLeft), 0.5);
     const human = humanResponsibility(group, ['Me'], groupSize, teamsInGroup, numberOfTeams, lenLeft, cardsState);
@@ -1365,7 +1367,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
         chance_tl_gc = chance_tl_gc * ((team_members_in_group_gc - captain_gc) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
         chance_tl_gc = chance_tl_gc * Math.pow(Math.max(1 / numberOfTeams, prob_front_gc - prob_team_front_gc * numberOfTeams, prob_back_gc - prob_team_back_gc * numberOfTeams) * numberOfTeams, 2);
-        chance_tl_gc = chance_tl_gc * Math.pow(1 - (rider.fatigue || 0), 0.5);
+        chance_tl_gc = chance_tl_gc * Math.pow(1 - (rider.fatigue || 0), 0,75);
         chance_tl_gc = chance_tl_gc * Math.pow(Math.min(1, 7 / Math.max(1, bestSelCard)), 2);
         chance_tl_gc = chance_tl_gc * Math.pow(60 / Math.max(1, lenLeft), 0.5);
         const human_gc = humanResponsibilityGC(group, ['Me'], groupSize, teamsInGroup, numberOfTeams, lenLeft, cardsState);
@@ -1610,7 +1612,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     const get_value_track_left = getValue(track_left);
     const FLAD = rider.flad || 50;
     const BJERG = rider.bjerg || 50;
-    const multiplier = Math.pow((get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68, 1.5);
+    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
     ideal_move = ideal_move * multiplier;
   }
 
@@ -2027,7 +2029,9 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     const takesLeadStr = chosenValue > 0 ? ' (lead)' : '';
     const followChar = eligibleForSlip ? '✓' : '✗';
     const managedInfo = managed ? '' : ' (auto)';
-    const top4Cards = (rider.cards || []).slice(0, 4).map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', ');
+    // Filter out synthetic tk_extra cards when showing the hand, as they're injected temporarily
+    const realCards = (rider.cards || []).filter(c => !(c && c.id === 'tk_extra 99'));
+    const top4Cards = realCards.slice(0, 4).map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', ');
     logs.push(`Group ${groupNum}: ${name} (${rider.team}) spiller ${chosenCard.id} (${cardFlat}-${cardUphill}) ${oldPosition}→${newPos}${takesLeadStr} ${followChar}${managedInfo} [havde: ${top4Cards}]`);
     logs.push(`${name} DEBUG: sv=${slipstream} penalty=${penalty} cardVal=${cardValue} effective=${effectiveValue} minReq=${minRequiredToFollow} eligible=${eligibleForSlip} moveBy=${moveBy} finalPos=${newPos} groupsNewPositionsTop=${groupsNewPositions.map(g=>g[0]).slice(0,5).join(',')}`);
 
