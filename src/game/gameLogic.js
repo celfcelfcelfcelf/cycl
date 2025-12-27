@@ -1613,7 +1613,12 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
     // Apply rider-specific adjustment based on track characteristics and rider abilities
     const track_left = trackStr.slice(rider.position);
-    const get_value_track_left = getValue(track_left);
+    // Calculate average terrain value (0-3) for remaining track
+    const track_left_to_finish = track_left.slice(0, track_left.indexOf('F'));
+    const track_chars = track_left_to_finish.replace(/_/g, '3').split('');
+    const get_value_track_left = track_chars.length > 0 
+      ? track_chars.reduce((sum, char) => sum + parseFloat(char), 0) / track_chars.length 
+      : 2;
     const FLAD = rider.flad || 50;
     const BJERG = rider.bjerg || 50;
     const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
