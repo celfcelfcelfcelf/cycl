@@ -1055,7 +1055,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // local penalties (TK-1 / kort:16) and slipstream are always considered.
       // This prevents AI choosing a selected_value that cannot actually be played
       // when penalties are present.
-      selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
+      selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, [], addLog);
 
       // IMPORTANT: selected_value must be limited to what the rider can actually play
       // If takes_lead > 0, verify the rider has a card that can produce this value
