@@ -1616,7 +1616,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     const get_value_track_left = getValue(track_left);
     const FLAD = rider.flad || 50;
     const BJERG = rider.bjerg || 50;
-    const multiplier = Math.pow((get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68, 1.5);
+    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
     ideal_move = ideal_move * multiplier;
   }
 
