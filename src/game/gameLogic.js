@@ -1615,7 +1615,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 73;
     const ideal_move_before = ideal_move;
     ideal_move = ideal_move * multiplier;
-    logger(`${rider.name}: ideal_move før adjustment: ${ideal_move_before.toFixed(2)}, efter adjustment (multiplier ${multiplier.toFixed(2)}): ${ideal_move.toFixed(2)}`);
+    logger(`📊 ${riderName}: ideal_move før=${ideal_move_before.toFixed(2)}, multiplier=${multiplier.toFixed(2)}, efter=${ideal_move.toFixed(2)}`);
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
