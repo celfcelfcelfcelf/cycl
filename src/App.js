@@ -3865,6 +3865,7 @@ const moveToNextGroup = () => {
   // ===== TK-16 → TK-1 CONVERSION (TK-test only) =====
   // At the start of each new round, convert TK-16 cards from discarded pile to TK-1 cards
   // Formula: For every 2 TK-16 cards in discarded, add 1 TK-1 to top of hand
+  const tk16ConversionMsgs = [];
   for (const riderName of Object.keys(updatedCards)) {
     const rider = updatedCards[riderName];
     if (rider.finished) continue;
@@ -3891,8 +3892,31 @@ const moveToNextGroup = () => {
       }
       updatedCards[riderName].discarded = newDiscarded;
       
-      addLog(`${riderName} har fået ${tk1sToAdd} TK-1`);
+      // Store message for display in yellow box
+      tk16ConversionMsgs.push({ name: riderName, tk1Count: tk1sToAdd });
     }
+  }
+  
+  // If any conversions happened, show them in the yellow box and require Continue
+  if (tk16ConversionMsgs.length > 0) {
+    setCards(updatedCards);
+    setPostMoveInfo({
+      groupMoved: 0,
+      msgs: tk16ConversionMsgs.map(m => ({
+        name: m.name,
+        team: updatedCards[m.name].team,
+        displayCard: `${m.tk1Count} TK-1`,
+        oldPos: '',
+        newPos: '',
+        isLead: false,
+        failed: false
+      })),
+      remainingNotMoved: [],
+      sv: 0,
+      speed: 0,
+      isTK16Conversion: true
+    });
+    return; // Stop here, user must click Continue
   }
   // ===== END TK-16 → TK-1 CONVERSION =====
 
@@ -6806,10 +6830,22 @@ const checkCrash = () => {
 
                   {postMoveInfo && (
                     <div className="mt-3 p-3 border rounded bg-yellow-50">
-                                      <div className="mb-2 text-sm font-medium">
-                                        {/* Show the group number and group stats at the top in bold */}
-                                        <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={postMoveInfo.speed || 0}, sv={postMoveInfo.sv || 0})</div>
-                                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
+                      <div className="mb-2 text-sm font-medium">
+                        {/* Special display for TK-16 → TK-1 conversion */}
+                        {postMoveInfo.isTK16Conversion ? (
+                          <>
+                            <div className="mb-2 text-sm font-bold">TK-16 → TK-1 Conversion (Start of Round)</div>
+                            {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
+                              <div key={i} className="mb-1">
+                                <span className="font-semibold">{m.name}</span> ({m.team}) har fået {m.displayCard}
+                              </div>
+                            ))}
+                          </>
+                        ) : (
+                          <>
+                            {/* Show the group number and group stats at the top in bold */}
+                            <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={postMoveInfo.speed || 0}, sv={postMoveInfo.sv || 0})</div>
+                            {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
                           const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
                           return (
                           <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>
@@ -6834,6 +6870,8 @@ const checkCrash = () => {
                           </div>
                         );
                         })}
+                          </>
+                        )}
                       </div>
                       {(() => {
                         try {
@@ -6862,6 +6900,11 @@ const checkCrash = () => {
                         } catch (e) { return null; }
                       })()}
                       <div className="flex justify-end">
+                        {/* Special handling for TK-16 conversion: just show Continue button */}
+                        {postMoveInfo.isTK16Conversion ? (
+                          <button onClick={() => { setPostMoveInfo(null); startNewRound(); }} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
+                        ) : (
+                          <>
                         {/* Offer pull-back action when attackers exist in the moved group */}
                         {(() => {
                           try {
@@ -6928,6 +6971,8 @@ const checkCrash = () => {
                             );
                           } catch (e) { return null; }
                         })()}
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
