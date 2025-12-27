@@ -1609,13 +1609,19 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
     // Apply rider-specific adjustment based on track characteristics and rider abilities
     const track_left = trackStr.slice(rider.position);
-    const get_value_track_left = getValue(track_left);
+    // Calculate average terrain value (0-3) for remaining track
+    const track_left_to_finish = track_left.slice(0, track_left.indexOf('F'));
+    const track_chars = track_left_to_finish.replace(/_/g, '3').split('');
+    const get_value_track_left = track_chars.length > 0 
+      ? track_chars.reduce((sum, char) => sum + parseFloat(char), 0) / track_chars.length 
+      : 2;
     const FLAD = rider.flad || 50;
     const BJERG = rider.bjerg || 50;
-    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 73;
+    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
     const ideal_move_before = ideal_move;
     ideal_move = ideal_move * multiplier;
     logger(`📊 ${riderName}: ideal_move før=${ideal_move_before.toFixed(2)}, multiplier=${multiplier.toFixed(2)}, efter=${ideal_move.toFixed(2)}`);
+    logger(`   └─ track_value=${get_value_track_left.toFixed(2)}, FLAD=${FLAD}, BJERG=${BJERG}, numerator=${(get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD).toFixed(2)}`);
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
