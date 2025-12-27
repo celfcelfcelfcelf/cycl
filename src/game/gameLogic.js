@@ -1612,7 +1612,7 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     const get_value_track_left = getValue(track_left);
     const FLAD = rider.flad || 50;
     const BJERG = rider.bjerg || 50;
-    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
+    const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 73;
     ideal_move = ideal_move * multiplier;
   }
 
@@ -1635,6 +1635,9 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   let selectedCard = (rider.cards && rider.cards[0]) ? rider.cards[0] : { flat: 2, uphill: 2, id: 'kort: 1' };
   let bestError = 1000;
 
+  const track_length = trackStr.indexOf('F');
+  const len_left = track_length - rider.position;
+
   for (const card of (rider.cards || []).slice(0, 4)) {
     const svCard = getSlipstreamValue(rider.position, rider.position + card.flat, trackStr);
     const value = isFlatTerrain(svCard, speed) ? (card.flat - penalty) : (card.uphill - penalty);
@@ -1655,9 +1658,16 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
       errorTMs += errorTM;
     }
 
-    const track_length = trackStr.indexOf('F');
-    const len_left = track_length - rider.position;
-    const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs;
+    // TK-test: Add penalty for low-value cards based on fields left
+    let cardNumberPenalty = 0;
+    const cardNumber = parseInt(card.id.match(/\d+/)?.[0] || '15');
+    if (cardNumber >= 1 && cardNumber <= 2) {
+      cardNumberPenalty = 0.1 * len_left;
+    } else if (cardNumber >= 3 && cardNumber <= 5) {
+      cardNumberPenalty = 0.05 * len_left;
+    }
+
+    const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs + cardNumberPenalty;
 
     if (error_total < bestError) {
       selectedCard = card;
