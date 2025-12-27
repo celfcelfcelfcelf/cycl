@@ -3862,6 +3862,40 @@ const moveToNextGroup = () => {
     };
   }
 
+  // ===== TK-16 → TK-1 CONVERSION (TK-test only) =====
+  // At the start of each new round, convert TK-16 cards from discarded pile to TK-1 cards
+  // Formula: For every 2 TK-16 cards in discarded, add 1 TK-1 to top of hand
+  for (const riderName of Object.keys(updatedCards)) {
+    const rider = updatedCards[riderName];
+    if (rider.finished) continue;
+    
+    const discarded = rider.discarded || [];
+    const tk16Count = discarded.filter(c => c.id === 'kort: 16').length;
+    const tk1sToAdd = Math.floor(tk16Count / 2);
+    
+    if (tk1sToAdd > 0) {
+      // Add TK-1 cards to the top of the hand
+      const tk1Cards = Array(tk1sToAdd).fill({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      updatedCards[riderName].cards = [...tk1Cards, ...(rider.cards || [])];
+      
+      // Remove 2 * tk1sToAdd TK-16 cards from discarded
+      let tk16Removed = 0;
+      const newDiscarded = [];
+      for (const card of discarded) {
+        if (card.id === 'kort: 16' && tk16Removed < tk1sToAdd * 2) {
+          tk16Removed++;
+          // Skip this card (remove it)
+        } else {
+          newDiscarded.push(card);
+        }
+      }
+      updatedCards[riderName].discarded = newDiscarded;
+      
+      addLog(`${riderName} har fået ${tk1sToAdd} TK-1`);
+    }
+  }
+  // ===== END TK-16 → TK-1 CONVERSION =====
+
   // ===== FIND LEAD RIDER =====
 // Find alle ryttere i gruppen med selected_value = groupSpeed
 // Build list of rider names in the leading group
