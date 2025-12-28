@@ -217,7 +217,6 @@ const CyclingGame = () => {
   });
   const [inLobby, setInLobby] = useState(false);
   const unsubscribeRef = useRef(null);
-  const [myTeamName, setMyTeamName] = useState(null); // The team name assigned to this player in multiplayer
   
   const [gameState, setGameState] = useState('setup');
   const gameInitializedRef = useRef(false); // Track if game has been initialized in multiplayer
@@ -1001,7 +1000,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setIsHost(true);
       setInLobby(true);
       setGameMode('multi');
-      setMyTeamName('Team1'); // Host is always Team1
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
@@ -1073,7 +1071,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setRoomCode(code);
       setIsHost(false);
       setInLobby(true);
-      setMyTeamName(team); // Store the assigned team name
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
@@ -1354,13 +1351,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Helper: Check if it's the current player's turn in multiplayer
   const isMyTurn = () => {
     if (gameMode !== 'multi') return true; // In single player, always your turn
-    if (!myTeamName || !currentTeam) return false;
-    return currentTeam === myTeamName;
+    if (!playerName || !currentTeam) return false;
+    return currentTeam === playerName;
   };
 
   // Helper: Get the current player's team name
   const getPlayerTeamName = () => {
-    return gameMode === 'multi' ? myTeamName : 'Me';
+    return gameMode === 'multi' ? playerName : 'Me';
   };
 
   // Helper: Check if a team is the current player's team
@@ -1369,18 +1366,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     return teamName === playerTeam;
   };
 
-  // Helper: Get display name for a team (maps internal names to display names in multiplayer)
+  // Helper: Get display name for a team (in multiplayer, teams already have their actual names)
   const getTeamDisplayName = (teamName) => {
-    if (gameMode !== 'multi') return teamName; // In single player, use as-is
-    
-    // In multiplayer, map old names to new names
-    if (teamName === 'Me') return myTeamName || 'Team1';
-    if (teamName.startsWith('Comp')) {
-      // Map Comp1 -> Team2 (or higher if host is Team1)
-      const compNum = parseInt(teamName.replace('Comp', ''));
-      return `Team${compNum + 1}`; // Comp1 -> Team2, Comp2 -> Team3, etc.
-    }
-    return teamName; // Already a Team name
+    // In multiplayer, teams already use player names and Comp1, Comp2
+    // In single player, 'Me' stays as 'Me'
+    return teamName;
   };
 
   // Helper: Sync game state to Firebase after a move
@@ -1420,27 +1410,19 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
       const draftPoolToShare = pool.slice(0, total);
       
-      // Build teams order for draft (use Team1, Team2, etc. in multiplayer)
+      // Build teams order for draft (use player names for human teams, Comp for AI)
       const teamsOrder = [];
       const numHumans = multiplayerPlayers.length;
       const numAI = numberOfTeams - numHumans;
       
-      // In multiplayer, all teams use Team1, Team2, Team3 naming
-      // Human players are already assigned Team1, Team2, etc. from Firebase
-      // AI teams get the remaining team numbers
+      // In multiplayer, human teams use player names, AI teams use Comp1, Comp2, etc.
+      // Get human team names (player names)
+      const humanTeamNames = multiplayerPlayers.map(p => p.name);
       
-      // Get human team names from multiplayerPlayers
-      const humanTeamNames = multiplayerPlayers.map(p => p.team);
-      
-      // Get AI team names (the team numbers not taken by humans)
-      const allTeamNumbers = [];
-      for (let i = 1; i <= numberOfTeams; i++) {
-        allTeamNumbers.push(`Team${i}`);
+      // Add AI teams first (Comp1, Comp2, ...)
+      for (let i = 1; i <= numAI; i++) {
+        teamsOrder.push(`Comp${i}`);
       }
-      const aiTeamNames = allTeamNumbers.filter(t => !humanTeamNames.includes(t));
-      
-      // Add AI teams first
-      teamsOrder.push(...aiTeamNames);
       
       // Randomize human team order and add them
       const shuffledHumanTeams = [...humanTeamNames];
@@ -1884,11 +1866,19 @@ return { pace, updatedCards, doubleLead };
     : getResolvedTrack();
   setTrack(selectedTrack);
 
-  // build team list - use Team1, Team2, etc. in multiplayer, Me/Comp in single player
+  // build team list - use player names for human teams in multiplayer, Me/Comp in single player
   let teamList;
   if (gameMode === 'multi') {
     teamList = [];
-    for (let i = 1; i <= numberOfTeams; i++) teamList.push(`Team${i}`);
+    // Add AI teams (Comp1, Comp2, ...)
+    const numAI = numberOfTeams - multiplayerPlayers.length;
+    for (let i = 1; i <= numAI; i++) {
+      teamList.push(`Comp${i}`);
+    }
+    // Add human player names as teams
+    multiplayerPlayers.forEach(p => {
+      teamList.push(p.name);
+    });
   } else {
     teamList = ['Me'];
     for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
@@ -3114,7 +3104,7 @@ return { pace, updatedCards, doubleLead };
       }
       
       // Players can only submit for their own team
-      if (!isAITeam && submittingTeam !== myTeamName) {
+      if (!isAITeam && submittingTeam !== playerName) {
         addLog(`⚠️ Player attempted to submit for another player's team ${submittingTeam} - blocked`);
         return;
       }
@@ -6299,8 +6289,8 @@ const checkCrash = () => {
                 {gameMode === 'multi' && (
                   <div className="mt-2 mb-2 px-3 py-2 bg-blue-100 rounded border border-blue-300">
                     <div className="text-sm font-semibold text-blue-900">
-                      {currentTeam === myTeamName ? (
-                        <span className="text-green-600">🎮 Your turn ({myTeamName})</span>
+                      {currentTeam === playerName ? (
+                        <span className="text-green-600">🎮 Your turn ({playerName})</span>
                       ) : (
                         <span className="text-gray-600">⏳ Waiting for {currentTeam}</span>
                       )}
@@ -7238,11 +7228,11 @@ const checkCrash = () => {
                   {movePhase === 'input' && (
                     (() => {
                       // If it's the human's turn and human has riders in this group, show human interface
-                      const currentPlayerTeam = gameMode === 'multi' ? myTeamName : 'Me';
+                      const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
                       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
                       
                       // In multiplayer mode, check if it's actually this player's turn
-                      if (gameMode === 'multi' && currentTeam !== myTeamName) {
+                      if (gameMode === 'multi' && currentTeam !== playerName) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
                             Waiting for {getTeamDisplayName(currentTeam)} to make their move...
@@ -7522,7 +7512,7 @@ const checkCrash = () => {
                             } catch (e) { /* ignore and fall back to normal rendering */ }
 
                             // Check if human has riders in this group (used for button logic)
-                            const currentPlayerTeam = gameMode === 'multi' ? myTeamName : 'Me';
+                            const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
                             const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
 
                             return (
@@ -7604,12 +7594,10 @@ const checkCrash = () => {
                                       
                                       // Original single-team logic for when human has riders
                                       // In multiplayer mode, only host can run AI moves
-                                      if (gameMode === 'multi' && !isHost && currentTeam !== myTeamName) {
-                                        addLog('⚠️ Only host can run AI moves in multiplayer');
+                                      if (gameMode === 'multi' && !isHost && currentTeam !== playerName) {
+                        addLog('⚠️ Only host can run AI moves in multiplayer');
                                         return;
-                                      }
-                                      
-                                      const paceKey = `${currentGroup}-${currentTeam}`;
+                                      }                                      const paceKey = `${currentGroup}-${currentTeam}`;
                                       const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
                                       const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
                                       const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
