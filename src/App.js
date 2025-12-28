@@ -3864,7 +3864,7 @@ const moveToNextGroup = () => {
 
   // ===== TK-16 → TK-1 CONVERSION (TK-test only) =====
   // At the start of each new round, convert TK-16 cards from discarded pile to TK-1 cards
-  // Formula: For every 2 TK-16 cards in discarded, add 1 TK-1 to top of hand
+  // Formula: For every X TK-16 cards in discarded, add 1 TK-1 to top of hand (X = tkPerTk1)
   const tk16ConversionMsgs = [];
   for (const riderName of Object.keys(updatedCards)) {
     const rider = updatedCards[riderName];
@@ -3872,18 +3872,18 @@ const moveToNextGroup = () => {
     
     const discarded = rider.discarded || [];
     const tk16Count = discarded.filter(c => c.id === 'kort: 16').length;
-    const tk1sToAdd = Math.floor(tk16Count / 2);
+    const tk1sToAdd = Math.floor(tk16Count / tkPerTk1);
     
     if (tk1sToAdd > 0) {
       // Add TK-1 cards to the top of the hand
       const tk1Cards = Array(tk1sToAdd).fill({ id: 'TK-1: 99', flat: -1, uphill: -1 });
       updatedCards[riderName].cards = [...tk1Cards, ...(rider.cards || [])];
       
-      // Remove 2 * tk1sToAdd TK-16 cards from discarded
+      // Remove tkPerTk1 * tk1sToAdd TK-16 cards from discarded
       let tk16Removed = 0;
       const newDiscarded = [];
       for (const card of discarded) {
-        if (card.id === 'kort: 16' && tk16Removed < tk1sToAdd * 2) {
+        if (card.id === 'kort: 16' && tk16Removed < tk1sToAdd * tkPerTk1) {
           tk16Removed++;
           // Skip this card (remove it)
         } else {
@@ -5501,8 +5501,8 @@ const checkCrash = () => {
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
                 <div className="text-xs text-black mt-2 space-y-0.5">
                   <div className="font-semibold">CYCL v. TEST1</div>
-                  <div>• Alle Trætkort ryger i bunden</div>
-                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
+                  <div>• Alle Trætkort ryger i en bunke for sig</div>
+                  <div>• Hver gang man har 2 TK bliver de omdannet til 1 MK (sæt antal nedenfor)</div>
                   <div>• Når man spiller TK-ekstra mister man et TK</div>
                 </div>
                 <div className="text-[11px] text-black mt-1">Level {level}</div>
