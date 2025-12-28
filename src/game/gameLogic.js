@@ -1652,6 +1652,8 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   const track_length = trackStr.indexOf('F');
   const len_left = track_length - rider.position;
 
+  logger(`🃏 ${riderName}: Evaluating cards for ideal_move=${ideal_move.toFixed(2)}, penalty=${penalty}, len_left=${len_left}`);
+
   for (const card of (rider.cards || []).slice(0, 4)) {
     const svCard = getSlipstreamValue(rider.position, rider.position + card.flat, trackStr);
     const value = isFlatTerrain(svCard, speed) ? (card.flat - penalty) : (card.uphill - penalty);
@@ -1683,11 +1685,15 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
     const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs + cardNumberPenalty;
 
+    logger(`   ${card.id}: value=${value}, error_card=${error_card.toFixed(2)}, errorTMs=${errorTMs.toFixed(2)}, cardNumPenalty=${cardNumberPenalty.toFixed(2)}, error_total=${error_total.toFixed(3)}${error_total < bestError ? ' ✓ NEW BEST' : ''}`);
+
     if (error_total < bestError) {
       selectedCard = card;
       bestError = error_total;
     }
   }
+
+  logger(`   → Selected: ${selectedCard.id}, bestError=${bestError.toFixed(3)}`);
 
   const svFinal = getSlipstreamValue(rider.position, rider.position + selectedCard.flat, trackStr);
   const selectedNumeric = isFlatTerrain(svFinal, speed) ? selectedCard.flat : selectedCard.uphill;
@@ -1695,20 +1701,30 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
 
   const [pv0, pv1] = getPullValue(paces, effectiveSVFinal);
   
+  logger(`   selectedNumeric=${selectedNumeric}, penalty=${penalty}, pv0=${pv0}, pv1=${pv1}`);
+  
   if (selectedNumeric <= pv0) {
-    if (!(isFlatTerrain(svFinal, speed) && pv1 === 1)) return 0;
+    if (!(isFlatTerrain(svFinal, speed) && pv1 === 1)) {
+      logger(`   → Returning 0 (selectedNumeric ${selectedNumeric} <= pv0 ${pv0})`);
+      return 0;
+    }
   }
 
   // Return the value the selected card can produce (after penalty)
   // Don't snap to other cards' values - the AI chose this card for a reason
   let finalValue = Math.max(0, Math.round(selectedNumeric - penalty));
   
+  logger(`   finalValue after penalty: ${finalValue} (selectedNumeric=${selectedNumeric} - penalty=${penalty})`);
+  
   // Apply downhill rule at the end: if on '_' and selection < 7, return 0
   if (trackStr[rider.position] === '_') {
     if (finalValue < 7) {
+      logger(`   → Downhill rule: finalValue ${finalValue} < 7, returning 0`);
       finalValue = 0;
     }
   }
+  
+  logger(`   → Final return value: ${finalValue}`);
   
   return finalValue;
 };
