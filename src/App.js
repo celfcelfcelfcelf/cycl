@@ -978,14 +978,32 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
   // ========== MULTIPLAYER HANDLERS ==========
   
-  // Handle creating a multiplayer game
-  const handleCreateGame = async (name) => {
+  // Handle creating a multiplayer game (called after setup screen)
+  const handleCreateMultiplayerGame = async (hostName) => {
     try {
-      setPlayerName(name);
-      const code = await createGame(name, multiplayerConfig);
+      setPlayerName(hostName);
+      
+      // Use current setup configuration
+      const config = {
+        numberOfTeams,
+        ridersPerTeam,
+        trackName,
+        track: getResolvedTrack(),
+        isStageRace: numberOfStages > 1,
+        stages: selectedStages,
+        currentStageIndex: 0,
+        level,
+        numAttackers,
+        attackerLeadFields,
+        tkPerTk1,
+        dobbeltføring
+      };
+      
+      const code = await createGame(hostName, config);
       setRoomCode(code);
       setIsHost(true);
       setInLobby(true);
+      setGameMode('multi');
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
@@ -1001,7 +1019,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         if (gameData.status === 'playing' && gameData.gameState) {
           setInLobby(false);
           setGameState('playing');
-          // Load game state
           loadMultiplayerGameState(gameData.gameState);
         }
       });
@@ -5685,11 +5702,11 @@ const checkCrash = () => {
   if (!gameMode) {
     return (
       <MultiplayerSetup
-        onCreateGame={handleCreateGame}
         onJoinGame={handleJoinGame}
-        onSinglePlayer={() => setGameMode('single')}
-        gameConfig={multiplayerConfig}
-        onConfigChange={(updates) => setMultiplayerConfig({ ...multiplayerConfig, ...updates })}
+        onBackToSetup={() => {
+          // This shouldn't happen since we start at setup
+          setGameMode(null);
+        }}
       />
     );
   }
@@ -5703,8 +5720,23 @@ const checkCrash = () => {
         players={multiplayerPlayers}
         onStartGame={startMultiplayerGameSession}
         onLeave={handleLeaveLobby}
-        maxPlayers={multiplayerConfig.numberOfTeams}
-        gameConfig={multiplayerConfig}
+        maxPlayers={numberOfTeams}
+        gameConfig={{
+          trackName,
+          ridersPerTeam,
+          isStageRace: numberOfStages > 1,
+          stages: selectedStages
+        }}
+      />
+    );
+  }
+
+  // Show join game dialog if gameMode === 'join'
+  if (gameMode === 'join') {
+    return (
+      <MultiplayerSetup
+        onJoinGame={handleJoinGame}
+        onBackToSetup={() => setGameMode(null)}
       />
     );
   }
@@ -5779,12 +5811,6 @@ const checkCrash = () => {
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">Game Setup</h2>
-              <button
-                onClick={() => setGameMode(null)}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-              >
-                ← Back
-              </button>
             </div>
             <div className="space-y-6">
               <div>
@@ -5989,34 +6015,95 @@ const checkCrash = () => {
             </div>
           </div>
         )}
-        {gameMode === 'single' && gameState === 'setup' && (
+        {gameState === 'setup' && !inLobby && (
           <div className="fixed left-0 right-0 bottom-0 p-4 bg-white border-t shadow-lg">
-            <div className="max-w-7xl mx-auto px-4">
-              <button 
-                onClick={() => {
-                  if (isStageRace && !gcTestMode) {
-                    // Generate random default stages if not already set
-                    if (manualStageSelection.length === 0) {
-                      const availableTracks = Object.keys(tracks).filter(name => !name.toLowerCase().includes('test'));
-                      const shuffled = [...availableTracks];
-                      for (let i = shuffled.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            <div className="max-w-7xl mx-auto px-4 space-y-3">
+              {/* Main action button based on mode */}
+              {!gameMode && (
+                <>
+                  <button 
+                    onClick={() => {
+                      setGameMode('single');
+                      if (isStageRace && !gcTestMode) {
+                        if (manualStageSelection.length === 0) {
+                          const availableTracks = Object.keys(tracks).filter(name => !name.toLowerCase().includes('test'));
+                          const shuffled = [...availableTracks];
+                          for (let i = shuffled.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                          }
+                          const randomSelection = shuffled.slice(0, numberOfStages);
+                          setManualStageSelection(randomSelection);
+                        }
+                        setShowStageSelector(true);
+                      } else {
+                        startDraft();
                       }
-                      const randomSelection = shuffled.slice(0, numberOfStages);
-                      setManualStageSelection(randomSelection);
-                    }
-                    // Show stage selector for multi-stage races
-                    setShowStageSelector(true);
-                  } else {
-                    // Go directly to draft for single stage or GC test mode
-                    startDraft();
-                  }
-                }} 
-                className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3"
-              >
-                <Play size={20}/> {isStageRace && !gcTestMode ? 'Vælg baner' : 'Start Game'}
-              </button>
+                    }} 
+                    className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3"
+                  >
+                    <Play size={20}/> Start Single Player
+                  </button>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => {
+                        // Prompt for host name
+                        const hostName = prompt('Enter your name:');
+                        if (hostName && hostName.trim()) {
+                          handleCreateMultiplayerGame(hostName.trim());
+                        }
+                      }}
+                      className="w-full bg-green-600 text-white py-3 rounded-lg text-lg font-semibold"
+                    >
+                      Create Multiplayer
+                    </button>
+                    
+                    <button
+                      onClick={() => setGameMode('join')}
+                      className="w-full bg-purple-600 text-white py-3 rounded-lg text-lg font-semibold"
+                    >
+                      Join Game
+                    </button>
+                  </div>
+                </>
+              )}
+              
+              {gameMode === 'single' && (
+                <>
+                  <button 
+                    onClick={() => {
+                      if (isStageRace && !gcTestMode) {
+                        // Generate random default stages if not already set
+                        if (manualStageSelection.length === 0) {
+                          const availableTracks = Object.keys(tracks).filter(name => !name.toLowerCase().includes('test'));
+                          const shuffled = [...availableTracks];
+                          for (let i = shuffled.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                          }
+                          const randomSelection = shuffled.slice(0, numberOfStages);
+                          setManualStageSelection(randomSelection);
+                        }
+                        // Show stage selector for multi-stage races
+                        setShowStageSelector(true);
+                      } else {
+                        // Go directly to draft for single stage or GC test mode
+                        startDraft();
+                      }
+                    }} 
+                    className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3"
+                  >
+                    <Play size={20}/> {isStageRace && !gcTestMode ? 'Vælg baner' : 'Start Game'}
+                  </button>
+                  <button
+                    onClick={() => setGameMode(null)}
+                    className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-semibold"
+                  >
+                    ← Back to Setup
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}

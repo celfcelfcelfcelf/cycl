@@ -18,7 +18,7 @@ const MultiplayerLobby = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const canStart = players.length >= 2; // Need at least 2 players
+  const canStart = players.length >= 1; // Need at least 1 human player (host)
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -86,21 +86,22 @@ const MultiplayerLobby = ({
         {/* Players List */}
         <div className="mb-6">
           <div className="text-sm font-semibold text-gray-700 mb-3">
-            Players ({players.length}/{maxPlayers}):
+            Teams ({players.length} Human / {maxPlayers - players.length} AI):
           </div>
           <div className="space-y-2">
+            {/* Human players */}
             {players.map((player, idx) => (
               <div
                 key={idx}
-                className="flex items-center justify-between bg-white border rounded-lg p-3"
+                className="flex items-center justify-between bg-white border-2 border-green-200 rounded-lg p-3"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                  <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
                     {player.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <div className="font-semibold">{player.name}</div>
-                    <div className="text-sm text-gray-500">{player.team}</div>
+                    <div className="text-sm text-gray-500">{player.team} • HUMAN</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -118,16 +119,19 @@ const MultiplayerLobby = ({
               </div>
             ))}
             
-            {/* Empty slots */}
+            {/* AI teams (empty slots) */}
             {Array.from({ length: maxPlayers - players.length }).map((_, idx) => (
               <div
-                key={`empty-${idx}`}
-                className="flex items-center gap-3 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-3 opacity-50"
+                key={`ai-${idx}`}
+                className="flex items-center gap-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-3"
               >
                 <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
                   <Users size={20} className="text-gray-500" />
                 </div>
-                <div className="text-gray-500 italic">Waiting for player...</div>
+                <div className="text-gray-500">
+                  <div className="font-semibold">Team{players.length + idx + 1}</div>
+                  <div className="text-sm">AI Opponent</div>
+                </div>
               </div>
             ))}
           </div>
@@ -151,7 +155,7 @@ const MultiplayerLobby = ({
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
             >
-              Start Game {!canStart && '(Need 2+ players)'}
+              Start Game {!canStart && '(Need 1+ human)'}
             </button>
           )}
           {!isHost && (
@@ -160,6 +164,12 @@ const MultiplayerLobby = ({
             </div>
           )}
         </div>
+        
+        {players.length < maxPlayers && (
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+            <strong>Note:</strong> You can start with fewer players. Remaining teams will be controlled by AI.
+          </div>
+        )}
       </div>
     </div>
   );
