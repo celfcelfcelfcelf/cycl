@@ -3024,8 +3024,16 @@ return { pace, updatedCards, doubleLead };
       if (gameMode === 'multi' && roomCode) {
         try {
           // Generate breakaway selection (deterministic for both players)
-          const teamList = ['Me'];
-          for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
+          // Build team list using player names (same as initializeGame)
+          const teamList = [];
+          const numAI = numberOfTeams - multiplayerPlayers.length;
+          for (let i = 1; i <= numAI; i++) {
+            teamList.push(`Comp${i}`);
+          }
+          multiplayerPlayers.forEach(p => {
+            teamList.push(p.name);
+          });
+          
           const total = numberOfTeams * ridersPerTeam;
           const breakawayCount = Math.min(numAttackers, total);
           
