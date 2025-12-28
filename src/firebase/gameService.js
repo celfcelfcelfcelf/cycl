@@ -46,7 +46,7 @@ export const createGame = async (hostName, gameConfig) => {
       team: 'Team1',
       isHost: true,
       connected: true,
-      joinedAt: serverTimestamp()
+      joinedAt: Date.now()
     }],
     gameState: null, // Will be set when game starts
     currentTurn: null,
@@ -88,11 +88,15 @@ export const joinGame = async (roomCode, playerName) => {
     team: `Team${teamNumber}`,
     isHost: false,
     connected: true,
-    joinedAt: serverTimestamp()
+    joinedAt: Date.now()
   };
   
+  // Update players array by reading, modifying, and writing back
+  // (arrayUnion has issues with nested objects containing timestamps)
+  const updatedPlayers = [...gameData.players, newPlayer];
+  
   await updateDoc(gameRef, {
-    players: arrayUnion(newPlayer),
+    players: updatedPlayers,
     lastUpdate: serverTimestamp()
   });
   

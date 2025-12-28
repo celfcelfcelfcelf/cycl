@@ -47,6 +47,8 @@ import {
   leaveGame,
   updatePlayerConnection
 } from './firebase/gameService';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from './firebase/config';
  
 import ridersFromCsv from './data/ridersCsv';
 
@@ -215,6 +217,7 @@ const CyclingGame = () => {
   const unsubscribeRef = useRef(null);
   
   const [gameState, setGameState] = useState('setup');
+  const gameInitializedRef = useRef(false); // Track if game has been initialized in multiplayer
   const [draftPool, setDraftPool] = useState([]);
   const [draftRemaining, setDraftRemaining] = useState([]);
   const [draftSelections, setDraftSelections] = useState([]); // {team, rider}
@@ -225,16 +228,7 @@ const CyclingGame = () => {
   const [isDrafting, setIsDrafting] = useState(false);
   const [draftTotalPicks, setDraftTotalPicks] = useState(null);
 const [draftDebugMsg, setDraftDebugMsg] = useState(null);
-  const [trackName, setTrackName] = useState(() => {
-    // Pick a random named track as the initial selection (exclude the 'random' sentinel)
-    try {
-      const names = Object.keys(tracks).filter(k => k !== 'random');
-      if (names.length === 0) return 'Yorkshire';
-      return names[Math.floor(Math.random() * names.length)];
-    } catch (e) {
-      return 'Yorkshire';
-    }
-  });
+  const [trackName, setTrackName] = useState('Yorkshire'); // Default, will be overridden by host selection or Firebase data
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(3);
@@ -1015,11 +1009,43 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         
         setMultiplayerPlayers(gameData.players || []);
         
-        // If game started, transition to playing
-        if (gameData.status === 'playing' && gameData.gameState) {
+        // If game started playing, initialize the game locally
+        if (gameData.status === 'playing' && !gameInitializedRef.current) {
+          console.log('📥 HOST (lobby): Game started, status=playing');
+          const draftedFromFirebase = gameData.draftSelections || [];
+          console.log('📥 HOST (lobby): draftSelections from Firebase:', draftedFromFirebase?.length);
           setInLobby(false);
-          setGameState('playing');
-          loadMultiplayerGameState(gameData.gameState);
+          
+          // Initialize game with draft selections from Firebase
+          if (draftedFromFirebase && draftedFromFirebase.length > 0) {
+            console.log('📥 HOST (lobby): Initializing game with', draftedFromFirebase.length, 'selections');
+            console.log('📥 HOST (lobby): First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
+            console.log('📥 HOST (lobby): Breakaway teams:', gameData.breakawayTeams);
+            gameInitializedRef.current = true; // Mark as initialized immediately
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams);
+            setDraftPool([]);
+            setDraftRemaining([]);
+            setDraftSelections([]);
+            setDraftTeamsOrder([]);
+            setDraftCurrentPickIdx(0);
+            setIsDrafting(false);
+            setGameState('playing');
+            return; // Exit early
+          } else {
+            console.log('📥 HOST (lobby): Cannot initialize - no selections in Firebase');
+          }
+        }
+        
+        // If game started drafting, only update gameState (host has already set draft data locally)
+        if (gameData.status === 'drafting' && gameData.draftData) {
+          setInLobby(false);
+          setGameMode('multi');
+          setGameState(current => {
+            if (current === 'draft' || current === 'playing') return current;
+            // Host should NOT reload data from Firebase - it was already set locally
+            // Just transition to draft state (do nothing else)
+            return 'draft';
+          });
         }
       });
       
@@ -1041,18 +1067,157 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
+        console.log('📥 JOINER: Subscriber called, status:', gameData?.status, 'gameState:', gameState);
         if (!gameData) {
           handleLeaveLobby();
           return;
         }
         
+        console.log('📥 Players from Firebase:', gameData.players);
+        console.log('📥 My name from parameter:', name);
         setMultiplayerPlayers(gameData.players || []);
         
-        // If game started, transition to playing
+        // If game started playing, initialize the game locally
+        if (gameData.status === 'playing' && !gameInitializedRef.current) {
+          console.log('📥 JOINER: Game started, initializing...');
+          const draftedFromFirebase = gameData.draftSelections || [];
+          console.log('📥 JOINER: Draft selections from Firebase:', draftedFromFirebase?.length);
+          setInLobby(false);
+          
+          // Initialize game with draft selections from Firebase
+          if (draftedFromFirebase && draftedFromFirebase.length > 0) {
+            console.log('📥 JOINER: First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
+            console.log('📥 JOINER: Breakaway teams:', gameData.breakawayTeams);
+            gameInitializedRef.current = true; // Mark as initialized immediately
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams);
+            setDraftPool([]);
+            setDraftRemaining([]);
+            setDraftSelections([]);
+            setDraftTeamsOrder([]);
+            setDraftCurrentPickIdx(0);
+            setIsDrafting(false);
+            setGameState('playing');
+            return; // Exit early, don't process draft updates
+          } else {
+            console.log('⚠️ JOINER: No draft selections in Firebase!', gameData);
+          }
+        }
+        
+        // If game started drafting, load draft data from Firebase (JOINER LOADS DATA)
+        if (gameData.status === 'drafting' && gameData.draftData) {
+          setInLobby(false);
+          
+          setGameState(current => {
+            console.log('🔵 JOINER: setGameState callback, current:', current, 'status:', gameData.status);
+            if (current === 'draft' || current === 'playing') {
+              // Already in draft - just sync selections if they changed
+              if (gameData.draftData.selections && Array.isArray(gameData.draftData.selections)) {
+                console.log('🔄 JOINER: Syncing selections from Firebase:', gameData.draftData.selections.length, 'current:', draftSelections.length);
+                
+                const syncedSelections = gameData.draftData.selections.map(s => {
+                  const rider = ridersData.find(r => r.NAVN === s.riderName);
+                  return { team: s.team, rider: rider || { NAVN: s.riderName } };
+                });
+                
+                // Only update if selections count changed
+                if (syncedSelections.length > draftSelections.length) {
+                  console.log('🔄 JOINER: Updating selections to', syncedSelections.length);
+                  setDraftSelections(syncedSelections);
+                  
+                  // Recalculate remaining riders using full pool from Firebase
+                  const pickedNames = syncedSelections.map(s => s.rider.NAVN);
+                  const fullPool = gameData.draftData.pool.map(r => ridersData.find(rd => rd.NAVN === r.NAVN)).filter(Boolean);
+                  const newRemaining = fullPool.filter(r => !pickedNames.includes(r.NAVN));
+                  setDraftRemaining(newRemaining);
+                  
+                  // Continue processing with updated data
+                  // Use teamsOrder and pickSequence from Firebase draftData, not from state
+                  setTimeout(() => {
+                    console.log('🔄 JOINER: Calling processNextPick after sync');
+                    processNextPick(
+                      newRemaining, 
+                      gameData.draftData.teamsOrder, 
+                      syncedSelections, 
+                      gameData.draftData.pickSequence, 
+                      'multi', 
+                      name, 
+                      gameData.players
+                    );
+                  }, 150);
+                }
+              }
+              return current;
+            }
+            
+            // Initial setup - load draft data for non-host players (JOINERS)
+            if (current === 'setup' && gameData.draftData) {
+              const { pool, trackName: draftTrackName, track: draftTrack, stages, numberOfTeams: draftTeams, ridersPerTeam: draftRidersPerTeam, teamsOrder: draftTeamsOrder, pickSequence: draftPickSequence } = gameData.draftData;
+              
+              console.log('🔵 JOINER: Initial draft setup, players:', gameData.players);
+              
+              // Set track and stages from draft data
+              setTrackName(draftTrackName);
+              setTrack(draftTrack);
+              if (stages && stages.length > 0) {
+                setSelectedStages(stages);
+                setCurrentStageIndex(0);
+              }
+              setNumberOfTeams(draftTeams);
+              setRidersPerTeam(draftRidersPerTeam);
+              
+              // IMPORTANT: Set multiplayer state BEFORE starting draft
+              // This ensures processNextPick has the correct values
+              setGameMode('multi');
+              setMultiplayerPlayers(gameData.players || []);
+              
+              // Reconstruct full rider objects (matching what host has)
+              const fullPool = pool.map(r => {
+                const fullRider = ridersData.find(rd => rd.NAVN === r.NAVN);
+                return fullRider || r;
+              });
+              
+              // Set draft state directly with shared data
+              setDraftPool(fullPool);
+              setDraftRemaining(fullPool);
+              setDraftSelections([]);
+              setDraftTeamsOrder(draftTeamsOrder);
+              setDraftPickSequence(draftPickSequence);
+              setDraftCurrentPickIdx(0);
+              setDraftRoundNum(1);
+              setDraftTotalPicks(fullPool.length);
+              setIsDrafting(true);
+              
+              // Wait longer to ensure state is set before calling processNextPick
+              // IMPORTANT: Pass gameMode='multi' and players directly to avoid React state timing issues
+              // Use 'name' parameter from handleJoinGame closure instead of playerName state
+              setTimeout(() => {
+                processNextPick(
+                  fullPool, 
+                  draftTeamsOrder, 
+                  [], 
+                  draftPickSequence,
+                  'multi', // gameMode override
+                  name, // playerName from handleJoinGame parameter (not React state!)
+                  gameData.players // multiplayerPlayers override
+                );
+              }, 300);
+            }
+            console.log('🔵 JOINER: setGameState returning: draft');
+            return 'draft';
+          });
+        }
+        
+        // If game started, transition to playing (but don't override draft state)
         if (gameData.status === 'playing' && gameData.gameState) {
           setInLobby(false);
-          setGameState('playing');
-          loadMultiplayerGameState(gameData.gameState);
+          // Only update gameState if we're not already in draft or playing
+          setGameState(current => {
+            if (current === 'draft' || current === 'playing') return current;
+            return 'playing';
+          });
+          if (gameData.gameState) {
+            loadMultiplayerGameState(gameData.gameState);
+          }
         }
       });
       
@@ -1139,36 +1304,155 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (!isHost || !roomCode) return;
     
     try {
-      // Use config from multiplayer setup
-      const currentTrack = multiplayerConfig.track || getResolvedTrack(multiplayerConfig.trackName);
+      // Generate draft pool locally (host controls the draft)
+      const total = numberOfTeams * ridersPerTeam;
+      const pool = [...ridersData];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const draftPoolToShare = pool.slice(0, total);
       
-      // Generate teams based on connected players
-      const teamList = multiplayerPlayers.map(p => p.team);
+      // Build teams order for draft (AI teams first, then human teams randomized)
+      const teamsOrder = [];
+      const numHumans = multiplayerPlayers.length;
+      const numAI = numberOfTeams - numHumans;
       
-      // Initialize game with multiplayer settings
-      // For now, start without draft - just random rider assignment
-      // TODO: Add multiplayer draft support later
+      // Add AI teams
+      for (let i = 1; i <= numAI; i++) {
+        teamsOrder.push(`Comp${i}`);
+      }
       
-      // Build game state
-      const gameStateToSync = {
-        cards: {},
-        round: 0,
-        currentGroup: 0,
-        teams: teamList,
-        currentTeam: teamList[0],
-        track: currentTrack,
-        trackName: multiplayerConfig.trackName,
-        numberOfTeams: multiplayerPlayers.length,
-        ridersPerTeam: multiplayerConfig.ridersPerTeam,
-        isStageRace: multiplayerConfig.isStageRace,
-        stages: multiplayerConfig.stages,
-        currentStageIndex: 0,
+      // Randomize human team order
+      const humanTeams = [...multiplayerPlayers].map(p => p.team);
+      for (let i = humanTeams.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [humanTeams[i], humanTeams[j]] = [humanTeams[j], humanTeams[i]];
+      }
+      teamsOrder.push(...humanTeams);
+      
+      // Generate pick sequence (snake draft)
+      const pickSequence = [];
+      for (let round = 0; round < ridersPerTeam; round++) {
+        if (round === 0) {
+          // First round: forward
+          for (const team of teamsOrder) {
+            pickSequence.push(team);
+          }
+        } else {
+          // Subsequent rounds: backward (snake draft)
+          for (let i = teamsOrder.length - 1; i >= 0; i--) {
+            pickSequence.push(teamsOrder[i]);
+          }
+        }
+      }
+      
+      // Prepare draft data to share with all players
+      const draftData = {
+        pool: draftPoolToShare.map(r => ({ 
+          NAVN: r.NAVN, 
+          FLAD: r.FLAD, 
+          BJERG: r.BJERG, 
+          SPRINT: r.SPRINT,
+          MENTALITET: r.MENTALITET 
+        })),
+        trackName,
+        track: getResolvedTrack(),
+        stages: selectedStages,
+        numberOfTeams,
+        ridersPerTeam,
+        teamsOrder,
+        pickSequence
       };
       
-      // Start the game in Firebase
-      await startMultiplayerGame(roomCode, gameStateToSync);
+      // Update Firebase to notify all players that draft is starting
+      const gameRef = doc(db, 'games', roomCode);
+      await updateDoc(gameRef, {
+        status: 'drafting',
+        draftData: draftData,
+        lastUpdate: serverTimestamp()
+      });
       
-      // Local state will be updated by the subscriber
+      // Close lobby and start draft locally
+      setInLobby(false);
+      setGameMode('multi');
+      
+      // HOST: Subscribe to Firebase updates to see joiner picks
+      // IMPORTANT: Capture playerName from state at this moment, and get players from Firebase data
+      console.log('🔧 HOST: Setting up subscriber with playerName:', playerName, 'multiplayerPlayers:', multiplayerPlayers);
+      const hostPlayerName = playerName; // Capture current playerName for closure
+      const hostTeamsOrder = teamsOrder; // Capture teamsOrder for closure
+      const hostPickSequence = pickSequence; // Capture pickSequence for closure
+      const unsubscribe = subscribeToGame(roomCode, (gameData) => {
+        console.log('📥 HOST: Subscriber called, status:', gameData?.status);
+        console.log('📥 HOST: My name:', hostPlayerName, 'Players:', gameData?.players?.map(p => p.name + ':' + p.team));
+        if (!gameData) return;
+        
+        // If game started playing, unsubscribe this draft subscriber (lobby subscriber handles game start)
+        if (gameData.status === 'playing') {
+          console.log('📥 HOST (draft): Game started, unsubscribing draft listener');
+          unsubscribe();
+          return;
+        }
+        
+        // Sync selections from other players
+        if (gameData.draftData?.selections && Array.isArray(gameData.draftData.selections)) {
+          console.log('🔄 HOST: Syncing selections from Firebase:', gameData.draftData.selections.length, 'current:', draftSelections.length);
+          
+          const syncedSelections = gameData.draftData.selections.map(s => {
+            const rider = ridersData.find(r => r.NAVN === s.riderName);
+            return { team: s.team, rider: rider || { NAVN: s.riderName } };
+          });
+          
+          // Only update if selections count changed
+          if (syncedSelections.length > draftSelections.length) {
+            console.log('🔄 HOST: Updating selections to', syncedSelections.length);
+            setDraftSelections(syncedSelections);
+            
+            // Recalculate remaining riders using full pool from Firebase
+            const pickedNames = syncedSelections.map(s => s.rider.NAVN);
+            const fullPool = gameData.draftData.pool.map(r => ridersData.find(rd => rd.NAVN === r.NAVN)).filter(Boolean);
+            const newRemaining = fullPool.filter(r => !pickedNames.includes(r.NAVN));
+            setDraftRemaining(newRemaining);
+            
+            // Continue processing with updated data
+            // Use hostPlayerName from closure and gameData.players from Firebase
+            setTimeout(() => {
+              console.log('🔄 HOST: Calling processNextPick after sync');
+              console.log('🔄 HOST: Parameters:', {
+                newRemaining: newRemaining?.length,
+                teamsOrder: hostTeamsOrder?.length,
+                syncedSelections: syncedSelections?.length,
+                pickSequence: hostPickSequence?.length,
+                hostPlayerName,
+                players: gameData.players?.length
+              });
+              processNextPick(newRemaining, hostTeamsOrder, syncedSelections, hostPickSequence, 'multi', hostPlayerName, gameData.players);
+            }, 150);
+          }
+        }
+      });
+      
+      // Store unsubscribe function (you may want to call this when leaving the game)
+      // For now, it will automatically unsubscribe when component unmounts
+      
+      // Initialize draft state directly with the generated data (same as joiners do)
+      setDraftPool(draftPoolToShare);
+      setDraftRemaining(draftPoolToShare);
+      setDraftSelections([]);
+      setDraftTeamsOrder(teamsOrder);
+      setDraftPickSequence(pickSequence);
+      setDraftCurrentPickIdx(0);
+      setDraftRoundNum(1);
+      setDraftTotalPicks(total);
+      setIsDrafting(true);
+      
+      // Start processing picks after state is set
+      // IMPORTANT: Pass gameMode='multi', playerName, and multiplayerPlayers for host
+      setTimeout(() => {
+        processNextPick(draftPoolToShare, teamsOrder, [], pickSequence, 'multi', playerName, multiplayerPlayers);
+      }, 150);
+      
     } catch (error) {
       console.error('Failed to start multiplayer game:', error);
       alert('Failed to start game: ' + error.message);
@@ -1469,7 +1753,8 @@ return { pace, updatedCards, doubleLead };
   // Accept an optional `drafted` argument which can be either:
   // - an array of { rider, team } objects (from an interactive draft), or
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
-  const initializeGame = (drafted = null, stagesArray = null) => {
+  // breakawayTeamsParam: optional array of team names for breakaway (synced in multiplayer)
+  const initializeGame = (drafted = null, stagesArray = null, breakawayTeamsParam = null) => {
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
   
@@ -1515,9 +1800,16 @@ return { pace, updatedCards, doubleLead };
     selectedRidersWithTeam = selectedRiders.map(({ r: rider, i: originalIdx }, idx) => ({ rider, originalIdx, idx, team: teamList[Math.floor(idx / ridersPerTeam)] }));
   }
 
-  // Pick breakaway teams randomly (no duplicate teams)
-  const shuffledTeams = [...teamList].sort(() => Math.random() - 0.5);
-  const chosenTeams = shuffledTeams.slice(0, breakawayCount);
+  // Pick breakaway teams (use provided teams in multiplayer, or random in single player)
+  let chosenTeams;
+  if (breakawayTeamsParam && Array.isArray(breakawayTeamsParam)) {
+    console.log('🎲 Using synced breakaway teams:', breakawayTeamsParam);
+    chosenTeams = breakawayTeamsParam.slice(0, breakawayCount);
+  } else {
+    console.log('🎲 Randomly selecting breakaway teams');
+    const shuffledTeams = [...teamList].sort(() => Math.random() - 0.5);
+    chosenTeams = shuffledTeams.slice(0, breakawayCount);
+  }
   // For each chosen team, pick one random rider from that team to be in breakaway
   const breakawayAssignedIdxs = new Set();
   for (const bt of chosenTeams) {
@@ -2335,10 +2627,33 @@ return { pace, updatedCards, doubleLead };
     setDraftTotalPicks(null);
     setDraftDebugMsg(null);
     const remaining = [...pool];
-    // Teams: computers first then human last
+    
+    // Build teams order based on game mode
     const teamsOrder = [];
-    for (let i = 1; i < numberOfTeams; i++) teamsOrder.push(`Comp${i}`);
-    teamsOrder.push('Me');
+    if (gameMode === 'multi' && multiplayerPlayers && multiplayerPlayers.length > 0) {
+      // Multiplayer: AI teams first, then human teams
+      const numHumans = multiplayerPlayers.length;
+      const numAI = numberOfTeams - numHumans;
+      
+      // Add AI teams
+      for (let i = 1; i <= numAI; i++) {
+        teamsOrder.push(`Comp${i}`);
+      }
+      
+      // Randomize human team order
+      const humanTeams = multiplayerPlayers.map(p => p.team);
+      for (let i = humanTeams.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [humanTeams[i], humanTeams[j]] = [humanTeams[j], humanTeams[i]];
+      }
+      
+      // Add human teams
+      teamsOrder.push(...humanTeams);
+    } else {
+      // Single player: computers first then 'Me' last
+      for (let i = 1; i < numberOfTeams; i++) teamsOrder.push(`Comp${i}`);
+      teamsOrder.push('Me');
+    }
 
     setDraftRemaining(remaining);
     setDraftSelections([]);
@@ -2347,52 +2662,29 @@ return { pace, updatedCards, doubleLead };
     setDraftRoundNum(1);
     setIsDrafting(true);
 
-    // Compute explicit pick sequence using the actual remaining pool length
-    // as the authoritative total number of picks. The helper returns 1-based
-    // global pick indices where the human should pick (e.g. [2,5,8]).
-    // Declare seq in the outer scope so it's safe to reference below even
-    // if the try-block fails (avoids ReferenceError).
+    // Compute explicit pick sequence using snake draft
+    // Round 1: forward (Comp1, Comp2, ..., Human1, Human2, ...)
+    // Round 2+: backward (..., Human2, Human1, ..., Comp2, Comp1)
     let seq = null;
     try {
       const totalPicks = remaining.length;
       setDraftTotalPicks(totalPicks);
-      const humanPositions = computeHumanPickPositions(ridersPerTeam, numberOfTeams, level) || [];
-      // clamp positions and make unique
-      const uniq = Array.from(new Set(humanPositions.map(p => Math.max(1, Math.min(totalPicks, Math.round(p)))))).sort((a,b) => a-b);
-      // Prepare counts remaining per team after reserving human picks
-      const countsRemaining = {};
-      for (const t of teamsOrder) countsRemaining[t] = ridersPerTeam;
-      // Reserve human picks in the sequence
-  seq = Array(totalPicks).fill(null);
-      for (const p of uniq) {
-        if (countsRemaining['Me'] > 0) {
-          seq[p - 1] = 'Me';
-          countsRemaining['Me'] = countsRemaining['Me'] - 1;
-        }
-      }
-      // Build an available teams list in round-robin order from remaining counts
-      const tempCounts = { ...countsRemaining };
-      const available = [];
-      for (let r = 0; r < ridersPerTeam; r++) {
-        for (const t of teamsOrder) {
-          if (tempCounts[t] > 0) {
-            available.push(t);
-            tempCounts[t] = tempCounts[t] - 1;
+      
+      seq = [];
+      for (let round = 0; round < ridersPerTeam; round++) {
+        if (round === 0) {
+          // First round: forward
+          for (const team of teamsOrder) {
+            seq.push(team);
+          }
+        } else {
+          // Subsequent rounds: backward (snake draft)
+          for (let i = teamsOrder.length - 1; i >= 0; i--) {
+            seq.push(teamsOrder[i]);
           }
         }
       }
-      // Fill remaining slots from the available list
-      let aiIdx = 0;
-      for (let i = 0; i < seq.length; i++) {
-        if (seq[i] === null) {
-          if (aiIdx < available.length) {
-            seq[i] = available[aiIdx++];
-          } else {
-            // fallback: assign in round-robin
-            seq[i] = teamsOrder[i % teamsOrder.length];
-          }
-        }
-      }
+      
       setDraftPickSequence(seq);
     } catch (e) {
       // ignore and leave draftPickSequence null if something fails
@@ -2441,13 +2733,32 @@ return { pace, updatedCards, doubleLead };
   // pickSequenceParam: optional explicit per-pick sequence array; when provided
   // the function will use the passed-in sequence for all internal decisions
   // to avoid state races with async setState updates.
-  const processNextPick = (remainingArg = null, teamsArg = null, selectionsArg = null, pickSequenceParam = null) => {                                                                                             // Accept current values or use provided args
+  const processNextPick = (
+    remainingArg = null, 
+    teamsArg = null, 
+    selectionsArg = null, 
+    pickSequenceParam = null,
+    gameModeOverride = null,
+    playerNameOverride = null,
+    multiplayerPlayersOverride = null
+  ) => {
     const remaining = remainingArg || draftRemaining;
     const teamsOrder = teamsArg || draftTeamsOrder;
     const selections = Array.isArray(selectionsArg) ? selectionsArg : draftSelections;
+    const effectiveGameMode = gameModeOverride || gameMode;
+    const effectivePlayerName = playerNameOverride || playerName;
+    const effectivePlayers = multiplayerPlayersOverride || multiplayerPlayers;
 
     // Basic guards
-    if (!remaining || remaining.length === 0 || !teamsOrder || teamsOrder.length === 0) return;
+    if (!remaining || remaining.length === 0 || !teamsOrder || teamsOrder.length === 0) {
+      console.log('❌ processNextPick early return: guards failed', {
+        hasRemaining: !!remaining,
+        remainingLength: remaining?.length,
+        hasTeamsOrder: !!teamsOrder,
+        teamsOrderLength: teamsOrder?.length
+      });
+      return;
+    }
 
   const totalPicksNeeded = draftTotalPicks || (numberOfTeams * ridersPerTeam);
   if (selections.length >= totalPicksNeeded) { setIsDrafting(false); return; }
@@ -2462,13 +2773,27 @@ return { pace, updatedCards, doubleLead };
   const teamPicking = getNextDraftTeam(selections, teamsOrder, pickSequenceParam);
     if (!teamPicking) { setIsDrafting(false); return; }
 
+    console.log('🎯 processNextPick:', { teamPicking, gameMode: effectiveGameMode, playerName: effectivePlayerName, multiplayerPlayers: effectivePlayers?.map(p => p.name + ':' + p.team) });
+
     // If it's human's turn, set state and wait for UI interaction
-    if (teamPicking === 'Me') {
+    // In single player, check for 'Me'. 
+    // In multiplayer, check if this specific player controls the team
+    const isMyTurn = effectiveGameMode === 'multi' 
+      ? (effectivePlayers && effectivePlayers.find(p => p.name === effectivePlayerName)?.team === teamPicking)
+      : (teamPicking === 'Me');
+    
+    // Check if ANY human controls this team (to distinguish from AI)
+    const isHumanTeam = teamPicking === 'Me' || 
+      (effectiveGameMode === 'multi' && effectivePlayers && effectivePlayers.some(p => p.team === teamPicking));
+    
+    console.log('🎯 isHumanTeam:', isHumanTeam, 'isMyTurn:', isMyTurn);
+    
+    if (isHumanTeam) {
       // current pick index equals current selections length
       const pickIndex = selections.length;
       setDraftCurrentPickIdx(pickIndex);
       setDraftRoundNum(Math.floor(pickIndex / teamsOrder.length) + 1);
-      return;
+      return; // Wait for human to pick (whether it's me or another player)
     }
 
     // Computer picks: rank remaining by computed win_chance and choose best
@@ -2497,8 +2822,9 @@ return { pace, updatedCards, doubleLead };
     setDraftPool(newRemaining);
 
     // Continue to next pick automatically (pass newSelections so state-sync not required)
+    // IMPORTANT: Pass through effective parameters to maintain multiplayer context
     if (newSelections.length < totalPicksNeeded) {
-      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections, pickSequenceParam), 150);
+      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections, pickSequenceParam, effectiveGameMode, effectivePlayerName, effectivePlayers), 150);
     } else {
       setIsDrafting(false);
     }
@@ -2513,7 +2839,13 @@ return { pace, updatedCards, doubleLead };
     const dbgMsg = `humanPick clicked: expected=${teamPicking} seqLen=${seqLocal ? seqLocal.length : 'n/a'} total=${draftTotalPicks || 'n/a'}`;
     setDraftDebugMsg(dbgMsg);
     setTimeout(() => setDraftDebugMsg(null), 2000);
-    if (teamPicking !== 'Me') {
+    
+    // Check if it's my turn (single player: 'Me', multiplayer: my team)
+    const isMyTurn = gameMode === 'multi'
+      ? (multiplayerPlayers && multiplayerPlayers.find(p => p.name === playerName)?.team === teamPicking)
+      : (teamPicking === 'Me');
+    
+    if (!isMyTurn) {
       // Not our turn — log and ignore click
       return;
     }
@@ -2522,24 +2854,89 @@ return { pace, updatedCards, doubleLead };
     if (chosenIdx === -1) return;
 
     const chosen = draftRemaining[chosenIdx];
-    const newSelections = [...draftSelections, { team: 'Me', rider: chosen }];
+    const newSelections = [...draftSelections, { team: teamPicking, rider: chosen }];
     const newRemaining = [...draftRemaining.slice(0, chosenIdx), ...draftRemaining.slice(chosenIdx + 1)];
     setDraftSelections(newSelections);
     setDraftRemaining(newRemaining);
     setDraftPool(newRemaining);
 
+    // In multiplayer, sync the pick to Firebase
+    if (gameMode === 'multi' && roomCode) {
+      console.log('📤 Syncing pick to Firebase:', teamPicking, chosen.NAVN);
+      const gameRef = doc(db, 'games', roomCode);
+      updateDoc(gameRef, {
+        'draftData.selections': newSelections.map(s => ({
+          team: s.team,
+          riderName: s.rider.NAVN
+        })),
+        lastUpdate: serverTimestamp()
+      }).catch(err => console.error('Failed to sync draft pick:', err));
+    }
+
     // Continue automatic picks after human selection — pass the explicit
     // pick sequence to avoid races between setState and the pick loop.
-    setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections, seqLocal), 120);
+    // IMPORTANT: Pass gameMode, playerName, multiplayerPlayers for multiplayer context
+    setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections, seqLocal, gameMode, playerName, multiplayerPlayers), 120);
   };
 
-  const confirmDraftAndStart = () => {
+  const confirmDraftAndStart = async () => {
     // If we completed an interactive draft, use the explicit team mapping
     const total = numberOfTeams * ridersPerTeam;
+    console.log('🎮 confirmDraftAndStart called:', {
+      draftSelectionsLength: draftSelections?.length,
+      total,
+      gameMode,
+      roomCode
+    });
+    
     if (draftSelections && draftSelections.length === total) {
       // drafted array with explicit team marker: { rider, team }
       const drafted = draftSelections.slice(0, total).map(s => ({ rider: s.rider, team: s.team }));
-      initializeGame(drafted, selectedStages);
+      console.log('🎮 Drafted riders:', drafted.length, 'first:', drafted[0]?.rider?.NAVN, 'team:', drafted[0]?.team);
+      
+      // In multiplayer, sync game start to Firebase
+      if (gameMode === 'multi' && roomCode) {
+        try {
+          // Generate breakaway selection (deterministic for both players)
+          const teamList = ['Me'];
+          for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
+          const total = numberOfTeams * ridersPerTeam;
+          const breakawayCount = Math.min(numAttackers, total);
+          
+          // Pick breakaway teams randomly
+          const shuffledTeams = [...teamList].sort(() => Math.random() - 0.5);
+          const chosenTeams = shuffledTeams.slice(0, breakawayCount);
+          
+          // Map to team names from drafted (convert Team1/Team2 to actual player names)
+          const breakawayTeamsWithPlayers = chosenTeams.map(t => {
+            // Find first rider from this team
+            const riderFromTeam = drafted.find(d => d.team === t);
+            return riderFromTeam ? riderFromTeam.team : t;
+          });
+          
+          const gameRef = doc(db, 'games', roomCode);
+          await updateDoc(gameRef, {
+            status: 'playing',
+            gameState: 'playing',
+            draftSelections: drafted, // Sync the drafted riders so joiner can access them
+            breakawayTeams: breakawayTeamsWithPlayers, // Sync breakaway team selection
+            lastUpdate: serverTimestamp()
+          });
+          console.log('📤 Synced game start to Firebase with', drafted.length, 'riders and', breakawayTeamsWithPlayers.length, 'breakaway teams:', breakawayTeamsWithPlayers);
+        } catch (err) {
+          console.error('Failed to sync game start:', err);
+        }
+      }
+      
+      // In multiplayer, don't call initializeGame here - let the subscribers handle it
+      // to ensure both players initialize with the same data from Firebase
+      if (gameMode !== 'multi') {
+        console.log('🎮 Single player: Calling initializeGame with', drafted.length, 'riders');
+        initializeGame(drafted, selectedStages);
+      } else {
+        console.log('🎮 Multiplayer: Waiting for subscribers to initialize game');
+      }
+      
       // clear draft state
       setDraftPool([]);
       setDraftRemaining([]);
@@ -2551,6 +2948,7 @@ return { pace, updatedCards, doubleLead };
       return;
     }
 
+    console.log('⚠️ No draft selections, using fallback');
     // fallback: non-interactive flow (legacy)
     initializeGame(draftPool, selectedStages);
     setDraftPool([]);
@@ -5698,19 +6096,6 @@ const checkCrash = () => {
 
   // Group UI removed per user request.
 
-  // Show multiplayer setup if no mode selected
-  if (!gameMode) {
-    return (
-      <MultiplayerSetup
-        onJoinGame={handleJoinGame}
-        onBackToSetup={() => {
-          // This shouldn't happen since we start at setup
-          setGameMode(null);
-        }}
-      />
-    );
-  }
-
   // Show multiplayer lobby
   if (inLobby) {
     return (
@@ -5807,7 +6192,7 @@ const checkCrash = () => {
           } catch (e) { return null; }
         })()}
         
-        {gameMode === 'single' && gameState === 'setup' && (
+        {gameState === 'setup' && !inLobby && (
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">Game Setup</h2>
@@ -6212,7 +6597,7 @@ const checkCrash = () => {
           </div>
         )}
 
-        {gameState === 'draft' && (
+        {(gameState === 'draft' || isDrafting) && (
           // On mobile we align modal to the top and allow inner scrolling so
           // long content (pool + selections) is reachable. On larger screens
           // keep centered behaviour.
@@ -6295,10 +6680,18 @@ const checkCrash = () => {
                 {draftPool.map((r, i) => {
                   // Authoritative next team for current pick (may consult draftPickSequence)
                   const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
-                  // Only allow clicking when: drafting active, it's Me's turn, and
+                  
+                  // Check if it's the current player's turn
+                  // In single player: check if currentPickingTeam === 'Me'
+                  // In multiplayer: check if currentPickingTeam matches the player's team
+                  const isMyTurn = currentPickingTeam === 'Me' || 
+                    (gameMode === 'multi' && multiplayerPlayers && 
+                     multiplayerPlayers.some(p => p.name === playerName && p.team === currentPickingTeam));
+                  
+                  // Only allow clicking when: drafting active, it's my turn, and
                   // the rider is still present in the live remaining list.
                   const inRemaining = Array.isArray(draftRemaining) && draftRemaining.some(rr => rr.NAVN === r.NAVN);
-                  const isClickable = isDrafting && currentPickingTeam === 'Me' && inRemaining;
+                  const isClickable = isDrafting && isMyTurn && inRemaining;
                   return (
                     <button
                       key={i}
