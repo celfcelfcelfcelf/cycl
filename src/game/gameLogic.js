@@ -2004,38 +2004,20 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     }
     
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
-    // Then convert TK-16 to TK-1 based on tkPerTk1 setting
+    // TK-test: TK-16 cards stay in discard, only other cards are shuffled and added to hand
     if (updatedHandCards.length < 4 && updatedDiscarded.length > 0) {
-      // Count TK kort: 16 cards in discarded
-      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
-      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
-      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
-      
-      // Remove all kort: 16 from discarded
+      // Separate TK-16 from other cards
+      const tk16Cards = updatedDiscarded.filter(c => c.id === 'kort: 16');
       const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
       
-      // Add TK-1 penalty cards to discarded (X TK-16 → 1 TK-1)
-      for (let i = 0; i < tk1ToAdd; i++) {
-        nonTK16.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
-      }
-      
-      // Keep remainder TK-16 in discarded if not enough for full TK-1
-      if (tk16ToKeep > 0) {
-        for (let i = 0; i < tk16ToKeep; i++) {
-          nonTK16.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-        }
-      }
-      
-      // Shuffle discarded and append to hand
+      // Shuffle non-TK16 cards and append to hand
       shuffle(nonTK16, rng);
       updatedHandCards.push(...nonTK16);
-      updatedDiscarded = [];
       
-      if (tk1ToAdd > 0) {
-        logs.push(`${name}: kort blandet (< 4 kort, ${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
-      } else {
-        logs.push(`${name}: kort blandet (< 4 kort)`);
-      }
+      // Keep TK-16 in discarded
+      updatedDiscarded = tk16Cards;
+      
+      logs.push(`${name}: kort blandet (< 4 kort, ${tk16Cards.length} TK-16 forbliver i discard)`);
     }
     
     const exhaustionCards = [];
@@ -2756,38 +2738,20 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     }
 
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
-    // Then convert TK-16 to TK-1 based on tkPerTk1 setting
+    // TK-test: TK-16 cards stay in discard, only other cards are shuffled and added to hand
     if (updatedHandCards.length < 4 && updatedDiscarded.length > 0) {
-      // Count TK kort: 16 cards in discarded
-      const tk16Count = updatedDiscarded.filter(c => c.id === 'kort: 16').length;
-      const tk1ToAdd = Math.floor(tk16Count / tkPerTk1); // X TK-16 → 1 TK-1 (based on setting)
-      const tk16ToKeep = tk16Count % tkPerTk1; // Keep remainder if not enough for TK-1
-      
-      // Remove all kort: 16 from discarded
+      // Separate TK-16 from other cards
+      const tk16Cards = updatedDiscarded.filter(c => c.id === 'kort: 16');
       const nonTK16 = updatedDiscarded.filter(c => c.id !== 'kort: 16');
       
-      // Add TK-1 penalty cards to discarded (X TK-16 → 1 TK-1)
-      for (let i = 0; i < tk1ToAdd; i++) {
-        nonTK16.push({ id: 'TK-1: 99', flat: -1, uphill: -1 });
-      }
-      
-      // Keep remainder TK-16 in discarded if not enough for full TK-1
-      if (tk16ToKeep > 0) {
-        for (let i = 0; i < tk16ToKeep; i++) {
-          nonTK16.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-        }
-      }
-      
-      // Shuffle discarded and append to hand
+      // Shuffle non-TK16 cards and append to hand
       shuffle(nonTK16, rng);
       updatedHandCards.push(...nonTK16);
-      updatedDiscarded = [];
       
-      if (tk1ToAdd > 0) {
-        logs.push(`${name} (attacker): kort blandet (< 4 kort, ${tk16Count} TK-16 → ${tk1ToAdd} TK-1${tk16ToKeep > 0 ? ` + ${tk16ToKeep} TK-16 gemt` : ''})`);
-      } else {
-        logs.push(`${name} (attacker): kort blandet (< 4 kort)`);
-      }
+      // Keep TK-16 in discarded
+      updatedDiscarded = tk16Cards;
+      
+      logs.push(`${name} (attacker): kort blandet (< 4 kort, ${tk16Cards.length} TK-16 forbliver i discard)`);
     }
 
     try {
