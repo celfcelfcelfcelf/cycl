@@ -19,9 +19,10 @@ const DraftSelection = ({ teams = [], initialIndex = 0, onPick = () => {}, autoP
 
   useEffect(() => {
     if (!visible) return;
-    // If current team is AI and autoPickFn is provided, auto-pick after a short delay
+    // If current team is AI (starts with "Comp") and autoPickFn is provided, auto-pick after a short delay
     const team = teams[index];
-    if (team && team !== 'Me' && typeof autoPickFn === 'function') {
+    const isAI = team && team.startsWith('Comp');
+    if (isAI && typeof autoPickFn === 'function') {
       const t = setTimeout(() => {
         const val = autoPickFn(team);
         setLocalMsg(`${team} auto-picked ${val}`);

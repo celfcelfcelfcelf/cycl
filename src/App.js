@@ -581,10 +581,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
 
         // Run AI investment checks for computer riders per team with team cap of 2
+        const playerTeam = getPlayerTeamName();
         const teamsMap = {};
         for (const [nm, rr] of eligibleInvestors) {
           if (!rr) continue;
-          if (rr.team === 'Me') continue;
+          if (rr.team === playerTeam) continue;
           teamsMap[rr.team] = teamsMap[rr.team] || [];
           teamsMap[rr.team].push([nm, rr]);
         }
@@ -952,9 +953,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Only auto-open if attackers are within range
       if (!canPull) return;
       
-      const humanHasEligible = members.some(([, r]) => r.team === 'Me' && !r.finished && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
+      const playerTeam = getPlayerTeamName();
+      const humanHasEligible = members.some(([, r]) => r.team === playerTeam && !r.finished && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
       if (humanHasEligible) {
-        try { addLog(`Auto-opening pull-invest modal for Me group ${g}`); } catch (e) {}
+        try { addLog(`Auto-opening pull-invest modal for ${playerTeam} group ${g}`); } catch (e) {}
         // Close any other modal that might be open (e.g., card selection)
         setCardSelectionOpen(false);
         setPullInvestGroup(g);
@@ -2173,8 +2175,9 @@ return { pace, updatedCards, doubleLead };
   // Only show intermediate sprint modal for stage races
   if (isStageRace) {
     // Initialize intermediate sprint selections for human riders
+    const playerTeam = getPlayerTeamName();
     const humanRiders = Object.entries(cardsObj)
-      .filter(([, r]) => r.team === 'Me' && !r.finished)
+      .filter(([, r]) => r.team === playerTeam && !r.finished)
       .map(([n]) => n);
     const initialSelections = {};
     humanRiders.forEach(name => initialSelections[name] = 0);
@@ -2626,7 +2629,8 @@ return { pace, updatedCards, doubleLead };
           // Ensure minimum of 0 to avoid negative values affecting sort order incorrectly
           const xpm = Math.max(0, entry.XprizeMoney);
           // Debug log to verify XPM is being used (only for AI picks during draft)
-          if (pickingTeam !== 'Me') {
+          const playerTeam = getPlayerTeamName();
+          if (pickingTeam !== playerTeam) {
             console.log(`[DRAFT] ${pickingTeam} evaluating ${candidate.NAVN}: XPM=${xpm}`);
           }
           return xpm;
@@ -3092,7 +3096,7 @@ return { pace, updatedCards, doubleLead };
     // In multiplayer mode, only allow submissions from:
     // 1. AI teams (if this is the host)
     // 2. The player's own team
-    if (gameMode === 'multi' && submittingTeam !== 'Me') {
+    if (gameMode === 'multi' && submittingTeam !== playerName) {
       // Check if this is an AI team
       const playerTeams = multiplayerPlayers.map(p => p.team);
       const isAITeam = !playerTeams.includes(submittingTeam);
@@ -4975,8 +4979,9 @@ const startNextStage = () => {
   // Only show intermediate sprint modal for stage races
   if (isStageRace) {
     // Initialize intermediate sprint selections for human riders
+    const playerTeam = getPlayerTeamName();
     const humanRiders = Object.entries(preparedCards)
-      .filter(([, r]) => r.team === 'Me' && !r.finished)
+      .filter(([, r]) => r.team === playerTeam && !r.finished)
       .map(([n]) => n);
     const initialSelections = {};
     humanRiders.forEach(name => initialSelections[name] = 0);
@@ -5031,8 +5036,9 @@ const confirmIntermediateSprint = () => {
   
   // AI riders: sprint_effort = min(round(rider.sprint_chance * random(0, 20)), 2)
   addLog('=== AI SPRINT EFFORT CALCULATION ===');
+  const playerTeam = getPlayerTeamName();
   Object.entries(cards).forEach(([name, rider]) => {
-    if (rider.team !== 'Me' && !rider.finished) {
+    if (rider.team !== playerTeam && !rider.finished) {
       const randomFactor = Math.random() * 15 + 3; // 0 to 20
       const sprintChance = rider.sprint_chance || 10; // default if not set (in percentage)
       const rawCalculation = (sprintChance / 100) * randomFactor;
@@ -6132,7 +6138,8 @@ const checkCrash = () => {
     // find human riders in the group
     // Use cardsSnapshotRef if available (set by handlePaceSubmit) to avoid React state timing issues
     const cardsToUse = cardsSnapshotRef.current || cards;
-    const humanRiders = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && r.team === 'Me' && !r.finished).map(([n]) => n);
+    const playerTeam = getPlayerTeamName();
+    const humanRiders = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && r.team === playerTeam && !r.finished).map(([n]) => n);
     if (!humanRiders || humanRiders.length === 0) {
       // nothing to do
       const snapshot = cardsSnapshotRef.current;
@@ -6839,18 +6846,17 @@ const checkCrash = () => {
                 {draftPool.map((r, i) => {
                   // Authoritative next team for current pick (may consult draftPickSequence)
                   const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
+                  const playerTeam = getPlayerTeamName();
                   
                   // Check if it's the current player's turn
-                  // In single player: check if currentPickingTeam === 'Me'
-                  // In multiplayer: check if currentPickingTeam matches the player's team
-                  const isMyTurn = currentPickingTeam === 'Me' || 
-                    (gameMode === 'multi' && multiplayerPlayers && 
-                     multiplayerPlayers.some(p => p.name === playerName && p.team === currentPickingTeam));
+                  // In single player: check if currentPickingTeam === playerTeam
+                  // In multiplayer: check if currentPickingTeam matches the player's name
+                  const isMyDraftTurn = currentPickingTeam === playerTeam;
                   
                   // Only allow clicking when: drafting active, it's my turn, and
                   // the rider is still present in the live remaining list.
                   const inRemaining = Array.isArray(draftRemaining) && draftRemaining.some(rr => rr.NAVN === r.NAVN);
-                  const isClickable = isDrafting && isMyTurn && inRemaining;
+                  const isClickable = isDrafting && isMyDraftTurn && inRemaining;
                   return (
                     <button
                       key={i}
@@ -7288,7 +7294,7 @@ const checkCrash = () => {
                                               if (!outcome) return null;
                                               return (
                                                 <>
-                                                  {currentTeam !== 'Me' && (
+                                                  {!isMyTurn() && (
                                                     <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
                                                   )}
                                                   <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
@@ -7310,11 +7316,12 @@ const checkCrash = () => {
                                             // Open invest-by-rider selector for the acting team, but only for human team
                                             const team = currentTeam;
                                               // If the human has eligible riders in this group, ask Me
-                                              const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                              const playerTeam = getPlayerTeamName();
+                                              const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === playerTeam && !rr.finished && (rr.attacking_status || '') !== 'attacker');
                                               if (humanHasRiders) {
-                                                addLog(`Opening pull-invest modal for Me group ${g}`);
+                                                addLog(`Opening pull-invest modal for ${playerTeam} group ${g}`);
                                                 setPullInvestGroup(g);
-                                                setPullInvestTeam('Me');
+                                                setPullInvestTeam(playerTeam);
                                                 setPullInvestSelections([]);
                                               } else {
                                                 // Otherwise process AI investments immediately for the acting team
@@ -7348,7 +7355,8 @@ const checkCrash = () => {
                                         <div className="mb-1">
                                             <button onClick={() => {
                                               const team = currentTeam;
-                                              if (team === 'Me') {
+                                              const playerTeam = getPlayerTeamName();
+                                              if (team === playerTeam) {
                                                 addLog(`Opening pull-invest modal for ${team} group ${g}`);
                                                 setPullInvestGroup(g);
                                                 setPullInvestTeam(team);
@@ -7437,7 +7445,8 @@ const checkCrash = () => {
                                           canPull ? (
                                             <button onClick={() => {
                                               const team = currentTeam;
-                                              if (team === 'Me') {
+                                              const playerTeam = getPlayerTeamName();
+                                              if (team === playerTeam) {
                                                   addLog(`Opening pull-invest modal for ${team} group ${g}`);
                                                   setPullInvestGroup(g); setPullInvestTeam(team); setPullInvestSelections([]);
                                                 } else {
@@ -7459,11 +7468,12 @@ const checkCrash = () => {
                                                     <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
                                                     <button onClick={() => {
                                                         // open invest selector for the acting team (only for Me)
-                                                        const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                                        const playerTeam = getPlayerTeamName();
+                                                        const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === playerTeam && !rr.finished && (rr.attacking_status || '') !== 'attacker');
                                                         if (humanHasRiders) {
-                                                          addLog(`Opening pull-invest modal for Me group ${g}`);
+                                                          addLog(`Opening pull-invest modal for ${playerTeam} group ${g}`);
                                                           setPullInvestGroup(g);
-                                                          setPullInvestTeam('Me');
+                                                          setPullInvestTeam(playerTeam);
                                                         } else {
                                                           processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
                                                         }
@@ -7476,7 +7486,8 @@ const checkCrash = () => {
                                               return (
                                                 <button onClick={() => {
                                                   const team = currentTeam;
-                                                  if (team === 'Me') {
+                                                  const playerTeam = getPlayerTeamName();
+                                                  if (team === playerTeam) {
                                                     setPullInvestGroup(g);
                                                     setPullInvestTeam(team);
                                                   } else {
@@ -7496,7 +7507,7 @@ const checkCrash = () => {
                                             if (!outcome) return null;
                                             return (
                                               <>
-                                                {currentTeam !== 'Me' && (
+                                                {!isMyTurn() && (
                                                   <div>{(outcome.perTeam && outcome.perTeam[currentTeam]) ? `${currentTeam} invests` : `${currentTeam} does not invest`}</div>
                                                 )}
                                                 <div className="mt-1">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
@@ -7837,10 +7848,11 @@ const checkCrash = () => {
                                   <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
                                   <button onClick={() => {
                                     // Open invest selector for the acting team instead of immediately pulling
-                                    const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === 'Me' && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                    const playerTeam = getPlayerTeamName();
+                                    const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === playerTeam && !rr.finished && (rr.attacking_status || '') !== 'attacker');
                                     if (humanHasRiders) {
                                       setPullInvestGroup(g);
-                                      setPullInvestTeam('Me');
+                                      setPullInvestTeam(playerTeam);
                                       setPullInvestSelections([]);
                                     } else {
                                       processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
@@ -7855,7 +7867,8 @@ const checkCrash = () => {
                             return (
                               <button onClick={() => {
                                 const team = currentTeam;
-                                if (team === 'Me') {
+                                const playerTeam = getPlayerTeamName();
+                                if (team === playerTeam) {
                                   addLog(`Opening pull-invest modal for ${team} group ${g}`);
                                   setPullInvestGroup(g);
                                   setPullInvestTeam(team);
@@ -7887,7 +7900,10 @@ const checkCrash = () => {
                       SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream}</strong>
                     </div>
                     <div className="space-y-4 mb-4">
-                      {Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished).map(([name, rider]) => {
+                      {Object.entries(cards).filter(([, r]) => {
+                        const playerTeam = getPlayerTeamName();
+                        return r.group === currentGroup && r.team === playerTeam && !r.finished;
+                      }).map(([name, rider]) => {
                         // Check if this rider is taking lead and with what value
                         const isLeading = rider.takes_lead > 0;
                         const leadValue = isLeading ? rider.selected_value : null;
@@ -8049,11 +8065,14 @@ const checkCrash = () => {
               )}
 
               {/* Pull-invest modal: choose which rider on the investing team receives TK-1 and performs the pull */}
-                      {pullInvestGroup !== null && (pullInvestTeam === 'Me' || pullInvestTeam === null) && (
+                      {pullInvestGroup !== null && (() => {
+                        const playerTeam = getPlayerTeamName();
+                        return pullInvestTeam === playerTeam || pullInvestTeam === null;
+                      })() && (
                 (() => {
                   try {
                     const g = pullInvestGroup;
-                    const team = 'Me';
+                    const team = getPlayerTeamName();
                     // Compute group's main non-attacker position and only offer
                     // candidates who are non-attackers at exactly the group position
                     // (position == groupMainPos) and whose team doesn't have an attacker.
