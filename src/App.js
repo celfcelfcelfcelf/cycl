@@ -1867,9 +1867,17 @@ return { pace, updatedCards, doubleLead };
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
   
+  // Debug logging - ALWAYS log
+  console.log('🎮 initializeGame called:', {
+    gameMode,
+    hasDrafted: !!drafted,
+    draftedLength: drafted?.length,
+    multiplayerPlayersCount: multiplayerPlayers?.length
+  });
+  
   // Debug logging for multiplayer
   if (gameMode === 'multi' && drafted) {
-    console.log('🎮 initializeGame called in multiplayer mode');
+    console.log('🎮 initializeGame in multiplayer mode');
     console.log('🎮 Drafted array length:', drafted?.length);
     console.log('🎮 First 3 drafted teams:', drafted?.slice(0, 3).map(d => ({ rider: d.rider?.NAVN, team: d.team })));
     console.log('🎮 multiplayerPlayers:', multiplayerPlayers.map(p => ({ name: p.name, team: p.team })));
