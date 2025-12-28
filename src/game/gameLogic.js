@@ -1675,12 +1675,13 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     }
 
     // TK-test: Add penalty for low-value cards based on fields left
+    // Reduced to 1/3 of original values to make penalty less aggressive
     let cardNumberPenalty = 0;
     const cardNumber = parseInt(card.id.match(/\d+/)?.[0] || '15');
     if (cardNumber >= 1 && cardNumber <= 2) {
-      cardNumberPenalty = 0.1 * len_left;
+      cardNumberPenalty = 0.033 * len_left;  // Was 0.1
     } else if (cardNumber >= 3 && cardNumber <= 5) {
-      cardNumberPenalty = 0.05 * len_left;
+      cardNumberPenalty = 0.017 * len_left;  // Was 0.05
     }
 
     const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs + cardNumberPenalty;
