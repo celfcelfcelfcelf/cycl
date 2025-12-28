@@ -1644,7 +1644,10 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   let selectedCard = (rider.cards && rider.cards[0]) ? rider.cards[0] : { flat: 2, uphill: 2, id: 'kort: 1' };
   let bestError = 1000;
 
-  for (const card of (rider.cards || []).slice(0, 4)) {
+  // Filter out TK-1 cards - they cannot be played directly, only give penalty
+  const playableCards = (rider.cards || []).slice(0, 4).filter(c => c.id !== 'TK-1: 99');
+  
+  for (const card of playableCards) {
     const svCard = getSlipstreamValue(rider.position, rider.position + card.flat, trackStr);
     const value = isFlatTerrain(svCard, speed) ? (card.flat - penalty) : (card.uphill - penalty);
     const error_card = Math.pow(Math.abs(value - ideal_move), 2) + card.uphill / 100;
