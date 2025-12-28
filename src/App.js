@@ -1867,6 +1867,14 @@ return { pace, updatedCards, doubleLead };
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
   
+  // Debug logging for multiplayer
+  if (gameMode === 'multi' && drafted) {
+    console.log('🎮 initializeGame called in multiplayer mode');
+    console.log('🎮 Drafted array length:', drafted?.length);
+    console.log('🎮 First 3 drafted teams:', drafted?.slice(0, 3).map(d => ({ rider: d.rider?.NAVN, team: d.team })));
+    console.log('🎮 multiplayerPlayers:', multiplayerPlayers.map(p => ({ name: p.name, team: p.team })));
+  }
+  
   // Prepare selectedTrack and track state
   // In stage race mode, use the track from the first stage directly
   const selectedTrack = (stagesToUse && stagesToUse.length > 0) 
@@ -2158,6 +2166,17 @@ return { pace, updatedCards, doubleLead };
   
   // RESET ALT STATE
   setCards(cardsObj);
+  
+  // Debug logging for team assignments
+  if (gameMode === 'multi') {
+    const teamCounts = {};
+    Object.entries(cardsObj).forEach(([name, rider]) => {
+      teamCounts[rider.team] = (teamCounts[rider.team] || 0) + 1;
+    });
+    console.log('🎮 Cards created with teams:', teamCounts);
+    console.log('🎮 Sample riders:', Object.entries(cardsObj).slice(0, 3).map(([name, r]) => ({ name, team: r.team })));
+  }
+  
   setRound(0);
   setTeamPaces({});
   setTeamPaceMeta({});
