@@ -45,7 +45,9 @@ import {
   updateCurrentTurn,
   startMultiplayerGame,
   leaveGame,
-  updatePlayerConnection
+  updatePlayerConnection,
+  syncPlayerMove,
+  syncAIMove
 } from './firebase/gameService';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase/config';
@@ -215,6 +217,7 @@ const CyclingGame = () => {
   });
   const [inLobby, setInLobby] = useState(false);
   const unsubscribeRef = useRef(null);
+  const [myTeamName, setMyTeamName] = useState(null); // The team name assigned to this player in multiplayer
   
   const [gameState, setGameState] = useState('setup');
   const gameInitializedRef = useRef(false); // Track if game has been initialized in multiplayer
@@ -998,6 +1001,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setIsHost(true);
       setInLobby(true);
       setGameMode('multi');
+      setMyTeamName('Team1'); // Host is always Team1
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
@@ -1047,6 +1051,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             return 'draft';
           });
         }
+        
+        // If already playing, continuously sync game state updates
+        if (gameData.status === 'playing' && gameState === 'playing' && gameData.gameState) {
+          loadMultiplayerGameState(gameData.gameState);
+        }
       });
       
       unsubscribeRef.current = unsubscribe;
@@ -1064,6 +1073,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setRoomCode(code);
       setIsHost(false);
       setInLobby(true);
+      setMyTeamName(team); // Store the assigned team name
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
@@ -1212,12 +1222,19 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           setInLobby(false);
           // Only update gameState if we're not already in draft or playing
           setGameState(current => {
-            if (current === 'draft' || current === 'playing') return current;
+            if (current === 'draft' || current === 'playing') {
+              // Already in game - load state updates
+              loadMultiplayerGameState(gameData.gameState);
+              return current;
+            }
+            loadMultiplayerGameState(gameData.gameState);
             return 'playing';
           });
-          if (gameData.gameState) {
-            loadMultiplayerGameState(gameData.gameState);
-          }
+        }
+        
+        // If already playing, continuously sync game state updates
+        if (gameData.status === 'playing' && gameState === 'playing' && gameData.gameState) {
+          loadMultiplayerGameState(gameData.gameState);
         }
       });
       
@@ -1254,16 +1271,51 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   
   // Load game state from multiplayer
   const loadMultiplayerGameState = (state) => {
-    setCards(state.cards || {});
-    setRound(state.round || 0);
-    setCurrentGroup(state.currentGroup || 0);
-    setTeams(state.teams || []);
-    setCurrentTeam(state.currentTeam || 'Team1');
-    setTrack(state.track || '');
-    setTrackName(state.trackName || 'Yorkshire');
-    setNumberOfTeams(state.numberOfTeams || 3);
-    setRidersPerTeam(state.ridersPerTeam || 3);
-    // Add more state as needed
+    if (!state) return;
+    
+    // Only update if this is not our own move (prevent feedback loop)
+    // We check lastUpdate timestamp to avoid overwriting our local state
+    const lastSyncTime = loadMultiplayerGameState.lastSync || 0;
+    const stateTime = state.lastUpdate || 0;
+    
+    if (stateTime <= lastSyncTime) {
+      // This is old data or our own update, skip
+      return;
+    }
+    
+    loadMultiplayerGameState.lastSync = Date.now();
+    
+    console.log('🔄 Loading multiplayer game state update');
+    
+    // Update all game state from Firebase
+    if (state.cards) setCards(state.cards);
+    if (typeof state.round !== 'undefined') setRound(state.round);
+    if (typeof state.currentGroup !== 'undefined') setCurrentGroup(state.currentGroup);
+    if (state.teams) setTeams(state.teams);
+    if (state.currentTeam) setCurrentTeam(state.currentTeam);
+    if (state.track) setTrack(state.track);
+    if (state.trackName) setTrackName(state.trackName);
+    if (typeof state.numberOfTeams !== 'undefined') setNumberOfTeams(state.numberOfTeams);
+    if (typeof state.ridersPerTeam !== 'undefined') setRidersPerTeam(state.ridersPerTeam);
+    
+    // Sync team paces and metadata
+    if (state.teamPaces) setTeamPaces(state.teamPaces);
+    if (state.teamPaceMeta) setTeamPaceMeta(state.teamPaceMeta);
+    if (state.teamPaceRound) setTeamPaceRound(state.teamPaceRound);
+    
+    // Sync move phase and speed info
+    if (state.movePhase) setMovePhase(state.movePhase);
+    if (typeof state.groupSpeed !== 'undefined') setGroupSpeed(state.groupSpeed);
+    if (typeof state.slipstream !== 'undefined') setSlipstream(state.slipstream);
+    
+    // Sync recent logs (append them, don't replace)
+    if (state.logs && Array.isArray(state.logs)) {
+      state.logs.forEach(log => {
+        if (!gameLog.includes(log)) {
+          addLog(log);
+        }
+      });
+    }
   };
   
   // Sync game state to multiplayer
@@ -1298,6 +1350,47 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       };
     }
   }, [roomCode, playerName, gameMode]);
+
+  // Helper: Check if it's the current player's turn in multiplayer
+  const isMyTurn = () => {
+    if (gameMode !== 'multi') return true; // In single player, always your turn
+    if (!myTeamName || !currentTeam) return false;
+    return currentTeam === myTeamName;
+  };
+
+  // Helper: Get the current player's team name
+  const getPlayerTeamName = () => {
+    return gameMode === 'multi' ? myTeamName : 'Me';
+  };
+
+  // Helper: Check if a team is the current player's team
+  const isPlayerTeam = (teamName) => {
+    const playerTeam = getPlayerTeamName();
+    return teamName === playerTeam;
+  };
+
+  // Helper: Sync game state to Firebase after a move
+  const syncMoveToFirebase = async () => {
+    if (gameMode !== 'multi' || !roomCode) return;
+    
+    try {
+      await syncPlayerMove(roomCode, {
+        cards,
+        round,
+        currentGroup,
+        currentTeam,
+        teamPaces,
+        teamPaceMeta,
+        teamPaceRound,
+        movePhase,
+        groupSpeed,
+        slipstream,
+        logs: gameLog.slice(-20) // Only sync recent logs to avoid bloat
+      });
+    } catch (error) {
+      console.error('Failed to sync move:', error);
+    }
+  };
 
   // Start multiplayer game (host only)
   const startMultiplayerGameSession = async () => {
@@ -1765,9 +1858,15 @@ return { pace, updatedCards, doubleLead };
     : getResolvedTrack();
   setTrack(selectedTrack);
 
-  // build team list
-  const teamList = ['Me'];
-  for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
+  // build team list - use Team1, Team2, etc. in multiplayer, Me/Comp in single player
+  let teamList;
+  if (gameMode === 'multi') {
+    teamList = [];
+    for (let i = 1; i <= numberOfTeams; i++) teamList.push(`Team${i}`);
+  } else {
+    teamList = ['Me'];
+    for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
+  }
 
   const total = numberOfTeams * ridersPerTeam;
   const breakawayCount = Math.min(numAttackers, total); // use slider value, capped at total riders
@@ -2973,6 +3072,28 @@ return { pace, updatedCards, doubleLead };
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
     addLog(`🚀 handlePaceSubmit START: group=${groupNum}, team=${team || currentTeam}, pace=${pace}, hasSnapshot=${!!cardsSnapshot}`);
     const submittingTeam = team || currentTeam;
+    
+    // In multiplayer mode, only allow submissions from:
+    // 1. AI teams (if this is the host)
+    // 2. The player's own team
+    if (gameMode === 'multi' && submittingTeam !== 'Me') {
+      // Check if this is an AI team
+      const playerTeams = multiplayerPlayers.map(p => p.team);
+      const isAITeam = !playerTeams.includes(submittingTeam);
+      
+      // Only host can submit AI moves
+      if (isAITeam && !isHost) {
+        addLog(`⚠️ Non-host attempted to submit AI move for ${submittingTeam} - blocked`);
+        return;
+      }
+      
+      // Players can only submit for their own team
+      if (!isAITeam && submittingTeam !== myTeamName) {
+        addLog(`⚠️ Player attempted to submit for another player's team ${submittingTeam} - blocked`);
+        return;
+      }
+    }
+    
     const paceKey = `${groupNum}-${submittingTeam}`;
 
     // Prevent double-submission by same team for the same round.
@@ -3183,9 +3304,10 @@ return { pace, updatedCards, doubleLead };
     });
     addLog(`🔍 submittedPaces built: ${JSON.stringify(submittedPaces)}, teamsWithRiders=${JSON.stringify(teamsWithRiders)}, will continue=${Object.keys(submittedPaces).length >= teamsWithRiders.length && (!teamsWithRiders.includes('Me') || submittedPaces['Me'] !== undefined)}`);
 
-  // If the player's team ('Me') has riders in this group, require that
+  // If the player's team has riders in this group, require that
   // the player submits in the current round before finalizing.
-  if (teamsWithRiders.includes('Me') && (submittedPaces['Me'] === undefined)) return;
+  const playerTeam = getPlayerTeamName();
+  if (teamsWithRiders.includes(playerTeam) && (submittedPaces[playerTeam] === undefined)) return;
 
   // Wait until all teams that have non-attacker riders have submitted for this ROUND
   if (Object.keys(submittedPaces).length < teamsWithRiders.length) return;
@@ -3670,32 +3792,38 @@ return { pace, updatedCards, doubleLead };
     }
     setMovePhase('cardSelection');
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
+    
+    // Sync move to Firebase in multiplayer mode
+    if (gameMode === 'multi') {
+      syncMoveToFirebase().catch(err => console.error('Failed to sync move:', err));
+    }
   };
 
 const handleHumanChoices = (groupNum, choice) => {
   console.log('Human choices:', choice);
   
   const updatedCards = {...cards};
+  const playerTeam = getPlayerTeamName();
   
   // Find all riders in this group on the human team
   const humanRiders = Object.entries(updatedCards)
-    .filter(([, r]) => r.group === groupNum && r.team === 'Me')
+    .filter(([, r]) => r.group === groupNum && r.team === playerTeam)
     .map(([name]) => name);
   // Support 'nochange' choice during choice-2: submit the previous round-1
   // selection unchanged (if available). This avoids forcing the player to
   // re-select their previous choice when choice-2 is open.
   if (choice.type === 'nochange') {
     try {
-      const paceKey = `${groupNum}-Me`;
+      const paceKey = `${groupNum}-${playerTeam}`;
       const meta = teamPaceMeta && teamPaceMeta[paceKey];
       const prev = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
       if (typeof prev !== 'undefined') {
-        handlePaceSubmit(groupNum, prev, 'Me', !!(meta && meta.isAttack), (meta && meta.attacker) || null);
+        handlePaceSubmit(groupNum, prev, playerTeam, !!(meta && meta.isAttack), (meta && meta.attacker) || null);
         return;
       }
     } catch (e) {}
     // fallback to follow if no previous data
-    handlePaceSubmit(groupNum, 0, 'Me', false, null);
+    handlePaceSubmit(groupNum, 0, getPlayerTeamName(), false, null);
     return;
   }
   
@@ -3716,10 +3844,11 @@ const handleHumanChoices = (groupNum, choice) => {
         }
       });
       setCards(updatedCards);
-      addLog(`${(submittingTeam || 'Me')} attempted an attack but group has fewer than 3 riders — attack ignored`);
+      const playerTeam = getPlayerTeamName();
+      addLog(`${(submittingTeam || playerTeam)} attempted an attack but group has fewer than 3 riders — attack ignored`);
       // Submit as follow (no attack)
       const teamPaceFallback = 0;
-      handlePaceSubmit(groupNum, teamPaceFallback, 'Me', false, null);
+      handlePaceSubmit(groupNum, teamPaceFallback, playerTeam, false, null);
       return;
     }
     // Attacking rider gets the card value
@@ -3798,7 +3927,7 @@ const handleHumanChoices = (groupNum, choice) => {
       }
     });
     
-    addLog(`Me: dobbeltføring ${rider1}(${pace1}), ${rider2}(${pace2})`);
+    addLog(`${playerTeam}: dobbeltføring ${rider1}(${pace1}), ${rider2}(${pace2})`);
     
   } else if (choice.type === 'follow') {
     // All riders follow
@@ -3808,7 +3937,7 @@ const handleHumanChoices = (groupNum, choice) => {
       updatedCards[name].attacking_status = 'no';
     });
     
-    addLog(`Me: følger (0)`);
+    addLog(`${playerTeam}: følger (0)`);
   }
   
   setCards(updatedCards);
@@ -3828,7 +3957,7 @@ const handleHumanChoices = (groupNum, choice) => {
   } : null;
   
   // Pass updatedCards as snapshot to avoid React state timing issues
-  handlePaceSubmit(groupNum, teamPace, 'Me', isAttack, attackerName, doubleLead, updatedCards);
+  handlePaceSubmit(groupNum, teamPace, playerTeam, isAttack, attackerName, doubleLead, updatedCards);
 };
 
 /**
@@ -6141,6 +6270,20 @@ const checkCrash = () => {
             {gameState === 'playing' ? (
               <>
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
+                {gameMode === 'multi' && (
+                  <div className="mt-2 mb-2 px-3 py-2 bg-blue-100 rounded border border-blue-300">
+                    <div className="text-sm font-semibold text-blue-900">
+                      {currentTeam === myTeamName ? (
+                        <span className="text-green-600">🎮 Your turn ({myTeamName})</span>
+                      ) : (
+                        <span className="text-gray-600">⏳ Waiting for {currentTeam}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-blue-700 mt-1">
+                      Room: {roomCode} | Players: {multiplayerPlayers.length}
+                    </div>
+                  </div>
+                )}
                 <div className="text-xs text-black mt-2 space-y-0.5">
                   <div className="font-semibold">CYCL v. TEST1</div>
                   <div>• Alle Trætkort ryger i en bunke for sig</div>
@@ -7069,8 +7212,19 @@ const checkCrash = () => {
                   {movePhase === 'input' && (
                     (() => {
                       // If it's the human's turn and human has riders in this group, show human interface
-                      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
-                      if (currentTeam === 'Me' && humanRiders.length > 0) {
+                      const currentPlayerTeam = gameMode === 'multi' ? myTeamName : 'Me';
+                      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
+                      
+                      // In multiplayer mode, check if it's actually this player's turn
+                      if (gameMode === 'multi' && currentTeam !== myTeamName) {
+                        return (
+                          <div className="text-center text-gray-600 italic p-4">
+                            Waiting for {currentTeam} to make their move...
+                          </div>
+                        );
+                      }
+                      
+                      if (currentTeam === currentPlayerTeam && humanRiders.length > 0) {
                         // Determine if choice-2 is open for this group and whether
                         // the team previously attacked in round 1. If so, force
                         // attack mode in the UI and prevent cancelling the attack.
@@ -7342,7 +7496,8 @@ const checkCrash = () => {
                             } catch (e) { /* ignore and fall back to normal rendering */ }
 
                             // Check if human has riders in this group (used for button logic)
-                            const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === 'Me' && !r.finished);
+                            const currentPlayerTeam = gameMode === 'multi' ? myTeamName : 'Me';
+                            const humanHasRiders = Object.entries(cards).some(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
 
                             return (
                               <div className="flex items-center gap-2">
@@ -7351,6 +7506,12 @@ const checkCrash = () => {
                                 ) : (
                                   <button
                                     onClick={async () => {
+                                      // In multiplayer mode, only host can run AI moves
+                                      if (gameMode === 'multi' && !isHost) {
+                                        addLog('⚠️ Only host can run AI moves in multiplayer');
+                                        return;
+                                      }
+                                      
                                       // If no human riders, auto-play all AI teams sequentially
                                       if (!humanHasRiders) {
                                         const teamsInGroup = Object.entries(cards)
@@ -7416,6 +7577,12 @@ const checkCrash = () => {
                                       }
                                       
                                       // Original single-team logic for when human has riders
+                                      // In multiplayer mode, only host can run AI moves
+                                      if (gameMode === 'multi' && !isHost && currentTeam !== myTeamName) {
+                                        addLog('⚠️ Only host can run AI moves in multiplayer');
+                                        return;
+                                      }
+                                      
                                       const paceKey = `${currentGroup}-${currentTeam}`;
                                       const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
                                       const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
@@ -8561,7 +8728,7 @@ const checkCrash = () => {
                       <div className="text-sm space-y-1">
                         {merged.map((r) => (
                           <div key={r.name} className="flex justify-between">
-                            <div>{r.pos}. {r.team === 'Me' ? (<strong>{r.name}</strong>) : r.name} <span className="text-xs text-gray-500">({r.team})</span></div>
+                            <div>{r.pos}. {isPlayerTeam(r.team) ? (<strong>{r.name}</strong>) : r.name} <span className="text-xs text-gray-500">({r.team})</span></div>
                             <div className="text-xs text-green-600">{typeof r.timeSec === 'number' ? convertToSeconds(r.timeSec) : '-'}</div>
                           </div>
                         ))}
@@ -8675,7 +8842,7 @@ const checkCrash = () => {
                   return (
                     <div key={r.name} className={`flex justify-between border-b pb-1 ${isGCLeader ? 'border-2 border-yellow-400 bg-yellow-50 rounded px-1' : ''}`}>
                       <div>
-                        {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                        {idx + 1}. {isPlayerTeam(r.team) ? <strong>{r.name}</strong> : r.name}
                         <span className="text-xs text-gray-500 ml-2">({r.team})</span>
                         {winChanceGC !== null && (
                           <span className="text-xs text-gray-600 font-light ml-2 border border-gray-300 px-1 rounded">{winChanceGC.toFixed(0)}%</span>
@@ -8825,7 +8992,7 @@ const checkCrash = () => {
                 return sorted.map(([team, money], idx) => (
                   <div key={team} className="flex justify-between border-b pb-1">
                     <div>
-                      {idx + 1}. {team === 'Me' ? <strong>{team}</strong> : team}
+                      {idx + 1}. {isPlayerTeam(team) ? <strong>{team}</strong> : team}
                     </div>
                     <div className="text-xs text-blue-700 font-bold">
                       ${money.toLocaleString()}
@@ -8867,7 +9034,7 @@ const checkCrash = () => {
                       return (
                         <div key={r.name} className="flex justify-between border-b pb-1">
                           <div>
-                            {idx + 1}. {r.team === 'Me' ? <strong>{r.name}</strong> : r.name}
+                            {idx + 1}. {isPlayerTeam(r.team) ? <strong>{r.name}</strong> : r.name}
                             <span className="text-xs text-gray-500 ml-2">({r.team})</span>
                           </div>
                           <div className="text-xs">
@@ -8991,7 +9158,7 @@ const checkCrash = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-lg">{idx + 1}.</span>
-                      <span className={entry.team === 'Me' ? 'font-bold' : ''}>
+                      <span className={isPlayerTeam(entry.team) ? 'font-bold' : ''}>
                         {entry.name}
                       </span>
                       <span className="text-xs text-gray-500">({entry.team})</span>

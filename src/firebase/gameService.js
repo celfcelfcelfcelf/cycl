@@ -153,6 +153,53 @@ export const updateCurrentTurn = async (roomCode, teamName) => {
   });
 };
 
+// Sync a player's move to Firebase
+export const syncPlayerMove = async (roomCode, moveData) => {
+  const gameRef = doc(db, 'games', roomCode);
+  const gameSnap = await getDoc(gameRef);
+  
+  if (!gameSnap.exists()) return;
+  
+  const gameData = gameSnap.data();
+  
+  await updateDoc(gameRef, {
+    gameState: {
+      ...gameData.gameState,
+      cards: moveData.cards,
+      round: moveData.round,
+      currentGroup: moveData.currentGroup,
+      currentTeam: moveData.currentTeam,
+      teamPaces: moveData.teamPaces,
+      teamPaceMeta: moveData.teamPaceMeta,
+      teamPaceRound: moveData.teamPaceRound,
+      movePhase: moveData.movePhase,
+      groupSpeed: moveData.groupSpeed,
+      slipstream: moveData.slipstream,
+      logs: moveData.logs
+    },
+    currentTurn: moveData.currentTeam,
+    lastUpdate: serverTimestamp()
+  });
+};
+
+// Sync AI move from host to all players
+export const syncAIMove = async (roomCode, aiMoveData) => {
+  const gameRef = doc(db, 'games', roomCode);
+  const gameSnap = await getDoc(gameRef);
+  
+  if (!gameSnap.exists()) return;
+  
+  const gameData = gameSnap.data();
+  
+  await updateDoc(gameRef, {
+    gameState: {
+      ...gameData.gameState,
+      ...aiMoveData
+    },
+    lastUpdate: serverTimestamp()
+  });
+};
+
 // Subscribe to game updates
 export const subscribeToGame = (roomCode, callback) => {
   const gameRef = doc(db, 'games', roomCode);
