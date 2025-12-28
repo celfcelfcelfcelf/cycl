@@ -1117,6 +1117,47 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
   }, [roomCode, playerName, gameMode]);
 
+  // Start multiplayer game (host only)
+  const startMultiplayerGameSession = async () => {
+    if (!isHost || !roomCode) return;
+    
+    try {
+      // Use config from multiplayer setup
+      const currentTrack = multiplayerConfig.track || getResolvedTrack(multiplayerConfig.trackName);
+      
+      // Generate teams based on connected players
+      const teamList = multiplayerPlayers.map(p => p.team);
+      
+      // Initialize game with multiplayer settings
+      // For now, start without draft - just random rider assignment
+      // TODO: Add multiplayer draft support later
+      
+      // Build game state
+      const gameStateToSync = {
+        cards: {},
+        round: 0,
+        currentGroup: 0,
+        teams: teamList,
+        currentTeam: teamList[0],
+        track: currentTrack,
+        trackName: multiplayerConfig.trackName,
+        numberOfTeams: multiplayerPlayers.length,
+        ridersPerTeam: multiplayerConfig.ridersPerTeam,
+        isStageRace: multiplayerConfig.isStageRace,
+        stages: multiplayerConfig.stages,
+        currentStageIndex: 0,
+      };
+      
+      // Start the game in Firebase
+      await startMultiplayerGame(roomCode, gameStateToSync);
+      
+      // Local state will be updated by the subscriber
+    } catch (error) {
+      console.error('Failed to start multiplayer game:', error);
+      alert('Failed to start game: ' + error.message);
+    }
+  };
+
   // (prepareSprints was removed — sprint detection runs after group reassignment in flow)
 
   // All helper implementations (getPenalty, takesLeadFC, humanResponsibility,
@@ -5660,14 +5701,7 @@ const checkCrash = () => {
         isHost={isHost}
         roomCode={roomCode}
         players={multiplayerPlayers}
-        onStartGame={async () => {
-          if (isHost) {
-            // Initialize game for all players
-            // For now, call the existing initializeGame logic
-            // TODO: Adapt initializeGame to work with multiplayer
-            alert('Start game functionality coming soon!');
-          }
-        }}
+        onStartGame={startMultiplayerGameSession}
         onLeave={handleLeaveLobby}
         maxPlayers={multiplayerConfig.numberOfTeams}
         gameConfig={multiplayerConfig}
@@ -5741,8 +5775,17 @@ const checkCrash = () => {
           } catch (e) { return null; }
         })()}
         
-        {gameState === 'setup' && (
+        {gameMode === 'single' && gameState === 'setup' && (
           <div className="bg-white rounded-lg shadow-lg p-6 max-w-2xl mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">Game Setup</h2>
+              <button
+                onClick={() => setGameMode(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                ← Back
+              </button>
+            </div>
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-1">Track</label>
@@ -5946,7 +5989,7 @@ const checkCrash = () => {
             </div>
           </div>
         )}
-        {gameState === 'setup' && (
+        {gameMode === 'single' && gameState === 'setup' && (
           <div className="fixed left-0 right-0 bottom-0 p-4 bg-white border-t shadow-lg">
             <div className="max-w-7xl mx-auto px-4">
               <button 
