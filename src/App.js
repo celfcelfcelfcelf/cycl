@@ -502,25 +502,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
         // Determine which riders are eligible to invest:
         // 1. Must be in the group (g)
-        // 2. Must not be an attacker themselves
-        // 3. Must be at exactly the group's main position (position == groupMainPos)
-        // 4. Must not be on a team that has an attacker
-        const nonAttackers = membersLocal.filter(([, rr]) => (rr.attacking_status || '') !== 'attacker');
-        const nonAttackerPositions = nonAttackers.map(([, rr]) => Number(rr.position || 0));
-        const groupMainPos = nonAttackerPositions.length > 0 ? Math.max(...nonAttackerPositions) : 0;
-        
-        // Find teams that have attackers
-        const teamsWithAttackers = new Set(
-          membersLocal
-            .filter(([, rr]) => (rr.attacking_status || '') === 'attacker')
-            .map(([, rr]) => rr.team)
-        );
-        
-        const eligibleInvestors = membersLocal.filter(([, rr]) => 
-          (rr.attacking_status || '') !== 'attacker' && 
-          (Number(rr.position || 0) === groupMainPos) &&
-          !teamsWithAttackers.has(rr.team)
-        );
+        // All riders from the original group can invest, including both AI and human riders,
+        // even if the attacker has crossed the finish line.
+        const eligibleInvestors = membersLocal;
 
         // Handle human choice: support multiple riders (array) or legacy single 'rider'
         if (humanChoice && humanChoice.invested) {
