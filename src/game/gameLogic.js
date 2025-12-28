@@ -1602,8 +1602,11 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     ideal_move = Math.pow(len_left / best_left, 2) + 4;
 
     try {
+      const ideal_move_before_tl = ideal_move;
       const tlv = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, true, false, attackersInTurn, logger);
-      ideal_move = ideal_move + Math.pow(tlv, 0.4);
+      const tl_adjustment = Math.pow(tlv, 0.4);
+      ideal_move = ideal_move + tl_adjustment;
+      logger(`🎯 ${riderName}: TakeLead adjustment - tlv=${tlv.toFixed(2)}, adjustment=${tl_adjustment.toFixed(2)}, ideal_move ${ideal_move_before_tl.toFixed(2)} → ${ideal_move.toFixed(2)}`);
     } catch (e) {
       ideal_move = ideal_move + 0;
     }
