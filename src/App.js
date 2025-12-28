@@ -35,6 +35,18 @@ import {
 } from './game/gameLogic';
 import { enforceBrosten } from './game/engine';
 import EngineUI from './EngineUI';
+import MultiplayerSetup from './components/MultiplayerSetup';
+import MultiplayerLobby from './components/MultiplayerLobby';
+import { 
+  createGame, 
+  joinGame, 
+  subscribeToGame, 
+  updateGameState,
+  updateCurrentTurn,
+  startMultiplayerGame,
+  leaveGame,
+  updatePlayerConnection
+} from './firebase/gameService';
  
 import ridersFromCsv from './data/ridersCsv';
 
@@ -183,6 +195,25 @@ const getRiderPhoto = (riderName) => {
 
 // ========== MAIN COMPONENT ==========
 const CyclingGame = () => {
+  // Multiplayer state
+  const [gameMode, setGameMode] = useState(null); // null, 'single', 'multi'
+  const [multiplayerMode, setMultiplayerMode] = useState(null); // null, 'create', 'join'
+  const [roomCode, setRoomCode] = useState(null);
+  const [playerName, setPlayerName] = useState('');
+  const [isHost, setIsHost] = useState(false);
+  const [multiplayerPlayers, setMultiplayerPlayers] = useState([]);
+  const [multiplayerConfig, setMultiplayerConfig] = useState({
+    numberOfTeams: 3,
+    ridersPerTeam: 3,
+    trackName: 'Yorkshire',
+    track: '',
+    isStageRace: false,
+    stages: [],
+    currentStageIndex: 0
+  });
+  const [inLobby, setInLobby] = useState(false);
+  const unsubscribeRef = useRef(null);
+  
   const [gameState, setGameState] = useState('setup');
   const [draftPool, setDraftPool] = useState([]);
   const [draftRemaining, setDraftRemaining] = useState([]);
@@ -944,6 +975,147 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       addLog(`DEBUG pullInvestSelections -> ${JSON.stringify(pullInvestSelections)}`);
     } catch (e) {}
   }, [pullInvestSelections]);
+
+  // ========== MULTIPLAYER HANDLERS ==========
+  
+  // Handle creating a multiplayer game
+  const handleCreateGame = async (name) => {
+    try {
+      setPlayerName(name);
+      const code = await createGame(name, multiplayerConfig);
+      setRoomCode(code);
+      setIsHost(true);
+      setInLobby(true);
+      
+      // Subscribe to game updates
+      const unsubscribe = subscribeToGame(code, (gameData) => {
+        if (!gameData) {
+          // Game was deleted
+          handleLeaveLobby();
+          return;
+        }
+        
+        setMultiplayerPlayers(gameData.players || []);
+        
+        // If game started, transition to playing
+        if (gameData.status === 'playing' && gameData.gameState) {
+          setInLobby(false);
+          setGameState('playing');
+          // Load game state
+          loadMultiplayerGameState(gameData.gameState);
+        }
+      });
+      
+      unsubscribeRef.current = unsubscribe;
+    } catch (error) {
+      console.error('Failed to create game:', error);
+      alert('Failed to create game: ' + error.message);
+    }
+  };
+  
+  // Handle joining a multiplayer game
+  const handleJoinGame = async (code, name) => {
+    try {
+      setPlayerName(name);
+      const team = await joinGame(code, name);
+      setRoomCode(code);
+      setIsHost(false);
+      setInLobby(true);
+      
+      // Subscribe to game updates
+      const unsubscribe = subscribeToGame(code, (gameData) => {
+        if (!gameData) {
+          handleLeaveLobby();
+          return;
+        }
+        
+        setMultiplayerPlayers(gameData.players || []);
+        
+        // If game started, transition to playing
+        if (gameData.status === 'playing' && gameData.gameState) {
+          setInLobby(false);
+          setGameState('playing');
+          loadMultiplayerGameState(gameData.gameState);
+        }
+      });
+      
+      unsubscribeRef.current = unsubscribe;
+    } catch (error) {
+      console.error('Failed to join game:', error);
+      alert('Failed to join game: ' + error.message);
+    }
+  };
+  
+  // Handle leaving lobby
+  const handleLeaveLobby = async () => {
+    try {
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+      
+      if (roomCode && playerName) {
+        await leaveGame(roomCode, playerName);
+      }
+      
+      setInLobby(false);
+      setRoomCode(null);
+      setPlayerName('');
+      setIsHost(false);
+      setMultiplayerPlayers([]);
+      setGameMode(null);
+      setMultiplayerMode(null);
+    } catch (error) {
+      console.error('Failed to leave lobby:', error);
+    }
+  };
+  
+  // Load game state from multiplayer
+  const loadMultiplayerGameState = (state) => {
+    setCards(state.cards || {});
+    setRound(state.round || 0);
+    setCurrentGroup(state.currentGroup || 0);
+    setTeams(state.teams || []);
+    setCurrentTeam(state.currentTeam || 'Team1');
+    setTrack(state.track || '');
+    setTrackName(state.trackName || 'Yorkshire');
+    setNumberOfTeams(state.numberOfTeams || 3);
+    setRidersPerTeam(state.ridersPerTeam || 3);
+    // Add more state as needed
+  };
+  
+  // Sync game state to multiplayer
+  const syncGameState = async () => {
+    if (!roomCode || gameMode !== 'multi') return;
+    
+    try {
+      await updateGameState(roomCode, {
+        cards,
+        round,
+        currentGroup,
+        teams,
+        currentTeam,
+        track,
+        trackName,
+        numberOfTeams,
+        ridersPerTeam,
+        // Add more state as needed
+      });
+    } catch (error) {
+      console.error('Failed to sync game state:', error);
+    }
+  };
+  
+  // Update connection status on mount/unmount
+  useEffect(() => {
+    if (roomCode && playerName && gameMode === 'multi') {
+      updatePlayerConnection(roomCode, playerName, true);
+      
+      return () => {
+        updatePlayerConnection(roomCode, playerName, false);
+      };
+    }
+  }, [roomCode, playerName, gameMode]);
 
   // (prepareSprints was removed — sprint detection runs after group reassignment in flow)
 
@@ -5467,6 +5639,41 @@ const checkCrash = () => {
   };
 
   // Group UI removed per user request.
+
+  // Show multiplayer setup if no mode selected
+  if (!gameMode) {
+    return (
+      <MultiplayerSetup
+        onCreateGame={handleCreateGame}
+        onJoinGame={handleJoinGame}
+        onSinglePlayer={() => setGameMode('single')}
+        gameConfig={multiplayerConfig}
+        onConfigChange={(updates) => setMultiplayerConfig({ ...multiplayerConfig, ...updates })}
+      />
+    );
+  }
+
+  // Show multiplayer lobby
+  if (inLobby) {
+    return (
+      <MultiplayerLobby
+        isHost={isHost}
+        roomCode={roomCode}
+        players={multiplayerPlayers}
+        onStartGame={async () => {
+          if (isHost) {
+            // Initialize game for all players
+            // For now, call the existing initializeGame logic
+            // TODO: Adapt initializeGame to work with multiplayer
+            alert('Start game functionality coming soon!');
+          }
+        }}
+        onLeave={handleLeaveLobby}
+        maxPlayers={multiplayerConfig.numberOfTeams}
+        gameConfig={multiplayerConfig}
+      />
+    );
+  }
 
   return (<>
     <div className="min-h-screen p-4" style={{
