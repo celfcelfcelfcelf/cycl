@@ -3035,6 +3035,12 @@ return { pace, updatedCards, doubleLead };
     });
     
     if (draftSelections && draftSelections.length === total) {
+      // Debug: log all draft selections with teams
+      console.log('🎮 All draft selections:');
+      draftSelections.forEach((s, i) => {
+        console.log(`  ${i}: ${s.rider?.NAVN} -> team: ${s.team}`);
+      });
+      
       // drafted array with explicit team marker: { rider, team }
       const drafted = draftSelections.slice(0, total).map(s => ({ rider: s.rider, team: s.team }));
       console.log('🎮 Drafted riders:', drafted.length, 'first:', drafted[0]?.rider?.NAVN, 'team:', drafted[0]?.team);
