@@ -5512,9 +5512,10 @@ const checkCrash = () => {
                 <h1 className="text-3xl font-bold text-black">CYCL v. TEST1</h1>
                 <div className="text-sm text-black mt-2 space-y-1">
                   <div>• Alle Trætkort ryger i bunden</div>
-                  <div>• Når bunken blandes bliver hvert andet TK omdannet til MK (sæt antal nedenfor)</div>
+                  <div>• Når bunken blandes bliver hvert X=2 TK omdannet til MK til toppen (sæt X på startsiden)</div>
                   <div>• Når man spiller TK-ekstra mister man et TK</div>
                   <div>• Slipstream på flad er altid 3.</div>
+                  <div>• Udbrydere starter med fuldt sæt uden TK'ere </div>
                 </div>
               </>
             )}

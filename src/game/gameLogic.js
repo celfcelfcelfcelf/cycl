@@ -780,7 +780,8 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
   
   if (rider.FLAD1 !== undefined) {
     for (let i = 1; i <= 15; i++) {
-      if (isBreakaway && (i === 5 || i === 10)) continue;
+      // TK-test: Attackers keep all cards (no removal of kort: 5 and kort: 10)
+      // if (isBreakaway && (i === 5 || i === 10)) continue;
       newCards.push({ 
         id: `kort: ${i}`, 
         flat: rider[`FLAD${i}`] || 2,
@@ -789,7 +790,8 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
     }
   } else {
     for (let i = 1; i <= 15; i++) {
-      if (isBreakaway && (i === 5 || i === 10)) continue;
+      // TK-test: Attackers keep all cards (no removal of kort: 5 and kort: 10)
+      // if (isBreakaway && (i === 5 || i === 10)) continue;
       newCards.push({ 
         id: `kort: ${i}`, 
         flat: Math.max(2, Math.min(7, Math.floor(rider.FLAD / 15) + Math.floor(rng() * 3))), 
@@ -798,11 +800,12 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
     }
   }
   
-  if (isBreakaway) {
-    // Breakaway riders start with two exhaustion cards (kort: 16)
-    // Previously this pushed 4 cards; reduce to 2 as initial state.
-    for (let i = 0; i < 2; i++) newCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-  }
+  // TK-test: Attackers don't start with TK-16 cards
+  // if (isBreakaway) {
+  //   // Breakaway riders start with two exhaustion cards (kort: 16)
+  //   // Previously this pushed 4 cards; reduce to 2 as initial state.
+  //   for (let i = 0; i < 2; i++) newCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+  // }
   return shuffle(newCards, rng);
 };
 
