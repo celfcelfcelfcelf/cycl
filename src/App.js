@@ -1291,7 +1291,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (typeof state.round !== 'undefined') setRound(state.round);
     if (typeof state.currentGroup !== 'undefined') setCurrentGroup(state.currentGroup);
     if (state.teams) setTeams(state.teams);
-    if (state.currentTeam) setCurrentTeam(state.currentTeam);
+    if (state.currentTeam) {
+      // Fix legacy 'Me' team name in multiplayer - should never be 'Me' in multiplayer
+      const teamToSet = (gameMode === 'multi' && state.currentTeam === 'Me' && state.teams?.length > 0) 
+        ? state.teams[0] // Use first team as fallback
+        : state.currentTeam;
+      setCurrentTeam(teamToSet);
+    }
     if (state.track) setTrack(state.track);
     if (state.trackName) setTrackName(state.trackName);
     if (typeof state.numberOfTeams !== 'undefined') setNumberOfTeams(state.numberOfTeams);
@@ -2959,12 +2965,13 @@ return { pace, updatedCards, doubleLead };
     setDraftDebugMsg(dbgMsg);
     setTimeout(() => setDraftDebugMsg(null), 2000);
     
-    // Check if it's my turn (single player: 'Me', multiplayer: my team)
-    const isMyTurn = gameMode === 'multi'
-      ? (multiplayerPlayers && multiplayerPlayers.find(p => p.name === playerName)?.team === teamPicking)
-      : (teamPicking === 'Me');
+    // Check if it's my turn
+    // In single player: teamPicking should be 'Me'
+    // In multiplayer: teamPicking should be playerName
+    const playerTeam = getPlayerTeamName();
+    const isMyDraftTurn = teamPicking === playerTeam;
     
-    if (!isMyTurn) {
+    if (!isMyDraftTurn) {
       // Not our turn — log and ignore click
       return;
     }

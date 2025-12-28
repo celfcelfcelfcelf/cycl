@@ -43,7 +43,7 @@ export const createGame = async (hostName, gameConfig) => {
     },
     players: [{
       name: hostName,
-      team: 'Team1',
+      team: hostName, // Use player name as team identifier
       isHost: true,
       connected: true,
       joinedAt: Date.now()
@@ -81,11 +81,10 @@ export const joinGame = async (roomCode, playerName) => {
     throw new Error('Player name already taken');
   }
   
-  // Assign next available team
-  const teamNumber = gameData.players.length + 1;
+  // Assign team as player name
   const newPlayer = {
     name: playerName,
-    team: `Team${teamNumber}`,
+    team: playerName, // Use player name as team identifier
     isHost: false,
     connected: true,
     joinedAt: Date.now()
