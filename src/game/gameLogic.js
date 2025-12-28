@@ -1991,18 +1991,6 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       logs.push(`${name} (${rider.team}): +TK-1 added to top of hand`);
     }
     
-    // TK-test: Convert ALL TK-1 cards among top 4 to TK-16 cards in discard
-    const tk1InTopFour = updatedHandCards.slice(0, 4).filter(c => c.id === 'TK-1: 99').length;
-    if (tk1InTopFour >= 1) {
-      // Remove all TK-1 from hand
-      updatedHandCards = updatedHandCards.filter(c => c.id !== 'TK-1: 99');
-      // Add same number of TK-16 to discard
-      for (let i = 0; i < tk1InTopFour; i++) {
-        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-      }
-      logs.push(`${name}: ${tk1InTopFour} TK-1 converted to ${tk1InTopFour} TK-16 in discard`);
-    }
-    
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
     // TK-test: TK-16 cards stay in discard, only other cards are shuffled and added to hand
     if (updatedHandCards.length < 4 && updatedDiscarded.length > 0) {
@@ -2724,18 +2712,6 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
     updatedDiscarded = [...updatedDiscarded, { id: 'TK-1: 99', flat: -1, uphill: -1 }];
     logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
-    
-    // TK-test: Convert ALL TK-1 cards among top 4 to TK-16 cards in discard
-    const tk1InTopFour = updatedHandCards.slice(0, 4).filter(c => c.id === 'TK-1: 99').length;
-    if (tk1InTopFour >= 1) {
-      // Remove all TK-1 from hand
-      updatedHandCards = updatedHandCards.filter(c => c.id !== 'TK-1: 99');
-      // Add same number of TK-16 to discard
-      for (let i = 0; i < tk1InTopFour; i++) {
-        updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-      }
-      logs.push(`${name} (attacker): ${tk1InTopFour} TK-1 converted to ${tk1InTopFour} TK-16 in discard`);
-    }
 
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
     // TK-test: TK-16 cards stay in discard, only other cards are shuffled and added to hand
