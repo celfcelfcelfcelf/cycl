@@ -1369,6 +1369,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     return teamName === playerTeam;
   };
 
+  // Helper: Get display name for a team (maps internal names to display names in multiplayer)
+  const getTeamDisplayName = (teamName) => {
+    if (gameMode !== 'multi') return teamName; // In single player, use as-is
+    
+    // In multiplayer, map old names to new names
+    if (teamName === 'Me') return myTeamName || 'Team1';
+    if (teamName.startsWith('Comp')) {
+      // Map Comp1 -> Team2 (or higher if host is Team1)
+      const compNum = parseInt(teamName.replace('Comp', ''));
+      return `Team${compNum + 1}`; // Comp1 -> Team2, Comp2 -> Team3, etc.
+    }
+    return teamName; // Already a Team name
+  };
+
   // Helper: Sync game state to Firebase after a move
   const syncMoveToFirebase = async () => {
     if (gameMode !== 'multi' || !roomCode) return;
@@ -1406,23 +1420,35 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
       const draftPoolToShare = pool.slice(0, total);
       
-      // Build teams order for draft (AI teams first, then human teams randomized)
+      // Build teams order for draft (use Team1, Team2, etc. in multiplayer)
       const teamsOrder = [];
       const numHumans = multiplayerPlayers.length;
       const numAI = numberOfTeams - numHumans;
       
-      // Add AI teams
-      for (let i = 1; i <= numAI; i++) {
-        teamsOrder.push(`Comp${i}`);
-      }
+      // In multiplayer, all teams use Team1, Team2, Team3 naming
+      // Human players are already assigned Team1, Team2, etc. from Firebase
+      // AI teams get the remaining team numbers
       
-      // Randomize human team order
-      const humanTeams = [...multiplayerPlayers].map(p => p.team);
-      for (let i = humanTeams.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [humanTeams[i], humanTeams[j]] = [humanTeams[j], humanTeams[i]];
+      // Get human team names from multiplayerPlayers
+      const humanTeamNames = multiplayerPlayers.map(p => p.team);
+      
+      // Get AI team names (the team numbers not taken by humans)
+      const allTeamNumbers = [];
+      for (let i = 1; i <= numberOfTeams; i++) {
+        allTeamNumbers.push(`Team${i}`);
       }
-      teamsOrder.push(...humanTeams);
+      const aiTeamNames = allTeamNumbers.filter(t => !humanTeamNames.includes(t));
+      
+      // Add AI teams first
+      teamsOrder.push(...aiTeamNames);
+      
+      // Randomize human team order and add them
+      const shuffledHumanTeams = [...humanTeamNames];
+      for (let i = shuffledHumanTeams.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffledHumanTeams[i], shuffledHumanTeams[j]] = [shuffledHumanTeams[j], shuffledHumanTeams[i]];
+      }
+      teamsOrder.push(...shuffledHumanTeams);
       
       // Generate pick sequence (snake draft)
       const pickSequence = [];
@@ -7091,7 +7117,7 @@ const checkCrash = () => {
                                 >
                                   {n}
                                 </span>
-                                <span className="text-xs text-gray-500">({r.team})</span>
+                                <span className="text-xs text-gray-500">({getTeamDisplayName(r.team)})</span>
                                 {idx < entries.length - 1 ? ', ' : ''}
                               </span>
                             );
@@ -7187,7 +7213,7 @@ const checkCrash = () => {
 
                           return (
                             <div key={t} className="p-2 rounded border">
-                              <div className="font-medium">{t}</div>
+                              <div className="font-medium">{getTeamDisplayName(t)}</div>
                               <div className="mt-1">
                                 {!teamHasRiders ? (
                                   <div className="text-lg font-bold">X</div>
@@ -7219,7 +7245,7 @@ const checkCrash = () => {
                       if (gameMode === 'multi' && currentTeam !== myTeamName) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
-                            Waiting for {currentTeam} to make their move...
+                            Waiting for {getTeamDisplayName(currentTeam)} to make their move...
                           </div>
                         );
                       }
@@ -7229,10 +7255,10 @@ const checkCrash = () => {
                         // the team previously attacked in round 1. If so, force
                         // attack mode in the UI and prevent cancelling the attack.
                         const isChoice2 = teamPaceRound && teamPaceRound[currentGroup] === 2;
-                        const paceKeyMe = `${currentGroup}-Me`;
-                        const metaMe = (teamPaceMeta && teamPaceMeta[paceKeyMe]) ? teamPaceMeta[paceKeyMe] : null;
-                        const attackedInChoice1 = !!(metaMe && metaMe.isAttack && metaMe.round === 1);
-                        const forcedAttacker = attackedInChoice1 ? (metaMe && metaMe.attacker) : null;
+                        const paceKeyPlayer = `${currentGroup}-${currentPlayerTeam}`;
+                        const metaPlayer = (teamPaceMeta && teamPaceMeta[paceKeyPlayer]) ? teamPaceMeta[paceKeyPlayer] : null;
+                        const attackedInChoice1 = !!(metaPlayer && metaPlayer.isAttack && metaPlayer.round === 1);
+                        const forcedAttacker = attackedInChoice1 ? (metaPlayer && metaPlayer.attacker) : null;
 
                         return (
                           (() => {
@@ -8508,7 +8534,7 @@ const checkCrash = () => {
                 <div className="space-y-1 text-sm">
                   <p><strong>Round:</strong> {round}</p>
                   <p><strong>Group:</strong> {currentGroup}</p>
-                  <p><strong>Team:</strong> {currentTeam}</p>
+                  <p><strong>Team:</strong> {getTeamDisplayName(currentTeam)}</p>
                 </div>
                 {/* Team rosters: show which riders each team currently has */}
                 <div className="mt-3">
