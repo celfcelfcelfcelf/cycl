@@ -1025,8 +1025,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('📥 HOST (lobby): Initializing game with', draftedFromFirebase.length, 'selections');
             console.log('📥 HOST (lobby): First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
             console.log('📥 HOST (lobby): Breakaway teams:', gameData.breakawayTeams);
+            console.log('📥 HOST (lobby): Team order:', gameData.teamOrder);
+            console.log('📥 HOST (lobby): Starting team:', gameData.currentTeam);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players);
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players, gameData.teamOrder, gameData.currentTeam);
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
@@ -1097,8 +1099,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           if (draftedFromFirebase && draftedFromFirebase.length > 0) {
             console.log('📥 JOINER: First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
             console.log('📥 JOINER: Breakaway teams:', gameData.breakawayTeams);
+            console.log('📥 JOINER: Team order:', gameData.teamOrder);
+            console.log('📥 JOINER: Starting team:', gameData.currentTeam);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players);
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players, gameData.teamOrder, gameData.currentTeam);
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
@@ -1876,7 +1880,9 @@ return { pace, updatedCards, doubleLead };
     gameMode: effectiveGameMode,
     hasDrafted: !!drafted,
     draftedLength: drafted?.length,
-    multiplayerPlayersCount: effectivePlayers?.length
+    multiplayerPlayersCount: effectivePlayers?.length,
+    hasTeamOrder: !!teamOrderParam,
+    hasInitialTeam: !!initialTeamParam
   });
   
   // Debug logging for multiplayer
@@ -1885,6 +1891,8 @@ return { pace, updatedCards, doubleLead };
     console.log('🎮 Drafted array length:', drafted?.length);
     console.log('🎮 First 3 drafted teams:', drafted?.slice(0, 3).map(d => ({ rider: d.rider?.NAVN, team: d.team })));
     console.log('🎮 effectivePlayers:', effectivePlayers.map(p => ({ name: p.name, team: p.team })));
+    console.log('🎮 teamOrderParam:', teamOrderParam);
+    console.log('🎮 initialTeamParam:', initialTeamParam);
   }
   
   // Prepare selectedTrack and track state
@@ -2199,13 +2207,20 @@ return { pace, updatedCards, doubleLead };
   setSlipstream(0);
   setLogs([]);
   setAiMessage('');
-  const shuffled = [...teamList].sort(() => Math.random() - 0.5);
+  // Use synced team order in multiplayer, or generate random order in single player
+  const shuffled = (effectiveGameMode === 'multi' && teamOrderParam) 
+    ? teamOrderParam 
+    : [...teamList].sort(() => Math.random() - 0.5);
+  console.log('🎮 Team order:', shuffled);
   setTeams(shuffled);
   // store base order (who is team 1,2,3,...) so we can compute per-round turn rotation
   setTeamBaseOrder(shuffled);
   // pick first team that has riders in the starting group (group 2) to avoid landing on an empty team
   const firstTeamAtStart = findNextTeamWithRiders(0, 2);
-  const firstTeamToUse = firstTeamAtStart || shuffled[0];
+  const firstTeamToUse = (effectiveGameMode === 'multi' && initialTeamParam) 
+    ? initialTeamParam 
+    : (firstTeamAtStart || shuffled[0]);
+  console.log('🎮 Starting team:', firstTeamToUse);
   
   setGameState('playing');
   
@@ -3085,12 +3100,19 @@ return { pace, updatedCards, doubleLead };
             return riderFromTeam ? riderFromTeam.team : t;
           });
           
+          // Generate team order that will be used by both players
+          const gameTeamOrder = [...teamList].sort(() => Math.random() - 0.5);
+          // Determine the starting team (first team with riders in group 2)
+          const startingTeam = gameTeamOrder[0]; // For now, use first team (both will calculate findNextTeamWithRiders the same)
+          
           const gameRef = doc(db, 'games', roomCode);
           await updateDoc(gameRef, {
             status: 'playing',
             gameState: 'playing',
             draftSelections: drafted, // Sync the drafted riders so joiner can access them
             breakawayTeams: breakawayTeamsWithPlayers, // Sync breakaway team selection
+            teamOrder: gameTeamOrder, // Sync team order for consistent turn order
+            currentTeam: startingTeam, // Sync starting team
             lastUpdate: serverTimestamp()
           });
           console.log('📤 Synced game start to Firebase with', drafted.length, 'riders and', breakawayTeamsWithPlayers.length, 'breakaway teams:', breakawayTeamsWithPlayers);
