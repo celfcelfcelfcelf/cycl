@@ -1130,11 +1130,31 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         // If already playing, continuously sync game state updates
         // Load updates whenever Firebase has new data, regardless of local React state
         if (gameData.status === 'playing' && gameInitializedRef.current) {
-          console.log('📥 HOST: Game playing, gameState exists?', !!gameData.gameState);
-          if (gameData.gameState) {
-            console.log('📥 HOST: Loading game state updates from Firebase');
-            console.log('📥 HOST: currentTeam from Firebase:', gameData.gameState.currentTeam);
+          console.log('📥 HOST: Game playing, checking for game state updates');
+          console.log('📥 HOST: gameState type:', typeof gameData.gameState, 'value:', gameData.gameState);
+          console.log('📥 HOST: currentTeam at root:', gameData.currentTeam);
+          
+          // Check if gameState is an object with actual state data (not just 'playing' string)
+          if (gameData.gameState && typeof gameData.gameState === 'object') {
+            console.log('📥 HOST: Loading game state updates from Firebase (from gameState object)');
+            console.log('📥 HOST: currentTeam from gameState:', gameData.gameState.currentTeam);
             loadMultiplayerGameState(gameData.gameState);
+          } else if (gameData.currentTeam !== undefined) {
+            // Fallback: if currentTeam is at document root, use that
+            console.log('📥 HOST: currentTeam found at root level, constructing state object');
+            loadMultiplayerGameState({
+              currentTeam: gameData.currentTeam,
+              currentGroup: gameData.currentGroup,
+              movePhase: gameData.movePhase,
+              round: gameData.round,
+              cards: gameData.cards,
+              teamPaces: gameData.teamPaces,
+              teamPaceMeta: gameData.teamPaceMeta,
+              teamPaceRound: gameData.teamPaceRound,
+              groupSpeed: gameData.groupSpeed,
+              slipstream: gameData.slipstream,
+              logs: gameData.logs
+            });
           }
         }
       });
@@ -1309,16 +1329,32 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         
         // If game started, transition to playing (but don't override draft state)
         if (gameData.status === 'playing' && gameInitializedRef.current) {
-          console.log('📥 JOINER: Game playing, gameState exists?', !!gameData.gameState);
-          console.log('📥 JOINER: Current gameState:', gameState, 'gameInitialized:', gameInitializedRef.current);
+          console.log('📥 JOINER: Game playing, checking for game state updates');
+          console.log('📥 JOINER: gameState type:', typeof gameData.gameState, 'value:', gameData.gameState);
+          console.log('📥 JOINER: currentTeam at root:', gameData.currentTeam);
           setInLobby(false);
           
-          // ALWAYS load game state updates when Firebase has new data
-          // Don't rely on React state which may be stale
-          if (gameData.gameState) {
-            console.log('📥 JOINER: Loading game state updates from Firebase');
-            console.log('📥 JOINER: currentTeam from Firebase:', gameData.gameState.currentTeam);
+          // Check if gameState is an object with actual state data (not just 'playing' string)
+          if (gameData.gameState && typeof gameData.gameState === 'object') {
+            console.log('📥 JOINER: Loading game state updates from Firebase (from gameState object)');
+            console.log('📥 JOINER: currentTeam from gameState:', gameData.gameState.currentTeam);
             loadMultiplayerGameState(gameData.gameState);
+          } else if (gameData.currentTeam !== undefined) {
+            // Fallback: if currentTeam is at document root, use that
+            console.log('📥 JOINER: currentTeam found at root level, constructing state object');
+            loadMultiplayerGameState({
+              currentTeam: gameData.currentTeam,
+              currentGroup: gameData.currentGroup,
+              movePhase: gameData.movePhase,
+              round: gameData.round,
+              cards: gameData.cards,
+              teamPaces: gameData.teamPaces,
+              teamPaceMeta: gameData.teamPaceMeta,
+              teamPaceRound: gameData.teamPaceRound,
+              groupSpeed: gameData.groupSpeed,
+              slipstream: gameData.slipstream,
+              logs: gameData.logs
+            });
           }
           
           // Only update gameState if we're not already in draft or playing
