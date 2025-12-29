@@ -1153,7 +1153,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       
       // Subscribe to game updates
       const unsubscribe = subscribeToGame(code, (gameData) => {
-        console.log('📥 JOINER: Subscriber called, status:', gameData?.status, 'gameState:', gameState);
+        console.log('📥 JOINER: Subscriber called, status:', gameData?.status, 'gameState:', gameState, 'gameInitialized:', gameInitializedRef.current);
         if (!gameData) {
           handleLeaveLobby();
           return;
@@ -1305,6 +1305,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         
         // If game started, transition to playing (but don't override draft state)
         if (gameData.status === 'playing' && gameData.gameState) {
+          console.log('📥 JOINER: Reached game state sync block. gameState:', gameState, 'gameInitialized:', gameInitializedRef.current);
           console.log('📥 JOINER: Game playing, current gameState:', gameState);
           setInLobby(false);
           
