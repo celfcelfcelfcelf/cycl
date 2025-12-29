@@ -7455,6 +7455,15 @@ const checkCrash = () => {
                       const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
                       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
                       
+                      console.log('🎮 Turn check:', {
+                        gameMode,
+                        currentTeam,
+                        playerName,
+                        currentPlayerTeam,
+                        isMyTurn: currentTeam === playerName,
+                        humanRidersCount: humanRiders.length
+                      });
+                      
                       // In multiplayer mode, check if it's actually this player's turn
                       if (gameMode === 'multi' && currentTeam !== playerName) {
                         return (
