@@ -1303,21 +1303,27 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         
         // If game started, transition to playing (but don't override draft state)
         if (gameData.status === 'playing' && gameData.gameState) {
+          console.log('📥 JOINER: Game playing, current gameState:', gameState);
           setInLobby(false);
           // Only update gameState if we're not already in draft or playing
           setGameState(current => {
+            console.log('📥 JOINER: setGameState callback, current:', current);
             if (current === 'draft' || current === 'playing') {
               // Already in game - load state updates
+              console.log('📥 JOINER: Loading game state updates');
               loadMultiplayerGameState(gameData.gameState);
               return current;
             }
+            console.log('📥 JOINER: Transitioning to playing and loading state');
             loadMultiplayerGameState(gameData.gameState);
             return 'playing';
           });
         }
         
         // If already playing, continuously sync game state updates
+        // This check uses React state which may lag behind Firebase
         if (gameData.status === 'playing' && gameState === 'playing' && gameData.gameState) {
+          console.log('📥 JOINER: Continuous sync - loading game state');
           loadMultiplayerGameState(gameData.gameState);
         }
       });
@@ -1470,6 +1476,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const syncMoveToFirebase = async () => {
     if (gameMode !== 'multi' || !roomCode) return;
     
+    console.log('📤 Syncing move to Firebase:', {
+      currentTeam,
+      currentGroup,
+      movePhase,
+      round
+    });
+    
     try {
       await syncPlayerMove(roomCode, {
         cards,
@@ -1484,6 +1497,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         slipstream,
         logs: gameLog.slice(-20) // Only sync recent logs to avoid bloat
       });
+      console.log('✅ Move synced successfully');
     } catch (error) {
       console.error('Failed to sync move:', error);
     }
