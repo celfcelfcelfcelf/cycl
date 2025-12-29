@@ -995,6 +995,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     // Small delay to let UI update, then trigger AI move
     const timer = setTimeout(() => {
+      console.log('🤖 AI timer fired for', currentTeam);
       try {
         const paceKey = `${currentGroup}-${currentTeam}`;
         const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
@@ -1003,7 +1004,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
         const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
         
+        console.log('🤖 Calling autoPlayTeam for', currentTeam, 'group', currentGroup);
         const result = autoPlayTeam(currentGroup, currentTeam, currentRound === 2 ? prevPace : undefined);
+        console.log('🤖 autoPlayTeam returned:', !!result);
         
         if (result) {
           setCards(result.updatedCards);
@@ -1027,7 +1030,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           
           const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
           setAiMessage(`${currentTeam} has chosen ${aiTeamPace}`);
+          console.log('🤖 About to call handlePaceSubmit:', { currentGroup, aiTeamPace, currentTeam, aiIsAttack, aiAttackerName });
           handlePaceSubmit(currentGroup, aiTeamPace, currentTeam, aiIsAttack, aiAttackerName, aiDoubleLead, result.updatedCards);
+          console.log('🤖 handlePaceSubmit completed');
         } else {
           console.warn('⚠️ autoPlayTeam returned no result for', currentTeam);
         }
