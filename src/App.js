@@ -4027,9 +4027,14 @@ return { pace, updatedCards, doubleLead };
     setMovePhase('cardSelection');
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
     
+    console.log('🚀 handlePaceSubmit END: About to check for Firebase sync, gameMode:', gameMode);
+    
     // Sync move to Firebase in multiplayer mode
     if (gameMode === 'multi') {
+      console.log('🚀 handlePaceSubmit: Calling syncMoveToFirebase');
       syncMoveToFirebase().catch(err => console.error('Failed to sync move:', err));
+    } else {
+      console.log('🚀 handlePaceSubmit: NOT calling syncMoveToFirebase (gameMode:', gameMode, ')');
     }
   };
 
