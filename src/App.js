@@ -1515,7 +1515,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
   // Helper: Sync game state to Firebase after a move
   const syncMoveToFirebase = async () => {
-    if (gameMode !== 'multi' || !roomCode) return;
+    console.log('📤 syncMoveToFirebase called:', { gameMode, roomCode: !!roomCode });
+    if (gameMode !== 'multi' || !roomCode) {
+      console.log('📤 syncMoveToFirebase: Skipping - not multi or no roomCode');
+      return;
+    }
     
     console.log('📤 Syncing move to Firebase:', {
       currentTeam,
