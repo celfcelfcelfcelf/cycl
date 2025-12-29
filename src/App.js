@@ -1129,9 +1129,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         
         // If already playing, continuously sync game state updates
         // Load updates whenever Firebase has new data, regardless of local React state
-        if (gameData.status === 'playing' && gameData.gameState) {
-          console.log('📥 HOST: Loading game state updates from Firebase');
-          loadMultiplayerGameState(gameData.gameState);
+        if (gameData.status === 'playing' && gameInitializedRef.current) {
+          console.log('📥 HOST: Game playing, gameState exists?', !!gameData.gameState);
+          if (gameData.gameState) {
+            console.log('📥 HOST: Loading game state updates from Firebase');
+            console.log('📥 HOST: currentTeam from Firebase:', gameData.gameState.currentTeam);
+            loadMultiplayerGameState(gameData.gameState);
+          }
         }
       });
       
@@ -1304,15 +1308,18 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
         
         // If game started, transition to playing (but don't override draft state)
-        if (gameData.status === 'playing' && gameData.gameState) {
-          console.log('📥 JOINER: Reached game state sync block. gameState:', gameState, 'gameInitialized:', gameInitializedRef.current);
-          console.log('📥 JOINER: Game playing, current gameState:', gameState);
+        if (gameData.status === 'playing' && gameInitializedRef.current) {
+          console.log('📥 JOINER: Game playing, gameState exists?', !!gameData.gameState);
+          console.log('📥 JOINER: Current gameState:', gameState, 'gameInitialized:', gameInitializedRef.current);
           setInLobby(false);
           
           // ALWAYS load game state updates when Firebase has new data
           // Don't rely on React state which may be stale
-          console.log('📥 JOINER: Loading game state updates from Firebase');
-          loadMultiplayerGameState(gameData.gameState);
+          if (gameData.gameState) {
+            console.log('📥 JOINER: Loading game state updates from Firebase');
+            console.log('📥 JOINER: currentTeam from Firebase:', gameData.gameState.currentTeam);
+            loadMultiplayerGameState(gameData.gameState);
+          }
           
           // Only update gameState if we're not already in draft or playing
           setGameState(current => {
