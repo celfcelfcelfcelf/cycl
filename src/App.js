@@ -1034,10 +1034,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       } catch (error) {
         console.error('Error in AI auto-trigger:', error);
       }
-    }, 500); // 500ms delay for smooth UX
+    }, 1000); // Increased to 1000ms to ensure previous move completes
     
     return () => clearTimeout(timer);
-  }, [gameState, movePhase, gameMode, isHost, currentTeam, currentGroup, cards, teamPaceMeta, teamPaces, teamPaceRound]);
+  }, [gameState, movePhase, gameMode, isHost, currentTeam, currentGroup]);
 
   // ========== MULTIPLAYER HANDLERS ==========
   
