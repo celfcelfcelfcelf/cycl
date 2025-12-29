@@ -1028,7 +1028,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('📥 HOST (lobby): Team order:', gameData.teamOrder);
             console.log('📥 HOST (lobby): Starting team:', gameData.currentTeam);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players, gameData.teamOrder, gameData.currentTeam);
+            initializeGame(
+              draftedFromFirebase, 
+              selectedStages, 
+              gameData.breakawayTeams, 
+              'multi', 
+              gameData.players, 
+              gameData.teamOrder || null, 
+              gameData.currentTeam || null
+            );
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
@@ -1102,7 +1110,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('📥 JOINER: Team order:', gameData.teamOrder);
             console.log('📥 JOINER: Starting team:', gameData.currentTeam);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players, gameData.teamOrder, gameData.currentTeam);
+            initializeGame(
+              draftedFromFirebase, 
+              selectedStages, 
+              gameData.breakawayTeams, 
+              'multi', 
+              gameData.players, 
+              gameData.teamOrder || null, 
+              gameData.currentTeam || null
+            );
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
