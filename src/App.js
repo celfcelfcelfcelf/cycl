@@ -1026,7 +1026,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('📥 HOST (lobby): First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
             console.log('📥 HOST (lobby): Breakaway teams:', gameData.breakawayTeams);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams);
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players);
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
@@ -1098,7 +1098,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('📥 JOINER: First selection:', draftedFromFirebase[0]?.rider?.NAVN, 'team:', draftedFromFirebase[0]?.team);
             console.log('📥 JOINER: Breakaway teams:', gameData.breakawayTeams);
             gameInitializedRef.current = true; // Mark as initialized immediately
-            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams);
+            initializeGame(draftedFromFirebase, selectedStages, gameData.breakawayTeams, 'multi', gameData.players);
             setDraftPool([]);
             setDraftRemaining([]);
             setDraftSelections([]);
@@ -1863,24 +1863,28 @@ return { pace, updatedCards, doubleLead };
   // - an array of { rider, team } objects (from an interactive draft), or
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
   // breakawayTeamsParam: optional array of team names for breakaway (synced in multiplayer)
-  const initializeGame = (drafted = null, stagesArray = null, breakawayTeamsParam = null) => {
+  const initializeGame = (drafted = null, stagesArray = null, breakawayTeamsParam = null, gameModeParam = null, playersParam = null) => {
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
   
+  // Use provided params or fall back to state
+  const effectiveGameMode = gameModeParam || gameMode;
+  const effectivePlayers = playersParam || multiplayerPlayers;
+  
   // Debug logging - ALWAYS log
   console.log('🎮 initializeGame called:', {
-    gameMode,
+    gameMode: effectiveGameMode,
     hasDrafted: !!drafted,
     draftedLength: drafted?.length,
-    multiplayerPlayersCount: multiplayerPlayers?.length
+    multiplayerPlayersCount: effectivePlayers?.length
   });
   
   // Debug logging for multiplayer
-  if (gameMode === 'multi' && drafted) {
+  if (effectiveGameMode === 'multi' && drafted) {
     console.log('🎮 initializeGame in multiplayer mode');
     console.log('🎮 Drafted array length:', drafted?.length);
     console.log('🎮 First 3 drafted teams:', drafted?.slice(0, 3).map(d => ({ rider: d.rider?.NAVN, team: d.team })));
-    console.log('🎮 multiplayerPlayers:', multiplayerPlayers.map(p => ({ name: p.name, team: p.team })));
+    console.log('🎮 effectivePlayers:', effectivePlayers.map(p => ({ name: p.name, team: p.team })));
   }
   
   // Prepare selectedTrack and track state
@@ -1892,15 +1896,15 @@ return { pace, updatedCards, doubleLead };
 
   // build team list - use player names for human teams in multiplayer, Me/Comp in single player
   let teamList;
-  if (gameMode === 'multi') {
+  if (effectiveGameMode === 'multi') {
     teamList = [];
     // Add AI teams (Comp1, Comp2, ...)
-    const numAI = numberOfTeams - multiplayerPlayers.length;
+    const numAI = numberOfTeams - effectivePlayers.length;
     for (let i = 1; i <= numAI; i++) {
       teamList.push(`Comp${i}`);
     }
     // Add human player names as teams
-    multiplayerPlayers.forEach(p => {
+    effectivePlayers.forEach(p => {
       teamList.push(p.name);
     });
   } else {
@@ -2176,7 +2180,7 @@ return { pace, updatedCards, doubleLead };
   setCards(cardsObj);
   
   // Debug logging for team assignments
-  if (gameMode === 'multi') {
+  if (effectiveGameMode === 'multi') {
     const teamCounts = {};
     Object.entries(cardsObj).forEach(([name, rider]) => {
       teamCounts[rider.team] = (teamCounts[rider.team] || 0) + 1;
