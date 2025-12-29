@@ -1883,7 +1883,7 @@ return { pace, updatedCards, doubleLead };
   // - an array of { rider, team } objects (from an interactive draft), or
   // - an array of rider objects (a pool) which will be shuffled and assigned to teams.
   // breakawayTeamsParam: optional array of team names for breakaway (synced in multiplayer)
-  const initializeGame = (drafted = null, stagesArray = null, breakawayTeamsParam = null, gameModeParam = null, playersParam = null) => {
+  const initializeGame = (drafted = null, stagesArray = null, breakawayTeamsParam = null, gameModeParam = null, playersParam = null, teamOrderParam = null, initialTeamParam = null) => {
   // Use provided stagesArray or fall back to selectedStages state
   const stagesToUse = stagesArray || selectedStages;
   
