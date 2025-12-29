@@ -974,6 +974,71 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     } catch (e) {}
   }, [pullInvestSelections]);
 
+  // Auto-trigger AI moves in multiplayer mode (host only)
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (movePhase !== 'input') return;
+    if (gameMode !== 'multi') return;
+    if (!isHost) return; // Only host runs AI moves
+    
+    // Check if current team is an AI team (starts with "Comp")
+    if (!currentTeam || !currentTeam.startsWith('Comp')) return;
+    
+    // Check if there are riders for this AI team in the current group
+    const aiRiders = Object.entries(cards).filter(([, r]) => 
+      r.team === currentTeam && r.group === currentGroup && !r.finished
+    );
+    
+    if (aiRiders.length === 0) return;
+    
+    console.log('🤖 Auto-triggering AI move for', currentTeam, 'in group', currentGroup);
+    
+    // Small delay to let UI update, then trigger AI move
+    const timer = setTimeout(() => {
+      try {
+        const paceKey = `${currentGroup}-${currentTeam}`;
+        const existingMeta = (teamPaceMeta && teamPaceMeta[paceKey]) ? teamPaceMeta[paceKey] : null;
+        const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
+        const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
+        const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
+        const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
+        
+        const result = autoPlayTeam(currentGroup, currentTeam, currentRound === 2 ? prevPace : undefined);
+        
+        if (result) {
+          setCards(result.updatedCards);
+          const teamRiders = Object.entries(result.updatedCards)
+            .filter(([, r]) => r.group === currentGroup && r.team === currentTeam)
+            .map(([n, r]) => ({ name: n, ...r }));
+          
+          const nonAttackerPaces = teamRiders
+            .filter(r => r.attacking_status !== 'attacker')
+            .map(r => Math.round(r.selected_value || 0));
+          
+          let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+          const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
+          const aiDoubleLead = result.doubleLead || null;
+          
+          // Enforce: in choice-2 AI may not lower their previously announced pace
+          if (typeof prevPace !== 'undefined' && currentRound === 2 && aiTeamPace < prevPace) {
+            addLog(`${currentTeam} (AI auto) attempted to lower pace in choice-2 (${aiTeamPace} < ${prevPace}) — clamped to ${prevPace}`);
+            aiTeamPace = prevPace;
+          }
+          
+          const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
+          setAiMessage(`${currentTeam} has chosen ${aiTeamPace}`);
+          handlePaceSubmit(currentGroup, aiTeamPace, currentTeam, aiIsAttack, aiAttackerName, aiDoubleLead, result.updatedCards);
+        } else {
+          console.warn('⚠️ autoPlayTeam returned no result for', currentTeam);
+        }
+      } catch (error) {
+        console.error('Error in AI auto-trigger:', error);
+      }
+    }, 500); // 500ms delay for smooth UX
+    
+    return () => clearTimeout(timer);
+  }, [gameState, movePhase, gameMode, isHost, currentTeam, currentGroup, cards, teamPaceMeta, teamPaces, teamPaceRound]);
+
   // ========== MULTIPLAYER HANDLERS ==========
   
   // Handle creating a multiplayer game (called after setup screen)
