@@ -1128,7 +1128,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
         
         // If already playing, continuously sync game state updates
-        if (gameData.status === 'playing' && gameState === 'playing' && gameData.gameState) {
+        // Load updates whenever Firebase has new data, regardless of local React state
+        if (gameData.status === 'playing' && gameData.gameState) {
+          console.log('📥 HOST: Loading game state updates from Firebase');
           loadMultiplayerGameState(gameData.gameState);
         }
       });
@@ -1305,26 +1307,21 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         if (gameData.status === 'playing' && gameData.gameState) {
           console.log('📥 JOINER: Game playing, current gameState:', gameState);
           setInLobby(false);
+          
+          // ALWAYS load game state updates when Firebase has new data
+          // Don't rely on React state which may be stale
+          console.log('📥 JOINER: Loading game state updates from Firebase');
+          loadMultiplayerGameState(gameData.gameState);
+          
           // Only update gameState if we're not already in draft or playing
           setGameState(current => {
             console.log('📥 JOINER: setGameState callback, current:', current);
             if (current === 'draft' || current === 'playing') {
-              // Already in game - load state updates
-              console.log('📥 JOINER: Loading game state updates');
-              loadMultiplayerGameState(gameData.gameState);
               return current;
             }
-            console.log('📥 JOINER: Transitioning to playing and loading state');
-            loadMultiplayerGameState(gameData.gameState);
+            console.log('📥 JOINER: Transitioning to playing');
             return 'playing';
           });
-        }
-        
-        // If already playing, continuously sync game state updates
-        // This check uses React state which may lag behind Firebase
-        if (gameData.status === 'playing' && gameState === 'playing' && gameData.gameState) {
-          console.log('📥 JOINER: Continuous sync - loading game state');
-          loadMultiplayerGameState(gameData.gameState);
         }
       });
       
