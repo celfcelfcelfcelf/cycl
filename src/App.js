@@ -4144,6 +4144,14 @@ const handleHumanChoices = (groupNum, choice) => {
   } : null;
   
   // Pass updatedCards as snapshot to avoid React state timing issues
+  console.log('📤 handleHumanChoices: About to call handlePaceSubmit', {
+    groupNum,
+    teamPace,
+    playerTeam,
+    isAttack,
+    attackerName,
+    gameMode
+  });
   handlePaceSubmit(groupNum, teamPace, playerTeam, isAttack, attackerName, doubleLead, updatedCards);
 };
 
