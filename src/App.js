@@ -1665,11 +1665,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('🔄 Teams array for turn calculation:', teamsArray);
             
             // Check if all teams have already submitted
+            // IMPORTANT: Only check teams that have riders in the current group
             console.log('🔄 Checking if all teams submitted. currentGroup:', state.currentGroup, 'fallback:', currentGroup);
             console.log('🔄 All merged keys:', Object.keys(merged));
             console.log('🔄 All merged entries:', Object.entries(merged).map(([k, v]) => `${k}=${JSON.stringify(v).substring(0, 50)}`));
-            const allSubmitted = teamsArray.every(t => {
-              const key = `${state.currentGroup || currentGroup}-${t}`;
+            
+            const cardsToCheck = state.cards || cards;
+            const groupNum = state.currentGroup || currentGroup;
+            const teamsWithRidersInGroup = [...new Set(
+              Object.values(cardsToCheck)
+                .filter(r => r.group === groupNum && !r.finished)
+                .map(r => r.team)
+            )];
+            
+            console.log('🔄 Teams with riders in group:', teamsWithRidersInGroup);
+            
+            const allSubmitted = teamsWithRidersInGroup.every(t => {
+              const key = `${groupNum}-${t}`;
               const hasSubmitted = !!merged[key];
               console.log(`🔄 Team ${t} key ${key}: ${hasSubmitted ? 'submitted' : 'not submitted'}, value:`, merged[key]);
               return hasSubmitted;
@@ -1812,7 +1824,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     console.log('🔄 Checking postMoveInfo in state:', { 
       hasPostMoveInfo: !!state.postMoveInfo, 
       postMoveInfoValue: state.postMoveInfo,
-      postMoveInfoType: typeof state.postMoveInfo
+      postMoveInfoType: typeof state.postMoveInfo,
+      stateKeys: Object.keys(state)
     });
     
     if (state.postMoveInfo) {
@@ -1824,7 +1837,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setPostMoveInfo(null);
       postMoveInfoRef.current = null;
     } else {
-      console.log('🔄 No postMoveInfo in state update');
+      console.log('🔄 No postMoveInfo in state update - not in state keys:', !('postMoveInfo' in state));
     }
     
     // Sync recent logs (append them, don't replace)
@@ -4643,6 +4656,25 @@ return { pace, updatedCards, doubleLead };
     if (cardsSnapshot) {
       cardsSnapshotRef.current = cardsSnapshot;
     }
+    
+    // IMPORTANT: Clear planned_card_id and human_planned for ALL riders in current group
+    // before entering cardSelection phase. This prevents stale flags from previous rounds
+    // causing the auto-open useEffect to think cards are already submitted.
+    setCards(prev => {
+      const updated = { ...prev };
+      let needsUpdate = false;
+      for (const [name, rider] of Object.entries(updated)) {
+        if (rider.group === groupNum && (rider.planned_card_id || rider.human_planned)) {
+          updated[name] = { ...rider, planned_card_id: undefined, human_planned: false };
+          needsUpdate = true;
+        }
+      }
+      if (needsUpdate) {
+        console.log('🧹 Cleared planned_card_id and human_planned for group', groupNum, 'before cardSelection phase');
+      }
+      return needsUpdate ? updated : prev;
+    });
+    
     setMovePhase('cardSelection');
     movePhaseRef.current = 'cardSelection'; // Update ref immediately for sync
     console.log('✅ Set movePhase to cardSelection');

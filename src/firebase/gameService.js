@@ -166,21 +166,41 @@ export const syncPlayerMove = async (roomCode, moveData) => {
   const existingTeamPaces = (gameData.gameState && gameData.gameState.teamPaces) || {};
   const existingTeamPaceMeta = (gameData.gameState && gameData.gameState.teamPaceMeta) || {};
   
+  // Log postMoveInfo syncing for debugging
+  console.log('🔥 syncPlayerMove: postMoveInfo in moveData:', {
+    hasPostMoveInfo: !!moveData.postMoveInfo,
+    postMoveInfo: moveData.postMoveInfo,
+    isExplicitNull: moveData.postMoveInfo === null,
+    isInMoveData: 'postMoveInfo' in moveData
+  });
+  
+  // Build gameState update object
+  const gameStateUpdate = {
+    ...gameData.gameState,
+    cards: moveData.cards,
+    round: moveData.round,
+    currentGroup: moveData.currentGroup,
+    currentTeam: moveData.currentTeam,
+    teamPaces: { ...existingTeamPaces, ...moveData.teamPaces },
+    teamPaceMeta: { ...existingTeamPaceMeta, ...moveData.teamPaceMeta },
+    teamPaceRound: moveData.teamPaceRound,
+    movePhase: moveData.movePhase,
+    groupSpeed: moveData.groupSpeed,
+    slipstream: moveData.slipstream,
+    logs: moveData.logs
+  };
+  
+  // Only include postMoveInfo if it's explicitly in moveData (even if null)
+  // This allows clearing postMoveInfo by passing null, or preserving it by not passing it at all
+  if ('postMoveInfo' in moveData) {
+    console.log('🔥 Including postMoveInfo in Firebase update:', moveData.postMoveInfo);
+    gameStateUpdate.postMoveInfo = moveData.postMoveInfo;
+  } else {
+    console.log('🔥 NOT including postMoveInfo in update (key not present in moveData)');
+  }
+  
   await updateDoc(gameRef, {
-    gameState: {
-      ...gameData.gameState,
-      cards: moveData.cards,
-      round: moveData.round,
-      currentGroup: moveData.currentGroup,
-      currentTeam: moveData.currentTeam,
-      teamPaces: { ...existingTeamPaces, ...moveData.teamPaces },
-      teamPaceMeta: { ...existingTeamPaceMeta, ...moveData.teamPaceMeta },
-      teamPaceRound: moveData.teamPaceRound,
-      movePhase: moveData.movePhase,
-      groupSpeed: moveData.groupSpeed,
-      slipstream: moveData.slipstream,
-      logs: moveData.logs
-    },
+    gameState: gameStateUpdate,
     currentTurn: moveData.currentTeam,
     lastUpdate: serverTimestamp()
   });
