@@ -4656,25 +4656,6 @@ return { pace, updatedCards, doubleLead };
     if (cardsSnapshot) {
       cardsSnapshotRef.current = cardsSnapshot;
     }
-    
-    // IMPORTANT: Clear planned_card_id and human_planned for ALL riders in current group
-    // before entering cardSelection phase. This prevents stale flags from previous rounds
-    // causing the auto-open useEffect to think cards are already submitted.
-    setCards(prev => {
-      const updated = { ...prev };
-      let needsUpdate = false;
-      for (const [name, rider] of Object.entries(updated)) {
-        if (rider.group === groupNum && (rider.planned_card_id || rider.human_planned)) {
-          updated[name] = { ...rider, planned_card_id: undefined, human_planned: false };
-          needsUpdate = true;
-        }
-      }
-      if (needsUpdate) {
-        console.log('🧹 Cleared planned_card_id and human_planned for group', groupNum, 'before cardSelection phase');
-      }
-      return needsUpdate ? updated : prev;
-    });
-    
     setMovePhase('cardSelection');
     movePhaseRef.current = 'cardSelection'; // Update ref immediately for sync
     console.log('✅ Set movePhase to cardSelection');
