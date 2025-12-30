@@ -161,6 +161,11 @@ export const syncPlayerMove = async (roomCode, moveData) => {
   
   const gameData = gameSnap.data();
   
+  // Merge teamPaces and teamPaceMeta instead of replacing them
+  // This allows multiple teams to submit independently without overwriting each other
+  const existingTeamPaces = (gameData.gameState && gameData.gameState.teamPaces) || {};
+  const existingTeamPaceMeta = (gameData.gameState && gameData.gameState.teamPaceMeta) || {};
+  
   await updateDoc(gameRef, {
     gameState: {
       ...gameData.gameState,
@@ -168,8 +173,8 @@ export const syncPlayerMove = async (roomCode, moveData) => {
       round: moveData.round,
       currentGroup: moveData.currentGroup,
       currentTeam: moveData.currentTeam,
-      teamPaces: moveData.teamPaces,
-      teamPaceMeta: moveData.teamPaceMeta,
+      teamPaces: { ...existingTeamPaces, ...moveData.teamPaces },
+      teamPaceMeta: { ...existingTeamPaceMeta, ...moveData.teamPaceMeta },
       teamPaceRound: moveData.teamPaceRound,
       movePhase: moveData.movePhase,
       groupSpeed: moveData.groupSpeed,

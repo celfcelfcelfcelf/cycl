@@ -208,7 +208,7 @@ const CyclingGame = () => {
   const [multiplayerPlayers, setMultiplayerPlayers] = useState([]);
   const [multiplayerConfig, setMultiplayerConfig] = useState({
     numberOfTeams: 3,
-    ridersPerTeam: 3,
+    ridersPerTeam: 2,
     trackName: 'Yorkshire',
     track: '',
     isStageRace: false,
@@ -233,7 +233,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [trackName, setTrackName] = useState('Yorkshire'); // Default, will be overridden by host selection or Firebase data
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
-  const [ridersPerTeam, setRidersPerTeam] = useState(3);
+  const [ridersPerTeam, setRidersPerTeam] = useState(2);
   const [numberOfStages, setNumberOfStages] = useState(1); // number of stages (1-5)
   const [selectedStages, setSelectedStages] = useState([]); // array of {name, track} for multi-stage races
   const [currentStageIndex, setCurrentStageIndex] = useState(0); // which stage we're currently on
@@ -278,12 +278,21 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const pullInvestHandledRef = useRef(new Set());
   const teamPacesRef = useRef({}); // Sync accumulator for teamPaces to avoid React state timing issues
   const teamPaceMetaRef = useRef({}); // Sync accumulator for teamPaceMeta to avoid React state timing issues
+  const roomCodeRef = useRef(null); // Ref to avoid closure issues with roomCode state
+  const currentTeamRef = useRef('Me'); // Ref to avoid closure issues
+  const currentGroupRef = useRef(0); // Ref to avoid closure issues
+  const movePhaseRef = useRef('input'); // Ref to avoid closure issues
+  const cardsRef = useRef({}); // Ref to avoid closure issues with cards state
+  const isLoadingFromFirebaseRef = useRef(false); // Prevent syncing while loading from Firebase
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
   const [teamTextColors, setTeamTextColors] = useState({});
   const topTilesRef = useRef(null);
   const dobbeltføringLeadersRef = useRef([]);
   const teamPacesForGroupRef = useRef({});
+  const groupSpeedRef = useRef(0); // Store groupSpeed for card selection dialog
+  const slipstreamRef = useRef(0); // Store slipstream for card selection dialog
+  const cardSelectionOpenedForGroupRef = useRef(null); // Track which group card selection was opened for
   const allGroupsThisTurnRef = useRef([]); // Track all group positions in current turn for slipstream catches
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
   const abbrevFirstName = (fullName) => {
@@ -412,6 +421,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [groupSpeed, setGroupSpeed] = useState(0);
   const [slipstream, setSlipstream] = useState(0);
   const [isFlat, setIsFlat] = useState(true); // Track if terrain is flat (sv === 3)
+  const [waitingForCardSelections, setWaitingForCardSelections] = useState(false); // Track if HOST is waiting for other players
   
   const [logs, setLogs] = useState([]);
   const [groupsMovedThisRound, setGroupsMovedThisRound] = useState([]);
@@ -743,6 +753,29 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (trackName !== 'random' && chosenRandomTrack) setChosenRandomTrack(null);
   }, [trackName]);
   
+  // Keep roomCodeRef in sync with roomCode state to avoid closure issues
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+    console.log('🔗 roomCodeRef updated:', roomCode);
+  }, [roomCode]);
+  
+  // Keep other refs in sync to avoid closure issues in syncMoveToFirebase
+  useEffect(() => {
+    currentTeamRef.current = currentTeam;
+  }, [currentTeam]);
+  
+  useEffect(() => {
+    currentGroupRef.current = currentGroup;
+  }, [currentGroup]);
+  
+  useEffect(() => {
+    movePhaseRef.current = movePhase;
+  }, [movePhase]);
+  
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+  
   // Award final bonuses when last stage is complete
   useEffect(() => {
     if (!isStageRace || finalBonusesAwarded) return;
@@ -989,7 +1022,34 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       r.team === currentTeam && r.group === currentGroup && !r.finished
     );
     
-    if (aiRiders.length === 0) return;
+    if (aiRiders.length === 0) {
+      console.log('🤖 Team', currentTeam, 'has no riders in group', currentGroup, '- skipping to next team');
+      
+      // In multiplayer, HOST should advance to next team automatically
+      if (gameMode === 'multi' && isHost) {
+        // Build teams array and find next team
+        const teamsArray = teams.length > 0 ? teams : Array.from(new Set(Object.values(cards).map(r => r.team)));
+        const teamIdx = teamsArray.indexOf(currentTeam);
+        const nextIdx = (teamIdx + 1) % teamsArray.length;
+        const nextTeam = teamsArray[nextIdx];
+        
+        if (nextTeam && nextTeam !== currentTeam) {
+          console.log('🤖 Auto-advancing to next team:', nextTeam);
+          setTimeout(() => {
+            setCurrentTeam(nextTeam);
+            // Sync to Firebase
+            if (roomCode) {
+              updateGameState(roomCode, { 
+                currentTeam: nextTeam,
+                lastUpdate: serverTimestamp()
+              }).catch(err => console.error('Failed to sync team skip:', err));
+            }
+          }, 500);
+        }
+      }
+      
+      return;
+    }
     
     console.log('🤖 Auto-triggering AI move for', currentTeam, 'in group', currentGroup);
     
@@ -1143,7 +1203,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           if (gameData.gameState && typeof gameData.gameState === 'object') {
             console.log('📥 HOST: Loading game state updates from Firebase (from gameState object)');
             console.log('📥 HOST: currentTeam from gameState:', gameData.gameState.currentTeam);
-            loadMultiplayerGameState(gameData.gameState);
+            console.log('📥 HOST: lastUpdate from document:', gameData.lastUpdate);
+            // Pass lastUpdate from document root (it's not inside gameState)
+            loadMultiplayerGameState({
+              ...gameData.gameState,
+              lastUpdate: gameData.lastUpdate
+            }, gameData.players, hostName);
           } else if (gameData.currentTeam !== undefined) {
             // Fallback: if currentTeam is at document root, use that
             console.log('📥 HOST: currentTeam found at root level, constructing state object');
@@ -1158,8 +1223,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               teamPaceRound: gameData.teamPaceRound,
               groupSpeed: gameData.groupSpeed,
               slipstream: gameData.slipstream,
-              logs: gameData.logs
-            });
+              logs: gameData.logs,
+              lastUpdate: gameData.lastUpdate
+            }, gameData.players, hostName);
           }
         }
       });
@@ -1343,7 +1409,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           if (gameData.gameState && typeof gameData.gameState === 'object') {
             console.log('📥 JOINER: Loading game state updates from Firebase (from gameState object)');
             console.log('📥 JOINER: currentTeam from gameState:', gameData.gameState.currentTeam);
-            loadMultiplayerGameState(gameData.gameState);
+            console.log('📥 JOINER: lastUpdate from document:', gameData.lastUpdate);
+            // Pass lastUpdate from document root (it's not inside gameState)
+            loadMultiplayerGameState({
+              ...gameData.gameState,
+              lastUpdate: gameData.lastUpdate
+            }, gameData.players, name);
           } else if (gameData.currentTeam !== undefined) {
             // Fallback: if currentTeam is at document root, use that
             console.log('📥 JOINER: currentTeam found at root level, constructing state object');
@@ -1359,7 +1430,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               groupSpeed: gameData.groupSpeed,
               slipstream: gameData.slipstream,
               logs: gameData.logs
-            });
+            }, gameData.players, name);
           }
           
           // Only update gameState if we're not already in draft or playing
@@ -1406,20 +1477,55 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   };
   
   // Load game state from multiplayer
-  const loadMultiplayerGameState = (state) => {
-    if (!state) return;
+  const loadMultiplayerGameState = (state, players = null, playerNameParam = null) => {
+    console.log('🔄 loadMultiplayerGameState called with state:', { 
+      hasState: !!state,
+      currentTeam: state?.currentTeam,
+      teamPacesKeys: state?.teamPaces ? Object.keys(state.teamPaces) : [],
+      teamPaceMetaKeys: state?.teamPaceMeta ? Object.keys(state.teamPaceMeta) : [],
+      lastUpdate: state?.lastUpdate,
+      lastUpdateType: typeof state?.lastUpdate,
+      playersCount: players?.length || 0,
+      playerNameParam: playerNameParam
+    });
     
-    // Only update if this is not our own move (prevent feedback loop)
-    // We check lastUpdate timestamp to avoid overwriting our local state
-    const lastSyncTime = loadMultiplayerGameState.lastSync || 0;
-    const stateTime = state.lastUpdate || 0;
-    
-    if (stateTime <= lastSyncTime) {
-      // This is old data or our own update, skip
+    if (!state) {
+      console.log('🔄 Skipping: no state');
       return;
     }
     
-    loadMultiplayerGameState.lastSync = Date.now();
+    // Firebase serverTimestamp() returns a Timestamp object with seconds and nanoseconds
+    // Convert it to milliseconds for comparison
+    const lastSyncTime = loadMultiplayerGameState.lastSync || 0;
+    let stateTime = 0;
+    if (state.lastUpdate) {
+      if (typeof state.lastUpdate === 'number') {
+        stateTime = state.lastUpdate;
+      } else if (state.lastUpdate.seconds) {
+        // Firebase Timestamp object
+        stateTime = state.lastUpdate.seconds * 1000 + Math.floor(state.lastUpdate.nanoseconds / 1000000);
+      } else if (state.lastUpdate.toMillis) {
+        // Firebase Timestamp with toMillis method
+        stateTime = state.lastUpdate.toMillis();
+      }
+    }
+    
+    console.log('🔄 Timestamp check:', { lastSyncTime, stateTime, willSkip: stateTime <= lastSyncTime });
+    
+    // Allow updates if:
+    // 1. stateTime is 0 or undefined (always apply these)
+    // 2. stateTime is newer than lastSyncTime
+    // 3. stateTime is within 5 seconds of lastSyncTime (clock skew tolerance)
+    const timeDiff = Math.abs(stateTime - lastSyncTime);
+    if (stateTime > 0 && stateTime < lastSyncTime && timeDiff > 5000) {
+      // This is old data (more than 5 seconds old), skip
+      console.log('🔄 Skipping: old data (time diff:', timeDiff, 'ms)');
+      return;
+    }
+    
+    // Use stateTime if available, otherwise use current time
+    // This prevents clock skew issues between client and Firebase server
+    loadMultiplayerGameState.lastSync = stateTime > 0 ? stateTime : Date.now();
     
     console.log('🔄 Loading multiplayer game state update');
     
@@ -1429,11 +1535,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (typeof state.currentGroup !== 'undefined') setCurrentGroup(state.currentGroup);
     if (state.teams) setTeams(state.teams);
     if (state.currentTeam) {
-      // Fix legacy 'Me' team name in multiplayer - should never be 'Me' in multiplayer
-      const teamToSet = (gameMode === 'multi' && state.currentTeam === 'Me' && state.teams?.length > 0) 
-        ? state.teams[0] // Use first team as fallback
-        : state.currentTeam;
-      setCurrentTeam(teamToSet);
+      // Only update currentTeam if:
+      // 1. We're the host (host controls turn order), OR
+      // 2. The new value is different from our current value (handle initial sync)
+      // This prevents stale Firebase updates from overwriting recent turn advancements
+      if (isHost || state.currentTeam !== currentTeam) {
+        console.log('🔄 Updating currentTeam from Firebase:', state.currentTeam, '(was:', currentTeam, ')');
+        // Fix legacy 'Me' team name in multiplayer - should never be 'Me' in multiplayer
+        const teamToSet = (gameMode === 'multi' && state.currentTeam === 'Me' && state.teams?.length > 0) 
+          ? state.teams[0] // Use first team as fallback
+          : state.currentTeam;
+        setCurrentTeam(teamToSet);
+      } else {
+        console.log('🔄 Skipping currentTeam update - keeping local value:', currentTeam);
+      }
     }
     if (state.track) setTrack(state.track);
     if (state.trackName) setTrackName(state.trackName);
@@ -1441,8 +1556,151 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (typeof state.ridersPerTeam !== 'undefined') setRidersPerTeam(state.ridersPerTeam);
     
     // Sync team paces and metadata
-    if (state.teamPaces) setTeamPaces(state.teamPaces);
-    if (state.teamPaceMeta) setTeamPaceMeta(state.teamPaceMeta);
+    // Merge with existing local state to preserve our own submissions
+    if (state.teamPaces) {
+      console.log('🔄 Setting teamPaces from Firebase:', state.teamPaces);
+      setTeamPaces(prev => {
+        const merged = { ...prev, ...state.teamPaces };
+        // Also update ref to keep it in sync
+        teamPacesRef.current = merged;
+        return merged;
+      });
+    }
+    if (state.teamPaceMeta) {
+      console.log('🔄 Setting teamPaceMeta from Firebase:', state.teamPaceMeta);
+      setTeamPaceMeta(prev => {
+        console.log('🔄 Previous teamPaceMeta:', prev);
+        const merged = { ...prev, ...state.teamPaceMeta };
+        console.log('🔄 Merged teamPaceMeta:', merged);
+        // Also update ref to keep it in sync
+        teamPaceMetaRef.current = merged;
+        
+        // HOST ONLY: Check if we need to advance turn after receiving new submissions
+        // This handles the case where a non-host player submits and the host needs to
+        // advance currentTeam so the next team can submit
+        // Check using multiple conditions since isHost/gameMode might not be set yet
+        const playersToCheck = players || multiplayerPlayers;
+        const nameToCheck = playerNameParam || playerName;
+        console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
+        const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
+                             playersToCheck.some(p => {
+                               console.log('🔄 Checking player:', p, 'p.isHost:', p.isHost, 'p.name:', p.name, 'matches:', p.name === nameToCheck);
+                               return p.isHost && p.name === nameToCheck;
+                             }));
+        const isMultiplayer = gameMode === 'multi' || gameMode === 'join' || playersToCheck.length > 0;
+        console.log('🔄 Host check result - isLikelyHost:', isLikelyHost, 'isMultiplayer:', isMultiplayer);
+        
+        if (isLikelyHost && isMultiplayer) {
+          // Use currentTeam from Firebase state, not from React state (which might be stale)
+          const currentTeamFromFirebase = state.currentTeam;
+          console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
+          
+          // Only advance turn during pace selection phase (called 'input' in the code)
+          if (movePhase !== 'input') {
+            console.log('🔄 Skipping turn advancement - not in input phase (current phase:', movePhase, ')');
+            return merged;
+          }
+          
+          // Check if the current team (from Firebase) has already submitted
+          // Use merged state (prev + Firebase) to check submissions
+          const groupNum = state.currentGroup || currentGroup;
+          const currentTeamKey = `${groupNum}-${currentTeamFromFirebase}`;
+          const currentTeamHasSubmitted = !!merged[currentTeamKey];
+          
+          console.log('🔄 Current team submission check:', {
+            currentTeamFromFirebase,
+            currentTeamKey,
+            hasSubmitted: currentTeamHasSubmitted,
+            mergedKeys: Object.keys(merged)
+          });
+          
+          if (currentTeamHasSubmitted) {
+            console.log('🔄 HOST detected current team has submitted, advancing turn');
+            // Calculate next team and advance
+            // Reconstruct teams array from players if not available in closure
+            let teamsArray = teams;
+            if (!teamsArray || teamsArray.length === 0) {
+              // Build from players, including AI teams (Comp1, Comp2, etc.)
+              teamsArray = playersToCheck.map(p => p.team).filter(Boolean);
+              // Check if there are AI teams in cards that aren't in players
+              if (state.cards) {
+                const aiTeams = Object.values(state.cards)
+                  .map(card => card.team)
+                  .filter(t => t && t.startsWith('Comp') && !teamsArray.includes(t));
+                teamsArray = [...teamsArray, ...aiTeams];
+              }
+            }
+            // Deduplicate teams array to avoid infinite loops
+            teamsArray = [...new Set(teamsArray)];
+            console.log('🔄 Teams array for turn calculation:', teamsArray);
+            
+            // Check if all teams have already submitted
+            console.log('🔄 Checking if all teams submitted. currentGroup:', state.currentGroup, 'fallback:', currentGroup);
+            console.log('🔄 All merged keys:', Object.keys(merged));
+            console.log('🔄 All merged entries:', Object.entries(merged).map(([k, v]) => `${k}=${JSON.stringify(v).substring(0, 50)}`));
+            const allSubmitted = teamsArray.every(t => {
+              const key = `${state.currentGroup || currentGroup}-${t}`;
+              const hasSubmitted = !!merged[key];
+              console.log(`🔄 Team ${t} key ${key}: ${hasSubmitted ? 'submitted' : 'not submitted'}, value:`, merged[key]);
+              return hasSubmitted;
+            });
+            console.log('🔄 All submitted check result:', allSubmitted);
+            
+            if (allSubmitted) {
+              // Check if already finalized (movePhase is cardSelection)
+              const currentPhase = state.movePhase || movePhase;
+              if (currentPhase === 'cardSelection') {
+                console.log('🔄 Already in cardSelection phase, skipping finalization');
+              } else {
+                console.log('🔄 All teams have submitted! Triggering finalization...');
+                // All teams have submitted - call handlePaceSubmit with forceFinalize to trigger finalization
+                const groupNum = state.currentGroup || currentGroup;
+                console.log('🔄 HOST calling handlePaceSubmit with forceFinalize for group:', groupNum);
+                console.log('🔄 handlePaceSubmit type:', typeof handlePaceSubmit);
+                
+                // Schedule on next tick to ensure state is updated
+                setTimeout(() => {
+                try {
+                  console.log('🔄 Executing handlePaceSubmit with forceFinalize');
+                  // Use pace=0 since we're just triggering finalization, not submitting a new pace
+                  // Pass state.cards as cardsSnapshot to ensure we have up-to-date card data
+                  handlePaceSubmit(groupNum, 0, currentTeamFromFirebase, false, null, state.cards, null, true);
+                  console.log('🔄 handlePaceSubmit completed');
+                } catch (err) {
+                  console.error('🔄 Error calling handlePaceSubmit:', err);
+                }
+              }, 50);
+              }
+            } else {
+              const teamIdx = teamsArray.indexOf(currentTeamFromFirebase);
+              const nextIdx = (teamIdx + 1) % teamsArray.length;
+              console.log('🔄 Calculating next team. teamsArray:', teamsArray, 'teamIdx:', teamIdx, 'nextIdx:', nextIdx);
+              
+              // Simple next team calculation (findNextTeamWithRiders requires too much state)
+              const nextTeam = teamsArray[nextIdx];
+              if (nextTeam && nextTeam !== currentTeamFromFirebase) {
+                console.log('🔄 HOST setting currentTeam to:', nextTeam);
+                setCurrentTeam(nextTeam);
+                // Sync the new currentTeam to Firebase immediately
+                syncMoveToFirebase(nextTeam).catch(err => 
+                  console.error('Failed to sync turn advancement:', err)
+                );
+              } else if (nextTeam === currentTeamFromFirebase) {
+                console.log('🔄 Next team is same as current team - skipping to avoid loop');
+              } else {
+                console.log('🔄 No next team found!');
+              }
+            }
+          } else {
+            console.log('🔄 Current team has not submitted yet, not advancing');
+          }
+        } else {
+          console.log('🔄 Skipping turn advancement check. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode);
+        }
+        
+        return merged;
+      });
+    }
     if (state.teamPaceRound) setTeamPaceRound(state.teamPaceRound);
     
     // Sync move phase and speed info
@@ -1450,10 +1708,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (typeof state.groupSpeed !== 'undefined') setGroupSpeed(state.groupSpeed);
     if (typeof state.slipstream !== 'undefined') setSlipstream(state.slipstream);
     
+    // Sync postMoveInfo (yellow box) so JOINER sees the same results as HOST
+    if (state.postMoveInfo) {
+      console.log('🔄 Loading postMoveInfo from Firebase:', state.postMoveInfo);
+      setPostMoveInfo(state.postMoveInfo);
+    }
+    
     // Sync recent logs (append them, don't replace)
     if (state.logs && Array.isArray(state.logs)) {
       state.logs.forEach(log => {
-        if (!gameLog.includes(log)) {
+        if (!logs.includes(log)) {
           addLog(log);
         }
       });
@@ -1519,37 +1783,68 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   };
 
   // Helper: Sync game state to Firebase after a move
-  const syncMoveToFirebase = async () => {
-    console.log('📤 syncMoveToFirebase called:', { gameMode, roomCode: !!roomCode });
-    if (gameMode !== 'multi' || !roomCode) {
-      console.log('📤 syncMoveToFirebase: Skipping - not multi or no roomCode');
+  // currentTeamOverride allows passing the next team value before setState completes
+  // Add rate limiting to prevent Firebase quota exhaustion
+  let lastSyncTime = 0;
+  const syncMoveToFirebase = async (currentTeamOverride = null) => {
+    const currentRoomCode = roomCodeRef.current;
+    
+    // Rate limit: max 1 sync per 200ms to prevent quota exhaustion
+    const now = Date.now();
+    if (now - lastSyncTime < 200) {
+      console.log('📤 syncMoveToFirebase: Rate limited, skipping');
+      return;
+    }
+    lastSyncTime = now;
+    console.log('📤 syncMoveToFirebase called:', { roomCode: !!currentRoomCode, currentTeamOverride });
+    
+    // Check if we're in a multiplayer game by checking roomCode presence
+    // Use ref instead of state variable to avoid stale closure value
+    if (!currentRoomCode) {
+      console.log('📤 syncMoveToFirebase: Skipping - no roomCode');
       return;
     }
     
+    // Use refs for teamPaces and teamPaceMeta to get the most recent values
+    // (setState is async, so state variables may be stale)
+    const teamPacesToSync = teamPacesRef.current || teamPaces;
+    const teamPaceMetaToSync = teamPaceMetaRef.current || teamPaceMeta;
+    
+    // Use refs for currentTeam, currentGroup, movePhase, cards to avoid stale closure values
+    const teamToSync = currentTeamOverride !== null ? currentTeamOverride : currentTeamRef.current;
+    const groupToSync = currentGroupRef.current;
+    const phaseToSync = movePhaseRef.current;
+    const cardsToSync = cardsRef.current || cards;
+    
     console.log('📤 Syncing move to Firebase:', {
-      currentTeam,
-      currentGroup,
-      movePhase,
-      round
+      currentTeam: teamToSync,
+      currentGroup: groupToSync,
+      movePhase: phaseToSync,
+      round,
+      cardsCount: Object.keys(cardsToSync).length,
+      teamPacesKeys: Object.keys(teamPacesToSync),
+      teamPaceMetaKeys: Object.keys(teamPaceMetaToSync)
     });
     
     try {
-      await syncPlayerMove(roomCode, {
-        cards,
+      console.log('📤 Calling syncPlayerMove...');
+      await syncPlayerMove(currentRoomCode, {
+        cards: cardsToSync,
         round,
-        currentGroup,
-        currentTeam,
-        teamPaces,
-        teamPaceMeta,
+        currentGroup: groupToSync,
+        currentTeam: teamToSync,
+        teamPaces: teamPacesToSync,
+        teamPaceMeta: teamPaceMetaToSync,
         teamPaceRound,
-        movePhase,
+        movePhase: phaseToSync,
         groupSpeed,
         slipstream,
-        logs: gameLog.slice(-20) // Only sync recent logs to avoid bloat
+        postMoveInfo, // Sync postMoveInfo so JOINER can see the yellow box
+        logs: logs.slice(-20) // Only sync recent logs to avoid bloat
       });
       console.log('✅ Move synced successfully');
     } catch (error) {
-      console.error('Failed to sync move:', error);
+      console.error('❌ Failed to sync move:', error);
     }
   };
 
@@ -3306,11 +3601,14 @@ return { pace, updatedCards, doubleLead };
     return teams[startIdx % teams.length];
   };
 
-  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null, cardsSnapshot = null) => {
+  const handlePaceSubmit = (groupNum, pace, team = null, isAttack = false, attackerName = null, doubleLead = null, cardsSnapshot = null, forceFinalize = false) => {
     // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
-    addLog(`🚀 handlePaceSubmit START: group=${groupNum}, team=${team || currentTeam}, pace=${pace}, hasSnapshot=${!!cardsSnapshot}`);
+    // forceFinalize: skip double-submission check and proceed to finalization (for multiplayer HOST)
+    console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize);
     const submittingTeam = team || currentTeam;
+    
+    console.log('🚀 Check 1: gameMode=', gameMode, 'submittingTeam=', submittingTeam, 'playerName=', playerName);
     
     // In multiplayer mode, only allow submissions from:
     // 1. AI teams (if this is the host)
@@ -3320,18 +3618,24 @@ return { pace, updatedCards, doubleLead };
       const playerTeams = multiplayerPlayers.map(p => p.team);
       const isAITeam = !playerTeams.includes(submittingTeam);
       
+      console.log('🚀 Check 2: isAITeam=', isAITeam, 'isHost=', isHost, 'playerTeams=', playerTeams);
+      
       // Only host can submit AI moves
       if (isAITeam && !isHost) {
+        console.log('❌ BLOCKED: Non-host attempted AI move');
         addLog(`⚠️ Non-host attempted to submit AI move for ${submittingTeam} - blocked`);
         return;
       }
       
       // Players can only submit for their own team
       if (!isAITeam && submittingTeam !== playerName) {
+        console.log('❌ BLOCKED: Player attempted move for another team');
         addLog(`⚠️ Player attempted to submit for another player's team ${submittingTeam} - blocked`);
         return;
       }
     }
+    
+    console.log('🚀 Passed multiplayer checks');
     
     const paceKey = `${groupNum}-${submittingTeam}`;
 
@@ -3340,10 +3644,100 @@ return { pace, updatedCards, doubleLead };
     const existingMeta = teamPaceMeta[paceKey];
     const existingRound = existingMeta && existingMeta.round ? existingMeta.round : 1;
     const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
-    if (existingMeta && existingRound >= currentRound) {
+    
+    console.log('🚀 Check 3: existingMeta=', !!existingMeta, 'existingRound=', existingRound, 'currentRound=', currentRound);
+    
+    if (existingMeta && existingRound >= currentRound && !forceFinalize) {
+      console.log('❌ BLOCKED: Team already chose for this group');
       addLog(`${submittingTeam} already chose for group ${groupNum}`);
+      
+      // In multiplayer mode, check if all teams have submitted and trigger finalization
+      const isMultiplayer = !!roomCodeRef.current;
+      if (isMultiplayer) {
+        console.log('🔄 BLOCKED but checking if should finalize anyway...');
+        const teamsArray = teams.filter(t => t !== 'Me');
+        const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+        const teamsWithRiders = teamsArray.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+        
+        const allSubmitted = teamsWithRiders.every(t => {
+          const key = `${groupNum}-${t}`;
+          return !!teamPaceMeta[key];
+        });
+        
+        console.log('🔄 All teams submitted check:', { teamsWithRiders, allSubmitted, movePhase });
+        
+        // Check both isHost and amHost (derived from multiplayerPlayers)
+        const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+        
+        if (allSubmitted && movePhase !== 'cardSelection') {
+          if (amHost) {
+            console.log('🔄 HOST: All teams submitted, forcing finalization...');
+            // Call handlePaceSubmit with forceFinalize to trigger card selection phase
+            setTimeout(() => {
+              handlePaceSubmit(groupNum, 0, submittingTeam, false, null, cards, null, true);
+            }, 100);
+            return;
+          } else {
+            console.log('🔄 JOINER: All teams submitted, waiting for HOST to finalize...');
+            addLog('Waiting for host to finalize...');
+            return;
+          }
+        }
+      }
+      
+      // In single player AI already submitted check
+      if (roomCodeRef.current && isHost && !isHumanTeam) {
+        console.log('🤖 AI team already submitted, checking if should finalize...');
+        const teamsArray = teams.filter(t => t !== 'Me');
+        const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+        const teamsWithRiders = teamsArray.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+        
+        const allSubmitted = teamsWithRiders.every(t => {
+          const key = `${groupNum}-${t}`;
+          const hasMeta = teamPaceMeta[key] !== undefined;
+          console.log(`🤖 Team ${t} key ${key}: ${hasMeta ? 'submitted' : 'not submitted'}`);
+          return hasMeta;
+        });
+        
+        if (allSubmitted) {
+          console.log('🤖 All teams submitted! Triggering finalization...');
+          const groupNum = currentGroup;
+          setTimeout(() => {
+            handlePaceSubmit(groupNum, 0, submittingTeam, false, null, cards, null, true);
+          }, 50);
+        } else {
+          console.log('🤖 Not all teams submitted yet, waiting...');
+        }
+      }
+      
       return;
     }
+    
+    if (forceFinalize) {
+      console.log('🚀 Skipping double-submission check due to forceFinalize flag');
+    } else {
+      console.log('🚀 Passed double-submission check, continuing...');
+    }
+
+  // Use cardsSnapshot if provided (from Play Group), otherwise use current cards state
+  // In multiplayer with forceFinalize, use cardsRef to avoid stale state
+  const cardsToUse = cardsSnapshot || (forceFinalize ? cardsRef.current : cards);
+  
+  console.log('🚀 cardsToUse: hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize, 'cardsCount=', Object.keys(cardsToUse).length);
+  
+  // Additional debug for multiplayer finalization
+  if (forceFinalize) {
+    const ridersInGroup = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && !r.finished);
+    console.log('🚀 forceFinalize debug: groupNum=', groupNum, 'ridersInGroup=', ridersInGroup.length, 
+      'riders=', ridersInGroup.map(([n, r]) => `${n}(team=${r.team})`).join(', '));
+  }
+
+  // Declare variables that will be used in finalization logic
+  let newTeamPaces;
+  let newMeta;
+
+  // When forceFinalize is true, skip pace recording and jump directly to finalization checks
+  if (!forceFinalize) {
 
   // Hide any lingering post-move summary when a new choice is being made.
   // This removes the yellow played-cards panel until the next group moves.
@@ -3417,7 +3811,7 @@ return { pace, updatedCards, doubleLead };
   
   // Update refs synchronously for immediate use
   teamPacesRef.current = { ...teamPacesRef.current, [paceKey]: finalPace };
-  const newTeamPaces = teamPacesRef.current;
+  newTeamPaces = teamPacesRef.current;
   
   // Also update React state (asynchronous)
   setTeamPaces(newTeamPaces);
@@ -3476,7 +3870,7 @@ return { pace, updatedCards, doubleLead };
   
   // Update refs synchronously for immediate use
   teamPaceMetaRef.current = { ...teamPaceMetaRef.current, [paceKey]: metaEntry };
-  const newMeta = teamPaceMetaRef.current;
+  newMeta = teamPaceMetaRef.current;
   
   // Also update React state (asynchronous)
   setTeamPaceMeta(newMeta);
@@ -3507,12 +3901,16 @@ return { pace, updatedCards, doubleLead };
     } else {
       addLog(`${submittingTeam} chose ${pace}`);
     }
-  const nextIdx = (teams.indexOf(submittingTeam) + 1) % teams.length;
-  const nextTeam = findNextTeamWithRiders(nextIdx, groupNum);
-  if (nextTeam) setCurrentTeam(nextTeam);
-
-    // Use cardsSnapshot if provided (from Play Group), otherwise use current cards state
-    const cardsToUse = cardsSnapshot || cards;
+  } else {
+    // forceFinalize=true: Use existing values from refs
+    console.log('🚀 forceFinalize=true, using existing teamPaces and teamPaceMeta from refs');
+    newTeamPaces = teamPacesRef.current;
+    newMeta = teamPaceMetaRef.current;
+  } // End of if (!forceFinalize) - pace recording block
+    
+    // Calculate next team for turn advancement
+    const nextIdx = (teams.indexOf(submittingTeam) + 1) % teams.length;
+    const nextTeam = findNextTeamWithRiders(nextIdx, groupNum);
 
     // Determine which teams actually have riders in this group
   const groupRidersAll = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && !r.finished);
@@ -3526,7 +3924,14 @@ return { pace, updatedCards, doubleLead };
     // purposes of submitting and finalizing the group's pace. Teams whose
     // only presence in the group is an attacker should not block the basic
     // group pace decision.
-  const teamsWithRiders = teams.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+  console.log('🚀 Building teamsWithRiders: teams=', teams, 'groupRidersAll.length=', groupRidersAll.length);
+  
+  // Build teams list from cards if teams state is empty (multiplayer issue)
+  const teamsList = teams.length > 0 ? teams : Array.from(new Set(Object.values(cardsToUse).map(r => r.team)));
+  console.log('🚀 Using teamsList:', teamsList);
+  
+  const teamsWithRiders = teamsList.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+  console.log('🚀 teamsWithRiders result:', teamsWithRiders);
 
     // Collect submitted paces per team for this group, but only include
     // submissions that belong to the current round and from teams that
@@ -3543,13 +3948,56 @@ return { pace, updatedCards, doubleLead };
     });
     addLog(`🔍 submittedPaces built: ${JSON.stringify(submittedPaces)}, teamsWithRiders=${JSON.stringify(teamsWithRiders)}, will continue=${Object.keys(submittedPaces).length >= teamsWithRiders.length && (!teamsWithRiders.includes('Me') || submittedPaces['Me'] !== undefined)}`);
 
+  // Get player team name before using it in debug logging
+  const playerTeam = getPlayerTeamName();
+
+  console.log('🚀 Pre-finalization checks:', {
+    submittedPacesCount: Object.keys(submittedPaces).length,
+    teamsWithRidersCount: teamsWithRiders.length,
+    submittedPaces,
+    teamsWithRiders,
+    playerTeam,
+    forceFinalize
+  });
+
+  // CRITICAL: In multiplayer mode, sync the submission to Firebase immediately
+  // so other players can see this team's move before we wait for all teams to submit
+  // Host also advances currentTeam to the next team and syncs that value
+  // Check roomCode ref instead of gameMode/roomCode state since they may have stale closure values
+  if (roomCodeRef.current) {
+    console.log('📤 Syncing partial submission to Firebase (team:', submittingTeam, ')');
+    if (isHost && nextTeam) {
+      console.log('🔄 Host advancing currentTeam to:', nextTeam);
+      setCurrentTeam(nextTeam);
+      // Pass nextTeam to sync since setState is async
+      syncMoveToFirebase(nextTeam).catch(err => console.error('Failed to sync partial submission:', err));
+    } else {
+      syncMoveToFirebase().catch(err => console.error('Failed to sync partial submission:', err));
+    }
+  }
+
   // If the player's team has riders in this group, require that
   // the player submits in the current round before finalizing.
-  const playerTeam = getPlayerTeamName();
-  if (teamsWithRiders.includes(playerTeam) && (submittedPaces[playerTeam] === undefined)) return;
+  if (teamsWithRiders.includes(playerTeam) && (submittedPaces[playerTeam] === undefined)) {
+    console.log('❌ RETURN: Waiting for player team to submit');
+    return;
+  }
 
   // Wait until all teams that have non-attacker riders have submitted for this ROUND
-  if (Object.keys(submittedPaces).length < teamsWithRiders.length) return;
+  if (Object.keys(submittedPaces).length < teamsWithRiders.length) {
+    console.log('❌ RETURN: Not all teams have submitted yet. submitted:', Object.keys(submittedPaces).length, 'needed:', teamsWithRiders.length);
+    // In multiplayer, even though not all teams submitted, we've already advanced currentTeam above
+    // so the next team can start their submission
+    return;
+  }
+  
+  console.log('🚀 All teams have submitted, proceeding to finalize...');
+  console.log('🚀 Finalization data:', {
+    submittedPaces,
+    teamsWithRiders,
+    newTeamPaces: Object.keys(newTeamPaces).filter(k => k.startsWith(`${groupNum}-`)),
+    newMeta: Object.keys(newMeta).filter(k => k.startsWith(`${groupNum}-`))
+  });
 
   // If we're finishing round 1 and any team declared an attack in this group,
   // open a second round (choice-2) allowing all teams to resubmit. Do not
@@ -3559,6 +4007,7 @@ return { pace, updatedCards, doubleLead };
     if (anyAttack) {
       setTeamPaceRound(prev => ({ ...(prev || {}), [groupNum]: 2 }));
       addLog(`Choice-2 opened for group ${groupNum} due to attack — teams may revise their choices`);
+      console.log('❌ RETURN: Opening choice-2 for attack');
       return;
     }
   }
@@ -3740,9 +4189,13 @@ return { pace, updatedCards, doubleLead };
     
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
+    const effectiveSV = getEffectiveSV(sv, speed);
     setGroupSpeed(speed);
-    setSlipstream(getEffectiveSV(sv, speed));
+    setSlipstream(effectiveSV);
     setIsFlat(sv === 3);
+    // Store in refs so card selection dialog can show them even after state is reset
+    groupSpeedRef.current = speed;
+    slipstreamRef.current = effectiveSV;
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
     for (const t of teamsWithRiders) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
@@ -4030,16 +4483,30 @@ return { pace, updatedCards, doubleLead };
       cardsSnapshotRef.current = cardsSnapshot;
     }
     setMovePhase('cardSelection');
+    movePhaseRef.current = 'cardSelection'; // Update ref immediately for sync
+    console.log('✅ Set movePhase to cardSelection');
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
     
-    console.log('🚀 handlePaceSubmit END: About to check for Firebase sync, gameMode:', gameMode);
+    // In multiplayer, set currentTeam to first team to signal finalization complete
+    // Check roomCodeRef instead of gameMode since gameMode may have stale closure value
+    if (roomCodeRef.current && isHost) {
+      const firstTeam = teams[0];
+      console.log('🚀 Finalization complete, setting currentTeam to:', firstTeam);
+      setCurrentTeam(firstTeam);
+    }
+    
+    console.log('🚀 handlePaceSubmit END: About to check for Firebase sync, gameMode:', gameMode, 'roomCode:', !!roomCodeRef.current);
     
     // Sync move to Firebase in multiplayer mode
-    if (gameMode === 'multi') {
-      console.log('🚀 handlePaceSubmit: Calling syncMoveToFirebase');
-      syncMoveToFirebase().catch(err => console.error('Failed to sync move:', err));
+    // Check roomCode ref instead of gameMode/roomCode state since they may have stale closure values
+    // Add small delay to ensure React state updates (cards, movePhase, etc.) complete before syncing
+    if (roomCodeRef.current) {
+      console.log('🚀 handlePaceSubmit: Scheduling syncMoveToFirebase');
+      setTimeout(() => {
+        syncMoveToFirebase().catch(err => console.error('Failed to sync move:', err));
+      }, 100);
     } else {
-      console.log('🚀 handlePaceSubmit: NOT calling syncMoveToFirebase (gameMode:', gameMode, ')');
+      console.log('🚀 handlePaceSubmit: NOT calling syncMoveToFirebase (no roomCode)');
     }
   };
 
@@ -4244,6 +4711,12 @@ const shouldGroupSprint = (cardsState, groupNum, trackStr) => {
 };
 
 const confirmMove = (cardsSnapshot) => {
+  console.log('🚀 confirmMove called for group:', currentGroup);
+  
+  // Change movePhase immediately to prevent card selection from reopening
+  setMovePhase('moving');
+  movePhaseRef.current = 'moving';
+  
   // Allow callers to pass a snapshot of cards (e.g. immediately after the
   // human submitted planned cards) so we avoid a race with React state
   // updates. If not provided, fall back to the current `cards` state.
@@ -4282,9 +4755,35 @@ const confirmMove = (cardsSnapshot) => {
   const groupPos = Math.max(...Object.values(preCards).filter(r => r.group === currentGroup && !r.finished).map(r => r.position));
   const aheadPositions = Object.values(preCards).filter(r => r.group > currentGroup && !r.finished).map(r => r.position);
   
-  // Get team paces from ref (saved by handleAutoChoice before selected_value was cleared)
+  // Get team paces from ref (saved by handlePaceSubmit before selected_value was cleared)
   // This contains the correct pace values including dobbeltføring bonuses
-  const teamPacesForGroup = teamPacesForGroupRef.current || {};
+  // If ref is empty (e.g. when confirmMove is called without handlePaceSubmit),
+  // build teamPacesForGroup from riders' selected_value
+  let teamPacesForGroup = teamPacesForGroupRef.current || {};
+  
+  // If teamPacesForGroup is empty, build it from riders in the group
+  if (Object.keys(teamPacesForGroup).length === 0) {
+    const groupRiders = Object.entries(preCards).filter(([, r]) => r.group === currentGroup && !r.finished);
+    const teamsInGroup = [...new Set(groupRiders.map(([, r]) => r.team))];
+    
+    teamsInGroup.forEach(team => {
+      const teamRidersInGroup = groupRiders.filter(([, r]) => r.team === team);
+      let maxPace = 0;
+      
+      teamRidersInGroup.forEach(([name, rider]) => {
+        // Skip attackers
+        if (rider.attacking_status === 'attacker') return;
+        
+        // Use selected_value if available, otherwise 0
+        const pace = typeof rider.selected_value === 'number' && rider.selected_value > 0 ? rider.selected_value : 0;
+        if (pace > maxPace) maxPace = pace;
+      });
+      
+      teamPacesForGroup[team] = maxPace;
+    });
+    
+    addLog(`🔍 confirmMove: Built teamPacesForGroup from riders: ${JSON.stringify(teamPacesForGroup)}`);
+  }
   
   // Calculate speed using the same logic as handlePaceSubmit
   // Use dobbeltføringLeadersRef from handlePaceSubmit (contains manual dobbeltføring leaders)
@@ -4328,6 +4827,14 @@ const confirmMove = (cardsSnapshot) => {
   
   // Debug: log computed speed
   try { addLog(`Group ${currentGroup}: Using computedSpeed=${computedSpeed}, computedSlipstream=${computedSlipstream} for movement`); } catch (e) {}
+  
+  // Update state variables so the UI shows correct speed/SV during card selection
+  setGroupSpeed(computedSpeed);
+  setSlipstream(computedSlipstream);
+  setIsFlat(computedSV === 3);
+  // Store in refs so card selection dialog can show them even after state is reset
+  groupSpeedRef.current = computedSpeed;
+  slipstreamRef.current = computedSlipstream;
   
   // First phase: move non-attackers (regular riders) — delegated to pure helper
   try {
@@ -4550,6 +5057,14 @@ const confirmMove = (cardsSnapshot) => {
     }
 
     setPostMoveInfo({ groupMoved: currentGroup, msgs, remainingNotMoved, sv: computedSlipstream, speed: computedSpeed });
+    
+    // Sync to Firebase after movement is complete (HOST broadcasts results to all players)
+    if (roomCodeRef.current && isHost) {
+      console.log('🚀 confirmMove: Syncing results to Firebase');
+      setTimeout(() => {
+        syncMoveToFirebase().catch(err => console.error('Failed to sync confirmMove results:', err));
+      }, 100);
+    }
   } catch (e) {}
 
   // After moving this group, compute remaining (non-finished) groups.
@@ -4578,6 +5093,7 @@ const confirmMove = (cardsSnapshot) => {
   // Reset refs to match cleared state
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
+  cardSelectionOpenedForGroupRef.current = null; // Reset card selection tracking for new group
       
       // Reset selected_value and takes_lead for ALL riders to prevent values from
       // previous groups affecting speed calculations in the new group
@@ -4767,6 +5283,14 @@ const moveToNextGroup = () => {
       }
     } catch (e) {}
     setPostMoveInfo(null);
+    
+    // Sync state to Firebase so JOINER knows to move to next group
+    if (roomCodeRef.current && isHost) {
+      console.log('🚀 moveToNextGroup: Syncing to Firebase');
+      setTimeout(() => {
+        syncMoveToFirebase().catch(err => console.error('Failed to sync moveToNextGroup:', err));
+      }, 100);
+    }
   } else {
     // No remaining groups -> start new round
     setPostMoveInfo(null);
@@ -6360,6 +6884,119 @@ const checkCrash = () => {
       try { if (typeof document !== 'undefined' && document && document.body) document.body.style.overflow = ''; } catch (e) {}
     };
   }, [cardSelectionOpen, fallBackOpen, gameState]);
+  
+  // Auto-open card selection when movePhase changes to 'cardSelection'
+  // This ensures card selection opens automatically after all teams have submitted
+  // and gives Firebase time to sync the cards state between players
+  useEffect(() => {
+    console.log('🎴 Auto-open useEffect triggered:', { movePhase, cardSelectionOpen, currentGroup });
+    
+    if (movePhase === 'cardSelection' && !cardSelectionOpen) {
+      const playerTeam = getPlayerTeamName();
+      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === playerTeam && !r.finished);
+      
+      // Check if this player has already submitted their card selections
+      const alreadySubmitted = humanRiders.length > 0 && humanRiders.every(([, r]) => r.planned_card_id || r.human_planned);
+      
+      console.log('🎴 Auto-open check:', {
+        playerTeam,
+        humanRidersCount: humanRiders.length,
+        alreadySubmitted,
+        riderDetails: humanRiders.map(([n, r]) => ({
+          name: n,
+          planned_card_id: r.planned_card_id,
+          human_planned: r.human_planned,
+          hasSubmitted: !!(r.planned_card_id || r.human_planned)
+        }))
+      });
+      
+      // Check if there are ANY human teams in this group (not just current player)
+      const isMultiplayer = !!roomCodeRef.current;
+      const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+      
+      if (isMultiplayer && amHost) {
+        const humanTeams = teams.filter(t => !t.startsWith('Comp'));
+        const allHumanRidersInGroup = Object.entries(cards)
+          .filter(([, r]) => r.group === currentGroup && !r.finished && humanTeams.includes(r.team));
+        
+        if (allHumanRidersInGroup.length === 0) {
+          console.log('🎴 HOST: No human riders in group at all - calling confirmMove immediately');
+          confirmMove(cards);
+          return;
+        }
+      }
+      
+      // Only auto-open if current player has riders in the group AND hasn't submitted yet
+      // Removed cardSelectionOpenedForGroupRef check to allow reopening if not submitted
+      if (humanRiders.length > 0 && !alreadySubmitted) {
+        console.log('🎴 Auto-opening card selection for group:', currentGroup, 'after 500ms delay');
+        const timer = setTimeout(() => {
+          openCardSelectionForGroup(currentGroup);
+        }, 500);
+        return () => clearTimeout(timer);
+      } else if (alreadySubmitted) {
+        console.log('🎴 Player already submitted card selections for group:', currentGroup, '- NOT opening dialog');
+      }
+    }
+  }, [movePhase, currentGroup, cardSelectionOpen, cards, isHost, multiplayerPlayers, playerName, teams]);
+  
+  // In multiplayer: HOST monitors when all human teams have submitted card selections
+  useEffect(() => {
+    // Check using both isHost state and multiplayer context
+    const isMultiplayer = !!roomCodeRef.current;
+    const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+    
+    console.log('🎴 Monitoring useEffect check:', { waitingForCardSelections, isHost, amHost, gameMode, isMultiplayer });
+    
+    if (!waitingForCardSelections || !amHost || !isMultiplayer) return;
+    
+    console.log('🎴 HOST monitoring useEffect triggered');
+    
+    // Check if all human teams in current group have submitted their card selections
+    // Filter out AI teams (Comp1, Comp2, etc.)
+    // IMPORTANT: Only count teams that HAVE riders in this group
+    const allHumanRidersInGroup = Object.entries(cards)
+      .filter(([, r]) => r.group === currentGroup && !r.finished && teams.includes(r.team) && !r.team.startsWith('Comp'));
+    
+    console.log('🎴 All human riders in group:', allHumanRidersInGroup.map(([n, r]) => `${n} (${r.team})`));
+    
+    const humanTeamsInGroup = [...new Set(allHumanRidersInGroup.map(([, r]) => r.team))];
+    
+    const humanTeamsWithSelections = humanTeamsInGroup.filter(team => {
+      return Object.entries(cards).some(([, r]) => 
+        r.group === currentGroup && 
+        r.team === team && 
+        (r.planned_card_id || r.human_planned)
+      );
+    });
+    
+    console.log('🎴 HOST monitoring card selections:', {
+      humanTeamsInGroup,
+      humanTeamsWithSelections: humanTeamsWithSelections.length,
+      total: humanTeamsInGroup.length,
+      details: humanTeamsInGroup.map(team => ({
+        team,
+        ridersInGroup: allHumanRidersInGroup.filter(([, r]) => r.team === team).length,
+        hasSubmitted: Object.entries(cards).some(([, r]) => 
+          r.group === currentGroup && 
+          r.team === team && 
+          (r.planned_card_id || r.human_planned)
+        )
+      }))
+    });
+    
+    if (humanTeamsInGroup.length === 0) {
+      console.log('🎴 HOST: No human teams in group - calling confirmMove immediately');
+      setWaitingForCardSelections(false);
+      confirmMove(cards);
+    } else if (humanTeamsWithSelections.length === humanTeamsInGroup.length) {
+      console.log('🎴 HOST: All human teams have submitted - calling confirmMove');
+      setWaitingForCardSelections(false);
+      confirmMove(cards);
+    } else {
+      console.log(`🎴 HOST: Still waiting for ${humanTeamsInGroup.length - humanTeamsWithSelections.length} team(s)`);
+    }
+  }, [cards, waitingForCardSelections, isHost, gameMode, currentGroup, teams]);
 
   const openCardSelectionForGroup = (groupNum) => {
     // Don't open card selection if pull-invest modal is already active
@@ -6371,13 +7008,57 @@ const checkCrash = () => {
     // Use cardsSnapshotRef if available (set by handlePaceSubmit) to avoid React state timing issues
     const cardsToUse = cardsSnapshotRef.current || cards;
     const playerTeam = getPlayerTeamName();
-    const humanRiders = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && r.team === playerTeam && !r.finished).map(([n]) => n);
-    if (!humanRiders || humanRiders.length === 0) {
-      // nothing to do
-      const snapshot = cardsSnapshotRef.current;
-      cardsSnapshotRef.current = null; // Clear after use
-      confirmMove(snapshot);
-      return;
+    
+    // In multiplayer, check if ANY human team has riders in this group
+    // In single player, only check current player's team
+    let humanRiders;
+    if (gameMode === 'multi') {
+      // Get all human teams (non-AI teams)
+      const humanTeams = teams.filter(t => !t.startsWith('Comp'));
+      humanRiders = Object.entries(cardsToUse).filter(([, r]) => 
+        r.group === groupNum && 
+        humanTeams.includes(r.team) && 
+        !r.finished
+      ).map(([n]) => n);
+      
+      // Filter to only this player's riders for the dialog
+      const myRiders = humanRiders.filter(name => cardsToUse[name].team === playerTeam);
+      
+      console.log('🎴 openCardSelectionForGroup check:', {
+        groupNum,
+        humanTeams,
+        totalHumanRiders: humanRiders.length,
+        myRiders: myRiders.length,
+        playerTeam
+      });
+      
+      // If no human riders at all in this group, call confirmMove
+      if (humanRiders.length === 0) {
+        console.log('🎴 No human riders in group - calling confirmMove immediately');
+        const snapshot = cardsSnapshotRef.current;
+        cardsSnapshotRef.current = null; // Clear after use
+        confirmMove(snapshot);
+        return;
+      }
+      
+      // If this player has no riders but other humans do, just return (wait for them)
+      if (myRiders.length === 0) {
+        console.log('🎴 This player has no riders in group - waiting for other humans');
+        return;
+      }
+      
+      // This player has riders, proceed to show card selection
+      humanRiders = myRiders;
+    } else {
+      // Single player mode - only check current player's team
+      humanRiders = Object.entries(cardsToUse).filter(([, r]) => r.group === groupNum && r.team === playerTeam && !r.finished).map(([n]) => n);
+      if (!humanRiders || humanRiders.length === 0) {
+        // nothing to do
+        const snapshot = cardsSnapshotRef.current;
+        cardsSnapshotRef.current = null; // Clear after use
+        confirmMove(snapshot);
+        return;
+      }
     }
     // Prepare default selections (choose first top-4 or null)
     const initial = {};
@@ -6418,7 +7099,7 @@ const checkCrash = () => {
   };
 
   const submitCardSelections = () => {
-    // Apply selections into a fresh cards object and then call confirmMove after state update
+    // Apply selections into a fresh cards object
     const updated = JSON.parse(JSON.stringify(cards || {}));
     for (const [riderName, cardId] of Object.entries(cardSelections || {})) {
       if (!updated[riderName]) continue;
@@ -6438,13 +7119,52 @@ const checkCrash = () => {
         updated[riderName].human_planned = true;
       }
     }
-    // Close modal and set cards; then call confirmMove with snapshot
+    
+    // Close modal and update cards
     setCardSelectionOpen(false);
     setCards(updated);
-    cardsSnapshotRef.current = null; // Clear snapshot after use
-    // Call confirmMove with the updated snapshot to avoid a race where
-    // React hasn't yet flushed `cards` to state when the engine reads it.
-    confirmMove(updated);
+    
+    // IMPORTANT: Update cardsRef immediately so syncMoveToFirebase gets the updated cards
+    // (useEffect that updates cardsRef runs AFTER this function completes)
+    cardsRef.current = updated;
+    
+    console.log('🎴 submitCardSelections completed for', Object.keys(cardSelections).length, 'riders');
+    console.log('🎴 Updated cards with planned_card_id:', Object.entries(updated)
+      .filter(([, r]) => r.planned_card_id || r.human_planned)
+      .map(([n, r]) => `${n}: ${r.planned_card_id}`)
+    );
+    
+    // In multiplayer mode: Track card selections and only call confirmMove when ALL human players have submitted
+    // JOINER just syncs their card selections to Firebase and waits for HOST
+    // Do NOT change movePhase here - let HOST do it after confirmMove
+    // Use roomCode ref to check multiplayer status (more reliable than gameMode state)
+    const isMultiplayer = !!roomCodeRef.current;
+    
+    if (isMultiplayer) {
+      console.log('🎴 Multiplayer: Syncing card selections to Firebase. isHost:', isHost, 'roomCode:', !!roomCodeRef.current);
+      
+      // Sync card selections to Firebase so other players can see them
+      syncMoveToFirebase().catch(err => console.error('Failed to sync card selections:', err));
+      
+      // For HOST: Enable monitoring of card selections
+      // The monitoring useEffect will detect when all players have submitted via cards state updates
+      // Check both isHost state and isLikelyHost (derived from Firebase) for reliability
+      const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+      console.log('🎴 Host check in submitCardSelections:', { isHost, playerName, amHost, playersCount: multiplayerPlayers?.length });
+      
+      if (amHost) {
+        console.log('🎴 HOST: Enabling card selection monitoring (setWaitingForCardSelections = true)');
+        setWaitingForCardSelections(true);
+        addLog('Waiting for other players to select cards...');
+      } else {
+        console.log('🎴 JOINER: Card selections synced, waiting for HOST to move group');
+        addLog('Waiting for host to move group...');
+      }
+    } else {
+      // Single player: call confirmMove immediately
+      cardsSnapshotRef.current = null; // Clear snapshot after use
+      confirmMove(updated);
+    }
   };
 
   const confirmFallBack = () => {
@@ -7897,20 +8617,40 @@ const checkCrash = () => {
                     })()
                   )}
 
-                  {/* When movePhase indicates cardSelection, show the Move Group controls here */}
-                  {movePhase === 'cardSelection' && (
-                    <div className="border-t pt-3 bg-green-50 p-3 rounded mt-3">
-                      <div className="mb-2 text-sm font-medium">
-                        Speed: <span className="font-bold">{groupSpeed}</span>, 
-                        SV: <span className={`font-bold ${isFlat ? 'text-gray-700' : 'text-red-600'}`}>{slipstream}</span>
+                  {/* When movePhase indicates cardSelection, show the Move Group button */}
+                  {/* Card selection opens automatically after a delay, but show button in case of issues */}
+                  {movePhase === 'cardSelection' && !cardSelectionOpen && (() => {
+                    const playerTeam = getPlayerTeamName();
+                    const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === playerTeam && !r.finished);
+                    const alreadySubmitted = humanRiders.length > 0 && humanRiders.every(([, r]) => r.planned_card_id || r.human_planned);
+                    
+                    return (
+                      <div className="border-t pt-3 bg-green-50 p-3 rounded mt-3">
+                        <div className="mb-2 text-sm font-medium">
+                          Speed: <span className="font-bold">{groupSpeed}</span>, 
+                          SV: <span className={`font-bold ${isFlat ? 'text-gray-700' : 'text-red-600'}`}>{slipstream}</span>
+                        </div>
+                        {alreadySubmitted ? (
+                          <div className="text-sm text-green-600 italic text-center font-medium">
+                            ✓ Cards submitted - waiting for other players...
+                          </div>
+                        ) : humanRiders.length > 0 ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="text-sm text-gray-600 italic">
+                              Opening card selection...
+                            </div>
+                            <button onClick={() => openCardSelectionForGroup(currentGroup)} className="px-3 py-1 bg-green-600 text-white rounded text-sm">
+                              Open Now
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-600 italic text-center">
+                            No riders to select cards for
+                          </div>
+                        )}
                       </div>
-                        <div className="flex justify-end">
-                        <button onClick={() => openCardSelectionForGroup(currentGroup)} className="px-4 py-2 bg-green-600 text-white rounded font-semibold flex items-center gap-2">
-                          <ArrowRight size={14}/> Move Group
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
                     <div className="mt-3 flex justify-end">
                       {(() => {
@@ -8137,8 +8877,8 @@ const checkCrash = () => {
                   <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full p-6 md:pb-12 max-h-[80vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch', paddingBottom: '6rem', zIndex: 99999 }}>
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">
-                      Speed: <strong>{groupSpeed}</strong>, 
-                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream}</strong>
+                      Speed: <strong>{groupSpeedRef.current || groupSpeed}</strong>, 
+                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstreamRef.current || slipstream}</strong>
                     </div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => {
