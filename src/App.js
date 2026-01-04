@@ -4648,6 +4648,7 @@ return { pace, updatedCards, doubleLead };
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     const effectiveSV = getEffectiveSV(sv, speed); // In TK-test, this just returns sv
+    console.log(`🔍 SV calculation: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}, effectiveSV=${effectiveSV}`);
     setGroupSpeed(speed);
     setSlipstream(effectiveSV); // Store raw SV (effectiveSV = sv in TK-test)
     setIsFlat(sv === 3);

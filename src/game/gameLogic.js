@@ -48,6 +48,7 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
   const adjustedPos2 = pos2 + nedk;
   // Get the terrain segment excluding downhill fields
   const terrainSegment = track.slice(pos1, adjustedPos2 + 1).replace(/_/g, '');
+  console.log(`🔍 getSlipstreamValue: pos1=${pos1}, pos2=${pos2}, segment="${segment}", terrainSegment="${terrainSegment}", nedk=${nedk}`);
   if (terrainSegment.includes('0')) return 0;
   if (terrainSegment.includes('1')) return 1;
   if (terrainSegment.includes('2')) return 2;
