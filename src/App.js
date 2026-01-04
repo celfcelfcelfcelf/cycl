@@ -7560,7 +7560,19 @@ const checkCrash = () => {
     const humanTeamsWithSelections = humanTeamsInGroupForCheck.filter(team => {
       // A team has submitted if ALL their riders in the group have human_planned set
       const teamRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === team && !r.finished);
-      return teamRiders.length > 0 && teamRiders.every(([, r]) => r.human_planned);
+      const allHavePlanned = teamRiders.length > 0 && teamRiders.every(([, r]) => r.human_planned);
+      
+      console.log(`🎴 Team ${team} submission check:`, {
+        ridersCount: teamRiders.length,
+        riders: teamRiders.map(([n, r]) => ({ 
+          name: n, 
+          planned_card_id: r.planned_card_id, 
+          human_planned: r.human_planned 
+        })),
+        allHavePlanned
+      });
+      
+      return allHavePlanned;
     });
     
     console.log('🎴 Monitoring card selections:', {
