@@ -163,8 +163,12 @@ export const syncPlayerMove = async (roomCode, moveData) => {
   
   // Merge teamPaces and teamPaceMeta instead of replacing them
   // This allows multiple teams to submit independently without overwriting each other
+  // EXCEPTION: If moveData sends an empty object, treat it as an explicit reset (for new rounds)
   const existingTeamPaces = (gameData.gameState && gameData.gameState.teamPaces) || {};
   const existingTeamPaceMeta = (gameData.gameState && gameData.gameState.teamPaceMeta) || {};
+  
+  const shouldResetPaces = Object.keys(moveData.teamPaces || {}).length === 0 && 'teamPaces' in moveData;
+  const shouldResetMeta = Object.keys(moveData.teamPaceMeta || {}).length === 0 && 'teamPaceMeta' in moveData;
   
   // Log postMoveInfo syncing for debugging
   console.log('🔥 syncPlayerMove: postMoveInfo in moveData:', {
@@ -174,6 +178,13 @@ export const syncPlayerMove = async (roomCode, moveData) => {
     isInMoveData: 'postMoveInfo' in moveData
   });
   
+  console.log('🔥 syncPlayerMove: teamPaces handling:', {
+    shouldResetPaces,
+    shouldResetMeta,
+    moveDataPacesKeys: Object.keys(moveData.teamPaces || {}).length,
+    moveDataMetaKeys: Object.keys(moveData.teamPaceMeta || {}).length
+  });
+  
   // Build gameState update object
   const gameStateUpdate = {
     ...gameData.gameState,
@@ -181,14 +192,25 @@ export const syncPlayerMove = async (roomCode, moveData) => {
     round: moveData.round,
     currentGroup: moveData.currentGroup,
     currentTeam: moveData.currentTeam,
-    teamPaces: { ...existingTeamPaces, ...moveData.teamPaces },
-    teamPaceMeta: { ...existingTeamPaceMeta, ...moveData.teamPaceMeta },
+    teamPaces: shouldResetPaces ? {} : { ...existingTeamPaces, ...moveData.teamPaces },
+    teamPaceMeta: shouldResetMeta ? {} : { ...existingTeamPaceMeta, ...moveData.teamPaceMeta },
     teamPaceRound: moveData.teamPaceRound,
     movePhase: moveData.movePhase,
-    groupSpeed: moveData.groupSpeed,
-    slipstream: moveData.slipstream,
     logs: moveData.logs
   };
+
+  // Conditionally add optional fields if they exist in moveData
+  if ('groupSpeed' in moveData) {
+    gameStateUpdate.groupSpeed = moveData.groupSpeed;
+  }
+  if ('slipstream' in moveData) {
+    gameStateUpdate.slipstream = moveData.slipstream;
+  }
+  if ('teamPullInvests' in moveData) {
+    // Merge teamPullInvests if it exists
+    const existingPullInvests = (gameData.gameState && gameData.gameState.teamPullInvests) || {};
+    gameStateUpdate.teamPullInvests = { ...existingPullInvests, ...moveData.teamPullInvests };
+  }
   
   // Only include postMoveInfo if it's explicitly in moveData (even if null)
   // This allows clearing postMoveInfo by passing null, or preserving it by not passing it at all

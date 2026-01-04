@@ -1,0 +1,4 @@
+Fix applied to src/App.js to prevent Host from seeing Joiner's cards before Joiner submits.
+1. Modified monitoring useEffect to check `r.human_planned` instead of `r.planned_card_id || r.human_planned`.
+2. Modified `submitCardSelections` to always set `human_planned = true` for all riders in the submission, ensuring that even "no card" or "pre-selected card" choices are marked as human-submitted.
+This ensures that `planned_card_id` (which is auto-assigned by `handlePaceSubmit` for leaders) is not mistaken for a human submission.

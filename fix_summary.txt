@@ -1,0 +1,2 @@
+Fix applied to src/App.js to prevent double execution of group movement logic.
+Added guard in handlePaceSubmit to check movePhaseRef.current !== 'input'.

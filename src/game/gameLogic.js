@@ -1,8 +1,40 @@
 // Shared pure game logic utilities (exported for UI modules)
 // 
-// EXPERIMENTAL RULE (flat50 branch):
-// - On flat terrain (sv=3), slipstream value becomes speed/2 instead of fixed 3
-// - Card value selection unchanged: still use flat card values on flat terrain
+// =============================================================================
+// IMMUTABLE GAME RULES (DO NOT MODIFY LOGIC THAT VIOLATES THESE)
+// =============================================================================
+// 1. ROUND DEFINITION:
+//    - A round consists of all groups moving in order: Group 4 -> 3 -> 2 -> 1.
+//
+// 2. CARD DRAW:
+//    - Riders draw cards at the start of the round (before any group moves).
+//
+// 3. SLIPSTREAM (SV) CALCULATION:
+//    - SV is calculated based on the group's speed BEFORE any cards are played.
+//    - Speed 3-6  -> SV 3
+//    - Speed 7-9  -> SV 2
+//    - Speed 10-12 -> SV 1
+//    - Speed 13+  -> SV 0
+//    - Uphill/Cobbles always SV 1 (unless speed 13+ -> SV 0).
+//
+// 4. GROUP SPEED & ATTACKERS:
+//    - Group speed is determined by the pace riders (lead riders).
+//    - Attackers do NOT contribute to the group speed calculation.
+//
+// 5. MOVEMENT & DISCARD:
+//    - Pace riders move first (move group speed).
+//    - Other riders play cards.
+//    - Riders can catch up to ANY rider ahead (in same group or previous groups)
+//      if they land within SV distance.
+//    - Unused cards from the top 4 (or hand size) are discarded.
+//
+// 6. ATTACKER MECHANICS:
+//    - Attackers move separately after the main group.
+//    - Attackers do NOT provide slipstream to the main group (non-attackers).
+//    - Attackers CAN provide slipstream to other attackers.
+//    - Best attacker(s) (highest effective value) get +1 field bonus 
+//      (unless crossing finish line).
+// =============================================================================
 
 export const convertToSeconds = (number) => {
   const minutes = Math.floor(number / 60);
@@ -23,10 +55,28 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 };
 
 // Helper function: get effective slipstream value for card selection
-// When sv=3 (flat), return speed/2 instead of 3
+// RULE 3: SLIPSTREAM (SV) CALCULATION
+// - Speed 3-6  -> SV 3
+// - Speed 7-9  -> SV 2
+// - Speed 10-12 -> SV 1
+// - Speed 13+  -> SV 0
+// - Uphill/Cobbles always SV 1 (unless speed 13+ -> SV 0).
 export const getEffectiveSV = (sv, speed) => {
-  if (sv === 3) return 3;
-  return sv;
+  // Speed 13+ always results in SV 0
+  if (speed >= 13) return 0;
+
+  // Flat terrain (sv=3)
+  if (sv === 3) {
+    if (speed >= 10) return 1;
+    if (speed >= 7) return 2;
+    return 3;
+  }
+
+  // Uphill/Cobbles (sv=1 or sv=2) -> Always SV 1
+  if (sv === 1 || sv === 2) return 1;
+
+  // Steep/Other (sv=0) -> SV 0
+  return 0;
 };
 
 // Helper function: check if terrain is flat (for card value selection)
@@ -488,14 +538,25 @@ export function calculateGroupSpeed({
   };
   
   // Step 1: Calculate base speed from team paces
+  // Filter out paces from teams that are attacking
+  const nonAttackingPaces = [];
+  for (const [team, pace] of Object.entries(teamPacesForGroup)) {
+    const meta = teamPaceMeta[team];
+    if (!meta || !meta.isAttack) {
+      nonAttackingPaces.push(pace);
+    } else {
+      result.logMessages.push(`DEBUG Group ${groupNum}: Excluding attack pace ${pace} from team ${team}`);
+    }
+  }
+
   const allPaces = Object.values(teamPacesForGroup);
-  const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
+  const maxChosen = nonAttackingPaces.length > 0 ? Math.max(...nonAttackingPaces.filter(p => p > 0)) : 0;
   
-  let speed = Math.max(...allPaces.filter(p => p > 0), 2);
+  let speed = Math.max(...nonAttackingPaces.filter(p => p > 0), 2);
   result.baseSpeed = speed;
   
   result.logMessages.push(
-    `DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, allPaces=[${allPaces.join(',')}], maxChosen=${maxChosen}`
+    `DEBUG Group ${groupNum}: teamPaces=${JSON.stringify(teamPacesForGroup)}, nonAttackingPaces=[${nonAttackingPaces.join(',')}], maxChosen=${maxChosen}`
   );
   
   // Step 2: Apply minimum speed constraints FIRST
@@ -1977,18 +2038,37 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     // That pass-through bonus has been removed per new downhill rules.
 
     // add EC / TK-1 handling simplified
-    let ecs = 0;
+    // RULE: FATIGUE ASSIGNMENT
+    // - Leading (Føring) = 1 TK (to discarded)
+    // - Card 3-5 = 1 TK (to discarded)
+    // - Card 1-2 = 1 MK (to cards - hand)
+    // - Playing an MK = 1 TK (to discarded)
+    
+    let ecs = 0; // Exhaustion Cards (TK - kort: 16) to add to discarded
+    let mks = 0; // Minus Cards (MK - TK-1: 99) to add to hand
+    
     const cardNum = parseInt(chosenCard.id.match(/\d+/)?.[0] || '15');
-    const hasTK1 = (chosenCard.id && chosenCard.id.startsWith('TK-1')) || (cardNum >= 1 && cardNum <= 2);
+    const isMK = (chosenCard.id && chosenCard.id.startsWith('TK-1'));
     
-    logs.push(`🔍 ${name} DEBUG TK: isLeadRider=${isLeadRider}, isDobbeltføringLeader=${isDobbeltføringLeader}, hasTK1=${hasTK1}, chosenValue=${chosenValue}, groupSpeed=${groupSpeed}`);
+    logs.push(`🔍 ${name} DEBUG TK: isLeadRider=${isLeadRider}, isDobbeltføringLeader=${isDobbeltføringLeader}, isMK=${isMK}, cardNum=${cardNum}, chosenValue=${chosenValue}, groupSpeed=${groupSpeed}`);
     
-    if (isLeadRider) ecs = 1;
+    // 1. Leading = 1 TK
+    if (isLeadRider) ecs += 1;
+    
+    // 2. Card 3-5 = 1 TK
     if (cardNum >= 3 && cardNum <= 5) ecs += 1;
     
-    if (hasTK1) {
-      updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
-      logs.push(`${name} (${rider.team}): +TK-1 added to top of hand`);
+    // 3. Card 1-2 = 1 MK
+    if (cardNum >= 1 && cardNum <= 2) mks += 1;
+    
+    // 6. Playing an MK = 1 TK
+    if (isMK) ecs += 1;
+    
+    if (mks > 0) {
+      for(let i=0; i<mks; i++) {
+        updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
+      }
+      logs.push(`${name} (${rider.team}): +${mks} TK-1 added to top of hand`);
     }
     
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
@@ -2010,7 +2090,7 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     
     const exhaustionCards = [];
     for (let i = 0; i < ecs; i++) exhaustionCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-    const totalEx = exhaustionCards.length + (hasTK1 ? 1 : 0);
+    const totalEx = exhaustionCards.length + mks;
     
     // All TK kort: 16 should go to discarded, not hand
     if (exhaustionCards.length > 0) {
@@ -2589,6 +2669,9 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
   attackerMoves.sort((a, b) => b.effectiveValue - a.effectiveValue);
 
+  // Determine the maximum effective value among attackers to handle ties for the bonus
+  const maxAttackerValue = attackerMoves.length > 0 ? attackerMoves[0].effectiveValue : 0;
+
   let maxAttackerPos = -Infinity;
   for (let i = 0; i < attackerMoves.length; i++) {
   const m = attackerMoves[i];
@@ -2600,7 +2683,8 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     let effectiveValue = m.effectiveValue;
     const finishPos = track.indexOf('F');
 
-    let extra = (i === 0) ? 1 : 0;
+    // Give bonus to all attackers who share the best effective value
+    let extra = (m.effectiveValue === maxAttackerValue) ? 1 : 0;
     let absorbedIntoGroup = false;
     
     if (extra === 1) {
@@ -2709,9 +2793,18 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     // Removed downhill pass-through extra and related discard removal per new rules.
 
+    // RULE: ATTACKER FATIGUE
+    // - Attack = 2 MK (cancels other fatigue cards)
+    // - 1 MK to cards (hand)
+    // - 1 MK to discarded (converted to TK)
+    
+    // Add 1 MK to hand
     updatedHandCards.unshift({ id: 'TK-1: 99', flat: -1, uphill: -1 });
-    updatedDiscarded = [...updatedDiscarded, { id: 'TK-1: 99', flat: -1, uphill: -1 }];
-    logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
+    logs.push(`${name} (attacker): +1 MK added to top of hand (attack)`);
+    
+    // Add 1 TK to discarded (representing the second MK cost)
+    updatedDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+    logs.push(`${name} (attacker): +1 TK added to discarded (attack cost)`);
 
     // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
     // TK-test: TK-16 cards stay in discard, only other cards are shuffled and added to hand
