@@ -1271,6 +1271,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           console.log('📥 HOST: gameState type:', typeof gameData.gameState, 'value:', gameData.gameState);
           console.log('📥 HOST: currentTeam at root:', gameData.currentTeam);
           
+          // Ensure gameMode is set to 'multi' when playing multiplayer
+          setGameMode('multi');
+          
           // Check if gameState is an object with actual state data (not just 'playing' string)
           if (gameData.gameState && typeof gameData.gameState === 'object') {
             console.log('📥 HOST: Loading game state updates from Firebase (from gameState object)');
