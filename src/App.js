@@ -4648,13 +4648,15 @@ return { pace, updatedCards, doubleLead };
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     const effectiveSV = getEffectiveSV(sv, speed); // In TK-test, this just returns sv
-    console.log(`🔍 SV calculation: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}, effectiveSV=${effectiveSV}`);
+    console.log(`🔍 SV calculation RESULT: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}, effectiveSV=${effectiveSV}`);
+    console.log(`🔍 About to call setSlipstream(${effectiveSV}) and slipstreamRef.current = ${effectiveSV}`);
     setGroupSpeed(speed);
     setSlipstream(effectiveSV); // Store raw SV (effectiveSV = sv in TK-test)
     setIsFlat(sv === 3);
     // Store in refs so card selection dialog can show them even after state is reset
     groupSpeedRef.current = speed;
     slipstreamRef.current = effectiveSV;
+    console.log(`🔍 AFTER setting: slipstreamRef.current = ${slipstreamRef.current}, groupSpeedRef.current = ${groupSpeedRef.current}`);
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
     for (const t of teamsWithRiders) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
