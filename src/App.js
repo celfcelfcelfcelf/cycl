@@ -1703,11 +1703,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           const currentTeamFromFirebase = state.currentTeam;
           console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
           
-          // Only advance turn during pace selection phase (called 'input' in the code)
+          // Allow turn advancement during 'input' phase (pace selection) and 'cardSelection' phase
+          // During cardSelection, HOST may still need to advance turn if other players submit paces
           // Use Firebase movePhase if available to avoid race conditions
           const currentPhase = state.movePhase || movePhase;
-          if (currentPhase !== 'input') {
-            console.log('🔄 Skipping turn advancement - not in input phase (current phase:', currentPhase, ')');
+          if (currentPhase !== 'input' && currentPhase !== 'cardSelection') {
+            console.log('🔄 Skipping turn advancement - not in input/cardSelection phase (current phase:', currentPhase, ')');
             return merged;
           }
           
@@ -2100,10 +2101,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         teamPaceRound: teamPaceRoundToSync,
         teamPullInvests: teamPullInvestsToSync,
         movePhase: phaseToSync,
-        // Only sync groupSpeed if we are the host OR if we are in input phase (where speed doesn't matter yet)
+        // Only sync groupSpeed if we are the host OR in input/cardSelection phase
+        // In cardSelection phase, the speed has just been calculated and MUST be synced
         // This prevents Joiner from overwriting Host's calculated speed with a stale local value
         // IMPORTANT: Do not send undefined, as Firebase rejects it. If we shouldn't sync it, omit the key entirely.
-        ...( (isHost || phaseToSync === 'input') ? { groupSpeed: (groupSpeedRef.current !== undefined ? groupSpeedRef.current : groupSpeed) } : {} ),
+        ...( (isHost || phaseToSync === 'input' || phaseToSync === 'cardSelection') ? { groupSpeed: (groupSpeedRef.current !== undefined ? groupSpeedRef.current : groupSpeed) } : {} ),
         slipstream: slipstreamRef.current !== undefined ? slipstreamRef.current : slipstream,
         logs: logs.slice(-20) // Only sync recent logs to avoid bloat
       };
@@ -4292,10 +4294,11 @@ return { pace, updatedCards, doubleLead };
     const playerTeam = getPlayerTeamName();
     const isMultiplayer = !!roomCodeRef.current;
     
-    // In multiplayer: If Host is finalizing and there are remote human teams that haven't submitted,
+    // In multiplayer: If Host is force-finalizing and there are remote human teams that haven't submitted,
     // treat them as "submitted pace=0" so they don't block finalization.
     // Remote humans will just play cards to match the calculated group speed.
-    if (isMultiplayer && isHost) {
+    // IMPORTANT: Only do this when forceFinalize=true, not on every submission
+    if (isMultiplayer && isHost && forceFinalize) {
       const humanTeamsInGroup = teamsWithRiders.filter(t => !t.startsWith('Comp'));
       const remoteHumans = humanTeamsInGroup.filter(t => t !== playerTeam);
       
@@ -4342,6 +4345,13 @@ return { pace, updatedCards, doubleLead };
       setCurrentTeam(nextTeam);
       // Pass nextTeam to sync since setState is async
       syncMoveToFirebase(nextTeam).catch(err => console.error('Failed to sync partial submission:', err));
+    } else if (!isHost && submittingTeam === currentTeamRef.current && nextTeam && !isOnlyHumanTeam) {
+      // JOINER case: If JOINER just submitted and JOINER is currentTeam, advance to next team
+      // This prevents JOINER from getting stuck on "Your Teams turn" after submission
+      console.log('🔄 JOINER advancing currentTeam to:', nextTeam, '(after own submission)');
+      setCurrentTeam(nextTeam);
+      // Sync with new currentTeam so HOST sees the advancement
+      syncMoveToFirebase(nextTeam).catch(err => console.error('Failed to sync JOINER turn advancement:', err));
     } else {
       if (isOnlyHumanTeam) {
         console.log('🔄 Only human team in group - NOT advancing currentTeam, waiting for finalization');
@@ -5134,6 +5144,42 @@ const confirmMove = (cardsSnapshot) => {
     }
   }
 
+  // SECOND: Ensure only ONE rider has takes_lead=1 - the one with highest selected_value
+  // This fixes the bug where multiple teams submit different speeds and each gets their own leader
+  const leadersInGroup = names.filter(n => updatedCards[n] && updatedCards[n].takes_lead === 1);
+  if (leadersInGroup.length > 1) {
+    addLog(`⚠️ Multiple leaders detected in group ${currentGroup}: ${leadersInGroup.join(', ')}`);
+    
+    // Find the leader with highest selected_value (and earliest timestamp as tiebreaker)
+    let bestLeader = null;
+    let maxSelectedValue = -1;
+    let earliestTimestamp = Infinity;
+    
+    for (const name of leadersInGroup) {
+      const rider = updatedCards[name];
+      const sv = rider.selected_value || 0;
+      const paceKey = `${currentGroup}-${rider.team}`;
+      const meta = teamPaceMeta[paceKey];
+      const timestamp = (meta && typeof meta.timestamp === 'number') ? meta.timestamp : Infinity;
+      
+      if (sv > maxSelectedValue || (sv === maxSelectedValue && timestamp < earliestTimestamp)) {
+        bestLeader = name;
+        maxSelectedValue = sv;
+        earliestTimestamp = timestamp;
+      }
+    }
+    
+    // Clear takes_lead for all except bestLeader
+    for (const name of leadersInGroup) {
+      if (name !== bestLeader) {
+        addLog(`🔧 Clearing takes_lead for ${name} (selected_value=${updatedCards[name].selected_value})`);
+        updatedCards[name] = { ...updatedCards[name], takes_lead: 0, selected_value: 0 };
+      }
+    }
+    
+    addLog(`✅ Kept ${bestLeader} as sole leader (selected_value=${maxSelectedValue})`);
+  }
+
   // Capture old positions and planned cards for all riders in this group
   const oldPositions = {};
   const plannedCards = {};
@@ -5512,6 +5558,10 @@ const confirmMove = (cardsSnapshot) => {
       }
     } else {
       // No remaining non-finished groups: reassign groups and detect sprints
+      // Clear the confirmMove guard so the new group 1 can be processed after reassignment
+      confirmMoveCalledForGroupRef.current = null;
+      console.log('🔄 Cleared confirmMoveCalledForGroupRef before reassignment');
+      
       setTimeout(() => {
         setCards(prevCards => {
           // Only reassign groups for non-finished riders
@@ -5623,6 +5673,7 @@ const confirmMove = (cardsSnapshot) => {
 
           return updatedCards2;
         });
+        setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         addLog('All groups moved. Groups reassigned');
@@ -5643,6 +5694,7 @@ const confirmMove = (cardsSnapshot) => {
     } else {
       setTimeout(() => {
         setCards(prev => prev);
+        setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         addLog('All groups moved. Groups reassigned');
@@ -7456,6 +7508,12 @@ const checkCrash = () => {
   // In multiplayer: HOST monitors when all human teams have submitted card selections
   // OR if a player is the only team in the group, they can finalize themselves
   useEffect(() => {
+    // Don't monitor during roundComplete phase - groups are being reassigned
+    if (movePhase === 'roundComplete' || movePhase === 'moving') {
+      console.log('🎴 Monitoring: Skipping during', movePhase, 'phase');
+      return;
+    }
+    
     // Check using both isHost state and multiplayer context
     const isMultiplayer = !!roomCodeRef.current;
     const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
@@ -8620,7 +8678,8 @@ const checkCrash = () => {
           <div className="grid grid-cols-1 gap-4">
             <div>
 
-              {/* Group chooser summary section (under the track) */}
+              {/* Group chooser summary section (under the track) - hide if group has already moved */}
+              {!groupsMovedThisRound.includes(currentGroup) && (
               <div className="bg-white rounded-lg shadow p-3 mb-3">
                   <div className="flex items-center justify-between">
                   <div>
@@ -9566,6 +9625,8 @@ const checkCrash = () => {
                   })()}
                 </div>
               </div>
+              )}
+              {/* End of Group chooser summary section */}
 
               {/* Per-group panels removed per user request */}
 
