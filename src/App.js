@@ -294,7 +294,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const dobbeltføringLeadersRef = useRef([]);
   const teamPacesForGroupRef = useRef({});
   const groupSpeedRef = useRef(0); // Store groupSpeed for card selection dialog
-  const slipstreamRef = useRef(0); // Store slipstream for card selection dialog
+  const slipstreamRef = useRef(0); // Store effective slipstream for card selection dialog
+  const rawSVRef = useRef(3); // Store raw SV from terrain for card value selection
   const cardSelectionOpenedForGroupRef = useRef(null); // Track which group card selection was opened for
   const allGroupsThisTurnRef = useRef([]); // Track all group positions in current turn for slipstream catches
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
@@ -425,7 +426,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [chosenRandomTrack, setChosenRandomTrack] = useState(null);
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
-  const [slipstream, setSlipstream] = useState(0);
+  const [slipstream, setSlipstream] = useState(0); // Effective SV (based on speed)
+  const [rawSV, setRawSV] = useState(3); // Raw SV from terrain (minimum terrain value in segment)
   const [isFlat, setIsFlat] = useState(true); // Track if terrain is flat (sv === 3)
   const [waitingForCardSelections, setWaitingForCardSelections] = useState(false); // Track if HOST is waiting for other players
   
@@ -789,7 +791,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // Clear confirmMove guard when moving to a new group
     // This allows confirmMove to be called for the new group
     confirmMoveCalledForGroupRef.current = null;
-    console.log('🔄 Cleared confirmMoveCalledForGroupRef for new group:', currentGroup);
+    leaderAssignedForGroupRef.current = null;
+    console.log('🔄 Cleared confirmMoveCalledForGroupRef and leaderAssignedForGroupRef for new group:', currentGroup);
   }, [currentGroup]);
   
   useEffect(() => {
@@ -798,7 +801,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // This allows confirmMove to be called again for this group
     if (movePhase === 'input') {
       confirmMoveCalledForGroupRef.current = null;
-      console.log('🔄 Cleared confirmMoveCalledForGroupRef on input phase');
+      leaderAssignedForGroupRef.current = null;
+      console.log('🔄 Cleared confirmMoveCalledForGroupRef and leaderAssignedForGroupRef on input phase');
     }
   }, [movePhase]);
   
@@ -3922,6 +3926,7 @@ return { pace, updatedCards, doubleLead };
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
     // forceFinalize: skip double-submission check and proceed to finalization (for multiplayer HOST)
     console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize);
+    console.log('🔍 dobbeltføringLeadersRef at START:', JSON.stringify(dobbeltføringLeadersRef.current || []));
     
     // Guard: if we've already finalized movement for this group (movePhase is cardSelection), ignore
     // This prevents double-execution if multiple calls trigger finalization simultaneously
@@ -4618,11 +4623,13 @@ return { pace, updatedCards, doubleLead };
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     const effectiveSV = getEffectiveSV(sv, speed);
     setGroupSpeed(speed);
-    setSlipstream(effectiveSV);
+    setSlipstream(effectiveSV); // Effective SV for min-requirement calculation
+    setRawSV(sv); // Raw SV from terrain for card value selection
     setIsFlat(sv === 3);
     // Store in refs so card selection dialog can show them even after state is reset
     groupSpeedRef.current = speed;
     slipstreamRef.current = effectiveSV;
+    rawSVRef.current = sv;
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
     for (const t of teamsWithRiders) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
@@ -4642,12 +4649,34 @@ return { pace, updatedCards, doubleLead };
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
       if (chosenTeam) {
+        // GUARD: Prevent duplicate leader assignment for the same group
+        // This protects against React batching multiple setCards calls
+        if (leaderAssignedForGroupRef.current === groupNum) {
+          console.warn(`⚠️ Leader already assigned for group ${groupNum} - skipping duplicate assignment`);
+          // Still need to set movePhase to cardSelection, so jump to that section
+          if (cardsSnapshot) {
+            cardsSnapshotRef.current = cardsSnapshot;
+          }
+          setMovePhase('cardSelection');
+          movePhaseRef.current = 'cardSelection';
+          console.log('✅ Set movePhase to cardSelection (skipped leader assignment)');
+          return;
+        }
+        
+        // Mark that we're assigning a leader for this group
+        leaderAssignedForGroupRef.current = groupNum;
+        console.log(`🔒 Set leaderAssignedForGroupRef = ${groupNum}`);
+        
         // Special handling for manual dobbeltføring: both riders are already marked as leaders
         const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cardsToUse[name] && cardsToUse[name].group === groupNum);
         
+        console.log('🔍 Leader assignment check: group=', groupNum, 'dobbeltføringLeaders=', JSON.stringify(manualDobbeltføringLeaders), 'length=', manualDobbeltføringLeaders.length);
+        
         if (manualDobbeltføringLeaders.length === 2) {
+          console.log('🎯 DOBBELTFØRING PATH: Setting takes_lead for 2 leaders');
           // For manual dobbeltføring, both riders are already leaders - just set their takes_lead and planned cards
           setCards(prev => {
+            console.log('🎯 DOBBELTFØRING setCards UPDATER executing for group', groupNum);
             const updated = { ...prev };
             const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
             
@@ -4711,14 +4740,17 @@ return { pace, updatedCards, doubleLead };
               }
 
               updated[leaderName] = { ...leadR, takes_lead: 1, planned_card_id: planned };
+              console.log(`🎯 DOBBELTFØRING: Set ${leaderName} takes_lead=1, selected_value=${leaderSelectedValue}, planned=${planned}`);
               addLog(`${leaderName} (${leadR.team}) assigned as dobbeltføring leader for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
             }
             
             return updated;
           });
         } else {
+          console.log('🎯 NORMAL PATH: Single leader assignment (not dobbeltføring)');
           // Normal single leader assignment
           setCards(prev => {
+            console.log('🎯 NORMAL setCards UPDATER executing for group', groupNum);
             const updated = { ...prev };
             const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
 
@@ -4888,6 +4920,7 @@ return { pace, updatedCards, doubleLead };
             }
 
             updated[bestName] = { ...leadR, takes_lead: 1, selected_value: leaderSelectedValue, planned_card_id: planned };
+            console.log(`🎯 NORMAL: Set ${bestName} takes_lead=1, selected_value=${leaderSelectedValue}, planned=${planned}`);
             addLog(`${bestName} (${chosenTeam}) assigned as lead for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
 
             return updated;
@@ -7665,6 +7698,7 @@ const checkCrash = () => {
   
   // Track which group has had confirmMove called to prevent duplicate calls
   const confirmMoveCalledForGroupRef = useRef(null);
+  const leaderAssignedForGroupRef = useRef(null);
   
   useEffect(() => {
     if (movePhase === 'cardSelection' && roomCodeRef.current) {
@@ -9687,7 +9721,15 @@ const checkCrash = () => {
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">
                       Speed: <strong>{groupSpeed || groupSpeedRef.current || 0}</strong>, 
-                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0)}</strong>
+                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3)}</strong>
+                      {/* Show effective SV if different from raw SV */}
+                      {(() => {
+                        const actualRawSV = rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3);
+                        const effectiveSVVal = slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0);
+                        return actualRawSV !== effectiveSVVal ? (
+                          <span className="text-gray-500 ml-1">(effective: {effectiveSVVal})</span>
+                        ) : null;
+                      })()}
                     </div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => {
@@ -9751,7 +9793,9 @@ const checkCrash = () => {
                                   // Non-leader: determine whether playing this card would cause rider to fall out
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  let cardVal = slipstream > 2 ? c.flat : c.uphill;
+                                  // Use rawSV (actual terrain SV) to select card value, not effectiveSV
+                                  const actualSV = rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3);
+                                  let cardVal = actualSV > 2 ? c.flat : c.uphill;
                                   if (isDownhill) cardVal = Math.max(cardVal, 5);
                                   const effective = (cardVal - localPenalty);
                                   const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
