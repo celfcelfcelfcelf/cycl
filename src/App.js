@@ -1226,6 +1226,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           console.log('📥 HOST (lobby): draftSelections from Firebase:', draftedFromFirebase?.length);
           setInLobby(false);
           
+          // Set track and trackName from Firebase to ensure consistency
+          if (gameData.track) {
+            console.log('📥 HOST: Setting track from Firebase:', gameData.trackName);
+            setTrack(gameData.track);
+          }
+          if (gameData.trackName) {
+            setTrackName(gameData.trackName);
+          }
+          
           // Initialize game with draft selections from Firebase
           if (draftedFromFirebase && draftedFromFirebase.length > 0) {
             console.log('📥 HOST (lobby): Initializing game with', draftedFromFirebase.length, 'selections');
@@ -1287,6 +1296,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             // Pass lastUpdate from document root (it's not inside gameState)
             loadMultiplayerGameState({
               ...gameData.gameState,
+              track: gameData.track || gameData.gameState.track,
+              trackName: gameData.trackName || gameData.gameState.trackName,
               lastUpdate: gameData.lastUpdate
             }, gameData.players, hostName);
           } else if (gameData.currentTeam !== undefined) {
@@ -1305,6 +1316,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               slipstream: gameData.slipstream,
               logs: gameData.logs,
               postMoveInfo: gameData.postMoveInfo,
+              track: gameData.track,
+              trackName: gameData.trackName,
               lastUpdate: gameData.lastUpdate
             }, gameData.players, hostName);
           }
@@ -1345,6 +1358,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           const draftedFromFirebase = gameData.draftSelections || [];
           console.log('📥 JOINER: Draft selections from Firebase:', draftedFromFirebase?.length);
           setInLobby(false);
+          
+          // Set track and trackName from Firebase before initializing game
+          if (gameData.track) {
+            console.log('📥 JOINER: Setting track from Firebase:', gameData.trackName);
+            setTrack(gameData.track);
+          }
+          if (gameData.trackName) {
+            setTrackName(gameData.trackName);
+          }
           
           // Initialize game with draft selections from Firebase
           if (draftedFromFirebase && draftedFromFirebase.length > 0) {
@@ -1494,6 +1516,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             // Pass lastUpdate from document root (it's not inside gameState)
             loadMultiplayerGameState({
               ...gameData.gameState,
+              track: gameData.track || gameData.gameState.track,
+              trackName: gameData.trackName || gameData.gameState.trackName,
               lastUpdate: gameData.lastUpdate
             }, gameData.players, name);
           } else if (gameData.currentTeam !== undefined) {
@@ -1512,6 +1536,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               slipstream: gameData.slipstream,
               logs: gameData.logs,
               postMoveInfo: gameData.postMoveInfo,
+              track: gameData.track,
+              trackName: gameData.trackName,
               lastUpdate: gameData.lastUpdate
             }, gameData.players, name);
           }
@@ -3873,6 +3899,8 @@ return { pace, updatedCards, doubleLead };
             breakawayTeams: breakawayTeamsWithPlayers, // Sync breakaway team selection
             teamOrder: gameTeamOrder, // Sync team order for consistent turn order
             currentTeam: startingTeam, // Sync starting team
+            track: getResolvedTrack(), // Sync track for consistent visuals
+            trackName: trackName, // Sync track name
             lastUpdate: serverTimestamp()
           });
           console.log('📤 Synced game start to Firebase with', drafted.length, 'riders and', breakawayTeamsWithPlayers.length, 'breakaway teams:', breakawayTeamsWithPlayers);
