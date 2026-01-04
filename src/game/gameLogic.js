@@ -55,28 +55,16 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
 };
 
 // Helper function: get effective slipstream value for card selection
-// RULE 3: SLIPSTREAM (SV) CALCULATION
-// - Speed 3-6  -> SV 3
-// - Speed 7-9  -> SV 2
-// - Speed 10-12 -> SV 1
-// - Speed 13+  -> SV 0
-// - Uphill/Cobbles always SV 1 (unless speed 13+ -> SV 0).
+// RULE: Effective SV is same as raw SV (from terrain)
+// - sv=3 (flat) stays 3
+// - sv=2 (cobbles) stays 2
+// - sv=1 (uphill) stays 1
+// - sv=0 (steep) stays 0
 export const getEffectiveSV = (sv, speed) => {
-  // Speed 13+ always results in SV 0
-  if (speed >= 13) return 0;
-
-  // Flat terrain (sv=3)
-  if (sv === 3) {
-    if (speed >= 10) return 1;
-    if (speed >= 7) return 2;
-    return 3;
-  }
-
-  // Uphill/Cobbles (sv=1 or sv=2) -> Always SV 1
-  if (sv === 1 || sv === 2) return 1;
-
-  // Steep/Other (sv=0) -> SV 0
-  return 0;
+  // Flat terrain returns 3
+  if (sv === 3) return 3;
+  // Otherwise return raw SV
+  return sv;
 };
 
 // Helper function: check if terrain is flat (for card value selection)

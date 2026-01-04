@@ -294,8 +294,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const dobbeltføringLeadersRef = useRef([]);
   const teamPacesForGroupRef = useRef({});
   const groupSpeedRef = useRef(0); // Store groupSpeed for card selection dialog
-  const slipstreamRef = useRef(0); // Store effective slipstream for card selection dialog
-  const rawSVRef = useRef(3); // Store raw SV from terrain for card value selection
+  const slipstreamRef = useRef(0); // Store raw slipstream (SV) for card selection dialog
   const cardSelectionOpenedForGroupRef = useRef(null); // Track which group card selection was opened for
   const allGroupsThisTurnRef = useRef([]); // Track all group positions in current turn for slipstream catches
   // Abbreviate a full name for footer: initials of given names + last name, e.g. "L.P.Nordhaug"
@@ -426,8 +425,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [chosenRandomTrack, setChosenRandomTrack] = useState(null);
   const [movePhase, setMovePhase] = useState('input');
   const [groupSpeed, setGroupSpeed] = useState(0);
-  const [slipstream, setSlipstream] = useState(0); // Effective SV (based on speed)
-  const [rawSV, setRawSV] = useState(3); // Raw SV from terrain (minimum terrain value in segment)
+  const [slipstream, setSlipstream] = useState(0); // Raw SV from terrain (not effective SV based on speed)
   const [isFlat, setIsFlat] = useState(true); // Track if terrain is flat (sv === 3)
   const [waitingForCardSelections, setWaitingForCardSelections] = useState(false); // Track if HOST is waiting for other players
   
@@ -4649,15 +4647,13 @@ return { pace, updatedCards, doubleLead };
     
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
-    const effectiveSV = getEffectiveSV(sv, speed);
+    const effectiveSV = getEffectiveSV(sv, speed); // In TK-test, this just returns sv
     setGroupSpeed(speed);
-    setSlipstream(effectiveSV); // Effective SV for min-requirement calculation
-    setRawSV(sv); // Raw SV from terrain for card value selection
+    setSlipstream(effectiveSV); // Store raw SV (effectiveSV = sv in TK-test)
     setIsFlat(sv === 3);
     // Store in refs so card selection dialog can show them even after state is reset
     groupSpeedRef.current = speed;
     slipstreamRef.current = effectiveSV;
-    rawSVRef.current = sv;
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
     for (const t of teamsWithRiders) teamPacesForGroup[t] = Math.max(teamPacesForGroup[t] || 0, 0);
@@ -9749,15 +9745,7 @@ const checkCrash = () => {
                     <h3 className="text-lg font-bold mb-3">Choose cards for your riders (Group {currentGroup})</h3>
                     <div className="text-sm text-gray-600 mb-3">
                       Speed: <strong>{groupSpeed || groupSpeedRef.current || 0}</strong>, 
-                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3)}</strong>
-                      {/* Show effective SV if different from raw SV */}
-                      {(() => {
-                        const actualRawSV = rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3);
-                        const effectiveSVVal = slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0);
-                        return actualRawSV !== effectiveSVVal ? (
-                          <span className="text-gray-500 ml-1">(effective: {effectiveSVVal})</span>
-                        ) : null;
-                      })()}
+                      SV: <strong className={isFlat ? 'text-gray-700' : 'text-red-600'}>{slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0)}</strong>
                     </div>
                     <div className="space-y-4 mb-4">
                       {Object.entries(cards).filter(([, r]) => {
@@ -9821,9 +9809,8 @@ const checkCrash = () => {
                                   // Non-leader: determine whether playing this card would cause rider to fall out
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  // Use rawSV (actual terrain SV) to select card value, not effectiveSV
-                                  const actualSV = rawSV !== undefined ? rawSV : (rawSVRef.current !== undefined ? rawSVRef.current : 3);
-                                  let cardVal = actualSV > 2 ? c.flat : c.uphill;
+                                  // Use slipstream (raw SV from terrain) to select card value
+                                  let cardVal = slipstream > 2 ? c.flat : c.uphill;
                                   if (isDownhill) cardVal = Math.max(cardVal, 5);
                                   const effective = (cardVal - localPenalty);
                                   const minRequiredToFollow = Math.max(0, (groupSpeed || 0) - (slipstream || 0));
