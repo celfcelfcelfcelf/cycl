@@ -1270,6 +1270,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           console.log('📥 HOST: Game playing, checking for game state updates');
           console.log('📥 HOST: gameState type:', typeof gameData.gameState, 'value:', gameData.gameState);
           console.log('📥 HOST: currentTeam at root:', gameData.currentTeam);
+          console.log('📥 HOST: Setting gameMode to multi');
           
           // Ensure gameMode is set to 'multi' when playing multiplayer
           setGameMode('multi');
@@ -9453,183 +9454,185 @@ const checkCrash = () => {
                     </div>
                   )}
 
-                  {postMoveInfo && (() => {
-                    console.log('🟨 Rendering yellow box with postMoveInfo:', postMoveInfo.groupMoved);
-                    return (
-                    <div className="mt-3 p-3 border rounded bg-yellow-50">
-                      <div className="mb-2 text-sm font-medium">
-                        {/* Special display for TK-16 → TK-1 conversion */}
-                        {postMoveInfo.isTK16Conversion ? (
-                          <>
-                            <div className="mb-2 text-sm font-bold">TK-16 → TK-1 Conversion (Start of Round)</div>
-                            {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
-                              <div key={i} className="mb-1">
-                                <span className="font-semibold">{m.name}</span> ({m.team}) har fået {m.displayCard}
-                              </div>
-                            ))}
-                          </>
-                        ) : (
-                          <>
-                            {/* Show the group number and group stats at the top in bold */}
-                            {postMoveInfo.isTK16Conversion ? (
-                          <div className="mb-1 text-sm font-bold text-purple-800">TK-16 Conversion (End of Round {postMoveInfo.roundNum})</div>
-                        ) : (
-                          <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={postMoveInfo.speed || 0}, sv={postMoveInfo.sv || 0})</div>
-                        )}
-                            {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
-                          const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
-                          return (
-                          <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>
-                            {m.isLead ? (
-                              <strong className={`${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>{m.name} ({m.team})</strong>
-                            ) : (
-                              <span className={`${isAttacker ? 'font-semibold' : ''}`}>{m.name} ({m.team})</span>
-                            )}{' '}
-                            <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
-                            {m.penaltyCount > 0 && <span className="text-orange-600 font-semibold"> P{m.penaltyCount}</span>}
-                            {/* Additional consequences for riders who took TK-1 or EC */}
-                            { (m.tkTaken || m.ecTaken) && (
-                              <div className="text-xs text-gray-700 ml-3">
-                                {(() => {
-                                  const parts = [];
-                                  if (m.tkTaken) parts.push(`${m.tkTaken} Tk-1`);
-                                  if (m.ecTaken) parts.push(`${m.ecTaken} EC`);
-                                  return `.... takes ${parts.join(' and ')}`;
-                                })()}
-                              </div>
-                            )}
-                          </div>
-                        );
-                        })}
-                          </>
-                        )}
-                      </div>
-                      {(() => {
-                        try {
-                          const g = postMoveInfo.groupMoved;
-                          const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
-                          return (
-                            outcome ? (
-                              <div className="mb-2 text-xs text-gray-700">
-                                {(teams || []).map(t => (
-                                  <div key={t}>{(outcome.perTeam && outcome.perTeam[t]) ? `${t} invests` : `${t} does not invest`}</div>
-                                ))}
-                                {outcome.perRider && outcome.perRider.length > 0 && (
-                                  <div className="mt-1">
-                                    {outcome.perRider.map((p, idx) => (
-                                      <div key={idx} className="text-xs text-gray-700">{p.team} invests, {p.rider} takes 1 TK-1</div>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="mt-1 font-medium">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
-                                <div className="mt-2 flex justify-end">
-                                  <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
-                                </div>
-                              </div>
-                            ) : null
-                          );
-                        } catch (e) { return null; }
-                      })()}
-                      <div className="flex justify-end">
-                        {/* Special handling for TK-16 conversion: just show Continue button */}
-                        {postMoveInfo.isTK16Conversion ? (
-                          <button onClick={() => { 
-                            setPostMoveInfo(null); 
-                            postMoveInfoRef.current = null;
-                            syncMoveToFirebase(null, true);
-                          }} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
-                        ) : (
-                          <>
-                        {/* Offer pull-back action when attackers exist in the moved group */}
-                        {(() => {
-                          try {
-                            const g = postMoveInfo.groupMoved;
-                            const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
-                            const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
-                            const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
-                            const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
-                            if (!attackers || attackers.length === 0) {
-                              return (
-                                <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
-                              );
-                            }
-
-                            // Determine whether any attacker is within slipstream distance
-                            const sv = Number(slipstream || 0);
-                            const canPull = attackers.some(([, r]) => {
-                              const pos = Number(r.position || 0);
-                              return pos > groupPos && (pos - groupPos) <= sv;
-                            });
-
-                              if (!canPull) {
-                                const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
-                                const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
-                                return (
-                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
-                                );
-                              }
-
-                            // If pullable, show confirmation controls (Yes/No) after an initial press
-                            if (pullConfirmGroup === g) {
-                              return (
-                                <div className="flex items-center gap-2">
-                                  <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
-                                  <button onClick={() => {
-                                    // Open invest selector for the acting team instead of immediately pulling
-                                    const playerTeam = getPlayerTeamName();
-                                    const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === playerTeam && !rr.finished && (rr.attacking_status || '') !== 'attacker');
-                                    if (humanHasRiders) {
-                                      setPullInvestGroup(g);
-                                      setPullInvestTeam(playerTeam);
-                                      setPullInvestSelections([]);
-                                    } else {
-                                      // If no riders, submit "no invest" automatically
-                                      if (gameMode === 'multi') {
-                                        handlePullInvestSubmit(g, { invested: false, riders: [], team: currentTeam });
-                                      } else {
-                                        processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
-                                      }
-                                    }
-                                    setPullConfirmGroup(null);
-                                  }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
-                                  <button onClick={() => { 
-                                    setPullConfirmGroup(null); 
-                                    if (gameMode === 'multi') {
-                                      handlePullInvestSubmit(g, { invested: false, riders: [], team: getPlayerTeamName() });
-                                    } else {
-                                      processAutoInvests(g, { invested: false, riders: [], team: currentTeam }); 
-                                    }
-                                  }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
-                                </div>
-                              );
-                            }
-
-                            return (
-                              <button onClick={() => {
-                                const team = currentTeam;
-                                const playerTeam = getPlayerTeamName();
-                                if (team === playerTeam) {
-                                  addLog(`Opening pull-invest modal for ${team} group ${g}`);
-                                  setPullInvestGroup(g);
-                                  setPullInvestTeam(team);
-                                  setPullInvestSelections([]);
-                                } else {
-                                  processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
-                                }
-                              }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
-                            );
-                          } catch (e) { return null; }
-                        })()}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    );
-                  })()}
                 </div>
               </div>
               )}
               {/* End of Group chooser summary section */}
+
+              {/* postMoveInfo yellow box - shown OUTSIDE white box so it's visible even after group moves */}
+              {postMoveInfo && (() => {
+                console.log('🟨 Rendering yellow box with postMoveInfo:', postMoveInfo.groupMoved);
+                return (
+                <div className="mt-3 p-3 border rounded bg-yellow-50">
+                  <div className="mb-2 text-sm font-medium">
+                    {/* Special display for TK-16 → TK-1 conversion */}
+                    {postMoveInfo.isTK16Conversion ? (
+                      <>
+                        <div className="mb-2 text-sm font-bold">TK-16 → TK-1 Conversion (Start of Round)</div>
+                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => (
+                          <div key={i} className="mb-1">
+                            <span className="font-semibold">{m.name}</span> ({m.team}) har fået {m.displayCard}
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        {/* Show the group number and group stats at the top in bold */}
+                        {postMoveInfo.isTK16Conversion ? (
+                      <div className="mb-1 text-sm font-bold text-purple-800">TK-16 Conversion (End of Round {postMoveInfo.roundNum})</div>
+                    ) : (
+                      <div className="mb-1 text-sm font-bold">Group {postMoveInfo.groupMoved} (speed={postMoveInfo.speed || 0}, sv={postMoveInfo.sv || 0})</div>
+                    )}
+                        {postMoveInfo.msgs && postMoveInfo.msgs.map((m, i) => {
+                      const isAttacker = (cards && cards[m.name] && (cards[m.name].attacking_status || '') === 'attacker');
+                      return (
+                      <div key={i} className={`mb-1 ${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>
+                        {m.isLead ? (
+                          <strong className={`${m.failed ? 'text-red-600' : (isAttacker ? 'text-green-700' : '')}`}>{m.name} ({m.team})</strong>
+                        ) : (
+                          <span className={`${isAttacker ? 'font-semibold' : ''}`}>{m.name} ({m.team})</span>
+                        )}{' '}
+                        <span>spiller kort: {m.displayCard}{m.cardVals ? ` (${m.cardVals})` : ''} {m.oldPos}→{m.newPos}{m.isLead ? ' (lead)' : ''} {m.failed ? '✗' : '✓'}</span>
+                        {m.penaltyCount > 0 && <span className="text-orange-600 font-semibold"> P{m.penaltyCount}</span>}
+                        {/* Additional consequences for riders who took TK-1 or EC */}
+                        { (m.tkTaken || m.ecTaken) && (
+                          <div className="text-xs text-gray-700 ml-3">
+                            {(() => {
+                              const parts = [];
+                              if (m.tkTaken) parts.push(`${m.tkTaken} Tk-1`);
+                              if (m.ecTaken) parts.push(`${m.ecTaken} EC`);
+                              return `.... takes ${parts.join(' and ')}`;
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    );
+                    })}
+                      </>
+                    )}
+                  </div>
+                  {(() => {
+                    try {
+                      const g = postMoveInfo.groupMoved;
+                      const outcome = (pullInvestOutcome && pullInvestOutcome[g]) ? pullInvestOutcome[g] : null;
+                      return (
+                        outcome ? (
+                          <div className="mb-2 text-xs text-gray-700">
+                            {(teams || []).map(t => (
+                              <div key={t}>{(outcome.perTeam && outcome.perTeam[t]) ? `${t} invests` : `${t} does not invest`}</div>
+                            ))}
+                            {outcome.perRider && outcome.perRider.length > 0 && (
+                              <div className="mt-1">
+                                {outcome.perRider.map((p, idx) => (
+                                  <div key={idx} className="text-xs text-gray-700">{p.team} invests, {p.rider} takes 1 TK-1</div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="mt-1 font-medium">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
+                            <div className="mt-2 flex justify-end">
+                              <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
+                            </div>
+                          </div>
+                        ) : null
+                      );
+                    } catch (e) { return null; }
+                  })()}
+                  <div className="flex justify-end">
+                    {/* Special handling for TK-16 conversion: just show Continue button */}
+                    {postMoveInfo.isTK16Conversion ? (
+                      <button onClick={() => { 
+                        setPostMoveInfo(null); 
+                        postMoveInfoRef.current = null;
+                        syncMoveToFirebase(null, true);
+                      }} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
+                    ) : (
+                      <>
+                    {/* Offer pull-back action when attackers exist in the moved group */}
+                    {(() => {
+                      try {
+                        const g = postMoveInfo.groupMoved;
+                        const members = Object.entries(cards).filter(([, r]) => r.group === g && !r.finished);
+                        const nonAttackers = members.filter(([, r]) => (r.attacking_status || '') !== 'attacker').map(([, r]) => Number(r.position || 0));
+                        const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
+                        const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
+                        if (!attackers || attackers.length === 0) {
+                          return (
+                            <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
+                          );
+                        }
+
+                        // Determine whether any attacker is within slipstream distance
+                        const sv = Number(slipstream || 0);
+                        const canPull = attackers.some(([, r]) => {
+                          const pos = Number(r.position || 0);
+                          return pos > groupPos && (pos - groupPos) <= sv;
+                        });
+
+                          if (!canPull) {
+                            const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
+                            const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                            return (
+                              <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                            );
+                          }
+
+                        // If pullable, show confirmation controls (Yes/No) after an initial press
+                        if (pullConfirmGroup === g) {
+                          return (
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-medium mr-2">Pull attacker(s) back? Invest?</div>
+                              <button onClick={() => {
+                                // Open invest selector for the acting team instead of immediately pulling
+                                const playerTeam = getPlayerTeamName();
+                                const humanHasRiders = Object.entries(cards).some(([, rr]) => rr.group === g && rr.team === playerTeam && !rr.finished && (rr.attacking_status || '') !== 'attacker');
+                                if (humanHasRiders) {
+                                  setPullInvestGroup(g);
+                                  setPullInvestTeam(playerTeam);
+                                  setPullInvestSelections([]);
+                                } else {
+                                  // If no riders, submit "no invest" automatically
+                                  if (gameMode === 'multi') {
+                                    handlePullInvestSubmit(g, { invested: false, riders: [], team: currentTeam });
+                                  } else {
+                                    processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                                  }
+                                }
+                                setPullConfirmGroup(null);
+                              }} className="px-3 py-2 bg-yellow-600 text-black rounded font-semibold">Yes</button>
+                              <button onClick={() => { 
+                                setPullConfirmGroup(null); 
+                                if (gameMode === 'multi') {
+                                  handlePullInvestSubmit(g, { invested: false, riders: [], team: getPlayerTeamName() });
+                                } else {
+                                  processAutoInvests(g, { invested: false, riders: [], team: currentTeam }); 
+                                }
+                              }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">No</button>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <button onClick={() => {
+                            const team = currentTeam;
+                            const playerTeam = getPlayerTeamName();
+                            if (team === playerTeam) {
+                              addLog(`Opening pull-invest modal for ${team} group ${g}`);
+                              setPullInvestGroup(g);
+                              setPullInvestTeam(team);
+                              setPullInvestSelections([]);
+                            } else {
+                              processAutoInvests(g, { invested: false, rider: null, team: currentTeam });
+                            }
+                          }} className="px-4 py-2 bg-yellow-600 text-black rounded font-semibold">Pull attacker(s) back</button>
+                        );
+                      } catch (e) { return null; }
+                    })()}
+                      </>
+                    )}
+                  </div>
+                </div>
+                );
+              })()}
 
               {/* Per-group panels removed per user request */}
 
