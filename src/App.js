@@ -1635,9 +1635,41 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       if (isHost || state.currentTeam !== currentTeam) {
         console.log('🔄 Updating currentTeam from Firebase:', state.currentTeam, '(was:', currentTeam, ')');
         // Fix legacy 'Me' team name in multiplayer - should never be 'Me' in multiplayer
-        const teamToSet = (gameMode === 'multi' && state.currentTeam === 'Me' && state.teams?.length > 0) 
+        let teamToSet = (gameMode === 'multi' && state.currentTeam === 'Me' && state.teams?.length > 0) 
           ? state.teams[0] // Use first team as fallback
           : state.currentTeam;
+        
+        // GUARD: Ensure currentTeam has riders in currentGroup (prevent stuck state)
+        // If currentTeam has no riders in the current group, find a team that does
+        const currentGroupNum = state.currentGroup || currentGroup;
+        const currentCards = state.cards || cards;
+        const teamHasRiders = Object.values(currentCards).some(r => 
+          r.group === currentGroupNum && 
+          r.team === teamToSet && 
+          !r.finished && 
+          r.attacking_status !== 'attacker'
+        );
+        
+        if (!teamHasRiders && state.teams && state.teams.length > 0) {
+          console.log('🔄 WARNING: currentTeam', teamToSet, 'has no riders in group', currentGroupNum, '- finding alternative');
+          // Find first team with riders in this group
+          const teamsWithRiders = state.teams.filter(t => 
+            Object.values(currentCards).some(r => 
+              r.group === currentGroupNum && 
+              r.team === t && 
+              !r.finished && 
+              r.attacking_status !== 'attacker'
+            )
+          );
+          
+          if (teamsWithRiders.length > 0) {
+            teamToSet = teamsWithRiders[0];
+            console.log('🔄 Corrected currentTeam to:', teamToSet);
+          } else {
+            console.log('🔄 WARNING: No teams have riders in group', currentGroupNum, '- keeping', teamToSet);
+          }
+        }
+        
         setCurrentTeam(teamToSet);
       } else {
         console.log('🔄 Skipping currentTeam update - keeping local value:', currentTeam);
