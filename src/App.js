@@ -1994,8 +1994,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
     if (typeof state.slipstream !== 'undefined') {
       console.log('🔄 Loading slipstream from Firebase:', state.slipstream);
-      setSlipstream(state.slipstream);
-      slipstreamRef.current = state.slipstream; // Update ref for card selection dialog
+      // Only JOINER should load slipstream from Firebase - HOST is the authority
+      // Check using multiple conditions since isHost might not be set yet during initial load
+      const playersToCheck = players || multiplayerPlayers;
+      const nameToCheck = playerNameParam || playerName;
+      const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
+                           playersToCheck.some(p => p.isHost && p.name === nameToCheck));
+      
+      if (!isLikelyHost) {
+        setSlipstream(state.slipstream);
+        slipstreamRef.current = state.slipstream; // Update ref for card selection dialog
+        console.log('🔄 JOINER: Loaded slipstream from Firebase:', state.slipstream);
+      } else {
+        console.log('🔄 HOST: Skipping slipstream load - HOST is authority');
+      }
     }
     
     // Sync postMoveInfo (yellow box) so JOINER sees the same results as HOST
