@@ -4023,12 +4023,14 @@ if (potentialLeaders.length > 0) {
   }
   console.log('=== END NEW ROUND ===');
   // Compute and store time gaps per group so they only update once per new round
+  // Use secondsPerRound/3 as the time gap per field (e.g., 60/3 = 20 seconds per field)
+  const secondsPerField = secondsPerRound / 3;
   const gaps = {};
   const overallMaxPos = Math.max(...Object.values(updatedCards).map(r => r.position));
   const groups = Array.from(new Set(Object.values(updatedCards).map(r => r.group)));
   for (const g of groups) {
   const groupPos = Math.max(...Object.values(updatedCards).filter(r => r.group === g && !r.finished).map(r => r.position));
-    let timeGap = 21 * (overallMaxPos - groupPos);
+    let timeGap = secondsPerField * (overallMaxPos - groupPos);
     if (timeGap !== 0) {
       const jitter = Math.floor(Math.random() * 11) - 5;
       timeGap = Math.max(0, timeGap + jitter);
