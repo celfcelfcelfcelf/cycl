@@ -1266,12 +1266,27 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     }
 
     chance_tl = chance_tl * ((helping_team - 0.5 * captain) / Math.max(1, team_members_in_group));
+    
+    // Reduce captain take-lead chance to half
+    if (captain === 1) {
+      chance_tl = chance_tl * 0.5;
+    }
 
     if (sv < 2 && (rider.bjerg || 0) > 71) {
       let chance_tl2 = chance_tl * ((rider.bjerg || 0) - 72);
       chance_tl2 = chance_tl2 * (10 / Math.max(1, lenLeft));
       chance_tl2 = chance_tl2 * Math.pow(1 / Math.max(1, bestSelCard), 0.5);
       chance_tl = Math.max(chance_tl2, chance_tl);
+    }
+
+    // Mountain team strength multiplier
+    if (sv < 2) {
+      const teamMatesInGroup = groupRiders.filter(r => r.team === team && r !== rider);
+      const maxTeamMateWinChanceWoSprint = teamMatesInGroup.length > 0 
+        ? Math.max(...teamMatesInGroup.map(r => (r.win_chance_wo_sprint || 0) / 100))
+        : 0;
+      const tm_chance_wo_sprint = maxTeamMateWinChanceWoSprint / Math.max(1, 1 / groupSize);
+      chance_tl = chance_tl * Math.max(1, tm_chance_wo_sprint);
     }
 
     chance_tl = chance_tl * ((team_members_in_group - captain) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
@@ -1628,6 +1643,21 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     ideal_move = ideal_move * multiplier;
     logger(`📊 ${riderName}: ideal_move før=${ideal_move_before.toFixed(2)}, multiplier=${multiplier.toFixed(2)}, efter=${ideal_move.toFixed(2)}`);
     logger(`   └─ track_value=${get_value_track_left.toFixed(2)}, FLAD=${FLAD}, BJERG=${BJERG}, numerator=${(get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD).toFixed(2)}`);
+    
+    // Mountain team strength multiplier for ideal_move
+    const svIdeal = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
+    if (svIdeal < 2) {
+      const groupRiders = Object.values(cardsState).filter(r => r.group === rider.group && !r.finished);
+      const teamMatesInGroup = groupRiders.filter(r => r.team === rider.team && r !== rider);
+      const maxTeamMateWinChanceWoSprint = teamMatesInGroup.length > 0 
+        ? Math.max(...teamMatesInGroup.map(r => (r.win_chance_wo_sprint || 0) / 100))
+        : 0;
+      const groupSize = groupRiders.length;
+      const tm_chance_wo_sprint = maxTeamMateWinChanceWoSprint / Math.max(1, 1 / groupSize);
+      const ideal_move_before_tm = ideal_move;
+      ideal_move = ideal_move * Math.pow(Math.max(1, tm_chance_wo_sprint), 0.6);
+      logger(`🏔️ ${riderName}: Mountain team strength - tm_chance_wo_sprint=${tm_chance_wo_sprint.toFixed(2)}, ideal_move ${ideal_move_before_tm.toFixed(2)} → ${ideal_move.toFixed(2)}`);
+    }
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
@@ -1670,7 +1700,15 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
       const possible = [...(cardsState[tm].cards || []).slice(0, 4), { flat: 2, uphill: 2 }];
       for (const ctm of possible) {
         const vtm = isFlatTerrain(svCard, speed) ? (ctm.flat - penaltyTM) : (ctm.uphill - penaltyTM);
-        const errTMcard = Math.abs(value - vtm + getEffectiveSV(svCard, speed));
+        const diff = value - vtm - getEffectiveSV(svCard, speed);
+        let errTMcard;
+        if (diff > 0) {
+          // Rider is going too fast for teammate to follow - heavy penalty
+          errTMcard = 30 * ((rider.win_chance || 0) / 100) * Math.pow(len_left, 0.5);
+        } else {
+          // Teammate can keep up - just use absolute difference
+          errTMcard = Math.abs(diff);
+        }
         if (errTMcard < errorTM) errorTM = errTMcard;
       }
       errorTM = errorTM * ((cardsState[tm].win_chance || 0) / 100);
