@@ -432,24 +432,58 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const evaluateRiderAutoInvest = (groupNum, riderName, cardsState, logger = () => {}) => {
     try {
       const trackStr = getResolvedTrack();
+      
+      // Calculate fields remaining (felter tilbage)
+      const finishLine = trackStr.indexOf('F');
+      const trackLength = finishLine !== -1 ? finishLine : trackStr.length;
+      const rider = cardsState[riderName];
+      if (!rider) return 0;
+      const riderPos = Number(rider.position || 0);
+      const fieldsRemaining = Math.max(0, trackLength - riderPos);
+      
+      // Dynamic formula based on fields remaining
+      const numTakesLead = Math.ceil(fieldsRemaining * 4 / 60);
+      const numCoinFlips = Math.round(fieldsRemaining * 2 / 60);
+      
       const seedBase = `${round}:${groupNum}:${riderName}`;
-      const rng1 = seededRng(hashString(seedBase + ':a'));
-      const rng2 = seededRng(hashString(seedBase + ':b'));
-      const rng3 = seededRng(hashString(seedBase + ':d'));
-      const rngCoin = seededRng(hashString(seedBase + ':c'));
-      const res1 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng1, isStageRace);
-      const res2 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng2, isStageRace);
-      const res3 = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, rng3, isStageRace);
-      // Count successes and log them for diagnostics
-      const succ = (res1 === 1 ? 1 : 0) + (res2 === 1 ? 1 : 0) + (res3 === 1 ? 1 : 0);
-      // Require three consecutive takesLeadFC successes (3/3) before a coin flip allows investment
-      if (res1 === 1 && res2 === 1 && res3 === 1) {
-        if (Math.floor(rngCoin() * 2) === 0) {
-          try { logger(`Evaluated auto-invest for ${riderName}: 1 (${succ}/3)`); } catch (e) {}
+      
+      // Generate RNGs for takes lead tests
+      const takesLeadRngs = [];
+      for (let i = 0; i < numTakesLead; i++) {
+        takesLeadRngs.push(seededRng(hashString(seedBase + ':tl' + i)));
+      }
+      
+      // Generate RNGs for coin flips
+      const coinFlipRngs = [];
+      for (let i = 0; i < numCoinFlips; i++) {
+        coinFlipRngs.push(seededRng(hashString(seedBase + ':cf' + i)));
+      }
+      
+      // Run takes lead tests
+      const takesLeadResults = [];
+      for (let i = 0; i < numTakesLead; i++) {
+        const res = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, takesLeadRngs[i], isStageRace);
+        takesLeadResults.push(res === 1 ? 1 : 0);
+      }
+      
+      const succCount = takesLeadResults.reduce((a, b) => a + b, 0);
+      const allTakesLeadSuccess = takesLeadResults.every(r => r === 1);
+      
+      // If all takes lead succeed, check coin flips
+      if (allTakesLeadSuccess) {
+        let coinFlipSuccess = true;
+        for (let i = 0; i < numCoinFlips; i++) {
+          if (Math.floor(coinFlipRngs[i]() * 2) !== 0) {
+            coinFlipSuccess = false;
+            break;
+          }
+        }
+        if (coinFlipSuccess) {
+          try { logger(`Evaluated auto-invest for ${riderName}: 1 (${succCount}/${numTakesLead} takes lead, ${numCoinFlips} coin flips, ${fieldsRemaining} fields remaining)`); } catch (e) {}
           return 1;
         }
       }
-      try { logger(`Evaluated auto-invest for ${riderName}: 0 (${succ}/3)`); } catch (e) {}
+      try { logger(`Evaluated auto-invest for ${riderName}: 0 (${succCount}/${numTakesLead} takes lead, ${fieldsRemaining} fields remaining)`); } catch (e) {}
     } catch (e) {}
     return 0;
   };

@@ -1267,12 +1267,27 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
     }
 
     chance_tl = chance_tl * ((helping_team - 0.5 * captain) / Math.max(1, team_members_in_group));
+    
+    // Reduce captain take-lead chance to half
+    if (captain === 1) {
+      chance_tl = chance_tl * 0.5;
+    }
 
     if (sv < 2 && (rider.bjerg || 0) > 71) {
       let chance_tl2 = chance_tl * ((rider.bjerg || 0) - 72);
       chance_tl2 = chance_tl2 * (10 / Math.max(1, lenLeft));
       chance_tl2 = chance_tl2 * Math.pow(1 / Math.max(1, bestSelCard), 0.5);
       chance_tl = Math.max(chance_tl2, chance_tl);
+    }
+
+    // Mountain team strength multiplier
+    if (sv < 2) {
+      const teamMatesInGroup = groupRiders.filter(r => r.team === team && r !== rider);
+      const maxTeamMateWinChanceWoSprint = teamMatesInGroup.length > 0 
+        ? Math.max(...teamMatesInGroup.map(r => (r.win_chance_wo_sprint || 0) / 100))
+        : 0;
+      const tm_chance_wo_sprint = maxTeamMateWinChanceWoSprint / Math.max(1, 1 / groupSize);
+      chance_tl = chance_tl * Math.max(1, tm_chance_wo_sprint);
     }
 
     chance_tl = chance_tl * ((team_members_in_group - captain) / Math.max(1, groupSize / Math.max(1, teamsInGroup)));
@@ -1623,6 +1638,19 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
     const BJERG = rider.bjerg || 50;
     const multiplier = (get_value_track_left * (FLAD - BJERG) / 1.5 + 2 * BJERG - FLAD) / 68;
     ideal_move = ideal_move * multiplier;
+    
+    // Mountain team strength multiplier for ideal_move
+    const svIdeal = getSlipstreamValue(rider.position, rider.position + 8, trackStr);
+    if (svIdeal < 2) {
+      const groupRiders = Object.values(cardsState).filter(r => r.group === rider.group && !r.finished);
+      const teamMatesInGroup = groupRiders.filter(r => r.team === rider.team && r !== rider);
+      const maxTeamMateWinChanceWoSprint = teamMatesInGroup.length > 0 
+        ? Math.max(...teamMatesInGroup.map(r => (r.win_chance_wo_sprint || 0) / 100))
+        : 0;
+      const groupSize = groupRiders.length;
+      const tm_chance_wo_sprint = maxTeamMateWinChanceWoSprint / Math.max(1, 1 / groupSize);
+      ideal_move = ideal_move * Math.pow(Math.max(1, tm_chance_wo_sprint), 0.6);
+    }
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);
@@ -1644,6 +1672,9 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
   let selectedCard = (rider.cards && rider.cards[0]) ? rider.cards[0] : { flat: 2, uphill: 2, id: 'kort: 1' };
   let bestError = 1000;
 
+  const track_length = trackStr.indexOf('F');
+  const len_left = track_length - rider.position;
+
   // Filter out TK-1 cards - they cannot be played directly, only give penalty
   const playableCards = (rider.cards || []).slice(0, 4).filter(c => c.id !== 'TK-1: 99');
   
@@ -1660,15 +1691,21 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
       const possible = [...(cardsState[tm].cards || []).slice(0, 4), { flat: 2, uphill: 2 }];
       for (const ctm of possible) {
         const vtm = isFlatTerrain(svCard, speed) ? (ctm.flat - penaltyTM) : (ctm.uphill - penaltyTM);
-        const errTMcard = Math.abs(value - vtm + getEffectiveSV(svCard, speed));
+        const diff = value - vtm - getEffectiveSV(svCard, speed);
+        let errTMcard;
+        if (diff > 0) {
+          // Rider is going too fast for teammate to follow - heavy penalty
+          errTMcard = 30 * ((rider.win_chance || 0) / 100) * Math.pow(len_left, 0.5);
+        } else {
+          // Teammate can keep up - just use absolute difference
+          errTMcard = Math.abs(diff);
+        }
         if (errTMcard < errorTM) errorTM = errTMcard;
       }
       errorTM = errorTM * ((cardsState[tm].win_chance || 0) / 100);
       errorTMs += errorTM;
     }
 
-    const track_length = trackStr.indexOf('F');
-    const len_left = track_length - rider.position;
     const error_total = (isFlatTerrain(svCard, speed) ? error_card : 4 * error_card) / Math.max(1, len_left) + errorTMs;
 
     if (error_total < bestError) {
