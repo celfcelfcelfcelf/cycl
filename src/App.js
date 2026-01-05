@@ -216,6 +216,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
   const [tkPerTk1, setTkPerTk1] = useState(2); // TK-16 per TK-1 conversion rate (1-4)
   const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
+  const [secondsPerRound, setSecondsPerRound] = useState(60); // seconds per round for time calculations (default 60)
   const [gcTestMode, setGcTestMode] = useState(false); // GC test mode: all stages use sprinttest
   const [manualStageSelection, setManualStageSelection] = useState([]); // Manual stage selection for stage races
   const [showStageSelector, setShowStageSelector] = useState(false); // Show stage selector modal
@@ -1525,7 +1526,7 @@ return { pace, updatedCards, doubleLead };
       rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
       
       // Calculate GC favorit points
-      rider.favorit_points_gc = getFavoritPointsGC(rider);
+      rider.favorit_points_gc = getFavoritPointsGC(rider, secondsPerRound);
     }
     
     // Calculate GC win chances with correct formula: 17 - 0.6 * round + 7 * (numberOfStages - currentStageIndex - 1)
@@ -1737,8 +1738,7 @@ return { pace, updatedCards, doubleLead };
         const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
         rider.e_moves_left_total = tempCards[riderName].e_moves_left + sumFutureStages;
         rider.gc_time = 0;
-        const seconds_per_round = 100;
-        rider.favorit_points_gc = 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / seconds_per_round));
+        rider.favorit_points_gc = 1 / (1.5 + (rider.e_moves_left_total + rider.gc_time / secondsPerRound));
       }
       
       // Calculate GC win chances
@@ -1998,7 +1998,7 @@ return { pace, updatedCards, doubleLead };
           const futureStages = rider.e_moves_left_gc_array.slice(currentStageIndex + 1);
           const sumFutureStages = futureStages.reduce((sum, val) => sum + val, 0);
           rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
-          rider.favorit_points_gc = getFavoritPointsGC(rider);
+          rider.favorit_points_gc = getFavoritPointsGC(rider, secondsPerRound);
         }
         
         const factorGC = 17 - 0.6 * 0 + 7 * (numberOfStages - currentStageIndex - 1);
@@ -3988,7 +3988,7 @@ if (potentialLeaders.length > 0) {
       rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
       
       // Calculate GC favorit points
-      rider.favorit_points_gc = getFavoritPointsGC(rider);
+      rider.favorit_points_gc = getFavoritPointsGC(rider, secondsPerRound);
     }
     
     // Calculate GC win chances with correct formula: 17 - 0.6 * round + 7 * (numberOfStages - currentStageIndex - 1)
@@ -4139,7 +4139,7 @@ const startNextStage = () => {
       rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
       
       // Recalculate GC favorit points with updated gc_time
-      rider.favorit_points_gc = getFavoritPointsGC(rider);
+      rider.favorit_points_gc = getFavoritPointsGC(rider, secondsPerRound);
     }
     
     // Recalculate GC win chances
@@ -4361,7 +4361,7 @@ const confirmIntermediateSprint = () => {
       rider.e_moves_left_total = rider.e_moves_left + sumFutureStages;
       
       // Recalculate GC favorit points with updated gc_time
-      rider.favorit_points_gc = getFavoritPointsGC(rider);
+      rider.favorit_points_gc = getFavoritPointsGC(rider, secondsPerRound);
     }
     
     // Recalculate GC win chances
