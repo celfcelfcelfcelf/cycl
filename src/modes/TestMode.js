@@ -3,7 +3,6 @@ import { Play, SkipForward, FileText, Trophy, ArrowRight, Info } from 'lucide-re
 import {
   convertToSeconds,
   getSlipstreamValue,
-  getEffectiveSV,
   getLength,
   getWeightedValue,
   getEMoveLeft,
@@ -2786,7 +2785,7 @@ return { pace, updatedCards, doubleLead };
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     setGroupSpeed(speed);
-    setSlipstream(getEffectiveSV(sv, speed));
+    setSlipstream(sv); // Use raw SV (minimum terrain value in segment)
     setIsFlat(sv === 3);
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
@@ -3344,7 +3343,7 @@ const confirmMove = (cardsSnapshot) => {
   // Recompute slipstream based on the final computed speed (which may include dobbeltføring)
   // to ensure the slipstream value matches the actual speed being used for movement
   const computedSV = getSlipstreamValue(groupPos, groupPos + computedSpeed, track);
-  const computedSlipstream = getEffectiveSV(computedSV, computedSpeed);
+  const computedSlipstream = computedSV; // Use raw SV (minimum terrain value)
   
   // Log speed calculation messages
   speedResult.logMessages.forEach(msg => {

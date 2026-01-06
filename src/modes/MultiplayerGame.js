@@ -3,7 +3,6 @@ import { Play, SkipForward, FileText, Trophy, ArrowRight, Info } from 'lucide-re
 import {
   convertToSeconds,
   getSlipstreamValue,
-  getEffectiveSV,
   getLength,
   getWeightedValue,
   getEMoveLeft,
@@ -4659,15 +4658,15 @@ return { pace, updatedCards, doubleLead };
     
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
-    const effectiveSV = getEffectiveSV(sv, speed); // In TK-test, this just returns sv
-    console.log(`🔍 SV calculation RESULT: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}, effectiveSV=${effectiveSV}`);
-    console.log(`🔍 About to call setSlipstream(${effectiveSV}) and slipstreamRef.current = ${effectiveSV}`);
+    // Note: We use raw sv, not effectiveSV. The old flat50 rule (sv=3 becomes speed/2) is deprecated.
+    console.log(`🔍 SV calculation RESULT: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}`);
+    console.log(`🔍 About to call setSlipstream(${sv}) and slipstreamRef.current = ${sv}`);
     setGroupSpeed(speed);
-    setSlipstream(effectiveSV); // Store raw SV (effectiveSV = sv in TK-test)
+    setSlipstream(sv); // Store raw SV directly (no effectiveSV conversion)
     setIsFlat(sv === 3);
     // Store in refs so card selection dialog can show them even after state is reset
     groupSpeedRef.current = speed;
-    slipstreamRef.current = effectiveSV;
+    slipstreamRef.current = sv;
     console.log(`🔍 AFTER setting: slipstreamRef.current = ${slipstreamRef.current}, groupSpeedRef.current = ${groupSpeedRef.current}`);
 
     // Ensure each team has a value (default 0) - only for teams with riders in this group
