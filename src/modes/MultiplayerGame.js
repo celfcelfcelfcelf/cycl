@@ -1904,7 +1904,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               const nextIdx = (teamIdx + 1) % teamsArray.length;
               console.log('🔄 Calculating next team. teamsArray:', teamsArray, 'teamIdx:', teamIdx, 'nextIdx:', nextIdx);
               
-              // Find next team that has riders in this group
+              // Find next team that has riders in this group AND hasn't submitted yet
               const groupToCheck = state.currentGroup || currentGroup;
               const cardsToCheck = state.cards || cards;
               let nextTeam = null;
@@ -1918,7 +1918,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   !r.finished && 
                   r.attacking_status !== 'attacker'
                 );
-                if (hasRiders) {
+                
+                // Check if this team has already submitted for this group
+                const paceKey = `${groupToCheck}-${t}`;
+                const hasSubmitted = !!merged[paceKey];
+                
+                console.log(`🔄 Checking team ${t}: hasRiders=${hasRiders}, hasSubmitted=${hasSubmitted}`);
+                
+                if (hasRiders && !hasSubmitted) {
                   nextTeam = t;
                   break;
                 }
@@ -4991,6 +4998,10 @@ return { pace, updatedCards, doubleLead };
       const firstTeam = teams[0];
       console.log('🚀 Finalization complete, setting currentTeam to:', firstTeam);
       setCurrentTeam(firstTeam);
+      
+      // Enable card selection monitoring so HOST can detect when all players have submitted
+      console.log('🚀 HOST: Enabling card selection monitoring after pace finalization');
+      setWaitingForCardSelections(true);
     }
     
     console.log('🚀 handlePaceSubmit END: About to check for Firebase sync, gameMode:', gameMode, 'roomCode:', !!roomCodeRef.current);
