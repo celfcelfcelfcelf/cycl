@@ -2166,7 +2166,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       teamPaceMetaKeys: Object.keys(teamPaceMetaToSync),
       postMoveInfo: postMoveInfoToSync ? `Group ${postMoveInfoToSync.groupMoved}` : 'null',
       groupSpeed,
-      slipstream
+      slipstream,
+      groupSpeedRef: groupSpeedRef.current,
+      slipstreamRef: slipstreamRef.current
     });
     
     try {
@@ -4666,7 +4668,10 @@ return { pace, updatedCards, doubleLead };
     // Compute slipstream for final speed (recomputed if blocked)
     let sv = getSlipstreamValue(groupPos, groupPos + speed, track);
     // Note: We use raw sv, not effectiveSV. The old flat50 rule (sv=3 becomes speed/2) is deprecated.
-    console.log(`🔍 SV calculation RESULT: groupPos=${groupPos}, speed=${speed}, track segment="${track.slice(groupPos, groupPos + speed + 1)}", sv=${sv}`);
+    const trackSegment = track.slice(groupPos, groupPos + speed + 1);
+    console.log(`🔍 SV calculation INPUT: groupPos=${groupPos}, speed=${speed}, pos1=${groupPos}, pos2=${groupPos + speed}`);
+    console.log(`🔍 SV calculation TRACK: track.length=${track.length}, segment="${trackSegment}" (positions ${groupPos} to ${groupPos + speed})`);
+    console.log(`🔍 SV calculation RESULT: sv=${sv} (should be minimum terrain digit in segment)`);
     console.log(`🔍 About to call setSlipstream(${sv}) and slipstreamRef.current = ${sv}`);
     setGroupSpeed(speed);
     setSlipstream(sv); // Store raw SV directly (no effectiveSV conversion)
