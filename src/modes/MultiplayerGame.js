@@ -1994,28 +1994,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setMovePhase(state.movePhase);
       movePhaseRef.current = state.movePhase; // Update ref immediately
     }
-    if (typeof state.groupSpeed !== 'undefined') {
-      console.log('🔄 Loading groupSpeed from Firebase:', state.groupSpeed);
-      setGroupSpeed(state.groupSpeed);
-      groupSpeedRef.current = state.groupSpeed; // Update ref for card selection dialog
-    }
-    if (typeof state.slipstream !== 'undefined') {
-      console.log('🔄 Loading slipstream from Firebase:', state.slipstream);
-      // Only JOINER should load slipstream from Firebase - HOST is the authority
-      // Check using multiple conditions since isHost might not be set yet during initial load
-      const playersToCheck = players || multiplayerPlayers;
-      const nameToCheck = playerNameParam || playerName;
-      const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
-                           playersToCheck.some(p => p.isHost && p.name === nameToCheck));
-      
-      if (!isLikelyHost) {
-        setSlipstream(state.slipstream);
-        slipstreamRef.current = state.slipstream; // Update ref for card selection dialog
-        console.log('🔄 JOINER: Loaded slipstream from Firebase:', state.slipstream);
-      } else {
-        console.log('🔄 HOST: Skipping slipstream load - HOST is authority');
-      }
-    }
+    // DO NOT load groupSpeed/slipstream from Firebase root level - they should only come from postMoveInfo
+    // Loading them from root causes stale values from previous groups to be used
     
     // Sync postMoveInfo (yellow box) so JOINER sees the same results as HOST
     console.log('🔄 Checking postMoveInfo in state:', { 
@@ -2186,12 +2166,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         teamPaceRound: teamPaceRoundToSync,
         teamPullInvests: teamPullInvestsToSync,
         movePhase: phaseToSync,
-        // Only sync groupSpeed if we are the host OR in input/cardSelection phase
-        // In cardSelection phase, the speed has just been calculated and MUST be synced
-        // This prevents Joiner from overwriting Host's calculated speed with a stale local value
-        // IMPORTANT: Do not send undefined, as Firebase rejects it. If we shouldn't sync it, omit the key entirely.
-        ...( (isHost || phaseToSync === 'input' || phaseToSync === 'cardSelection') ? { groupSpeed: (groupSpeedRef.current !== undefined ? groupSpeedRef.current : groupSpeed) } : {} ),
-        slipstream: slipstreamRef.current !== undefined ? slipstreamRef.current : slipstream,
+        // DO NOT sync groupSpeed/slipstream as global values - they are specific to the group that just moved
+        // and should only exist in postMoveInfo. Syncing them globally causes the next group to see
+        // stale values from the previous group.
         logs: logs.slice(-20) // Only sync recent logs to avoid bloat
       };
       
