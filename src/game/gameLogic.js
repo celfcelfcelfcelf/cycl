@@ -16,9 +16,23 @@ export const getSlipstreamValue = (pos1, pos2, track) => {
   const adjustedPos2 = pos2 + nedk;
   // Get the terrain segment, replacing downhill '_' with '3'
   const terrainSegment = track.slice(pos1, adjustedPos2 + 1).replace(/_/g, '3');
-  if (terrainSegment.includes('0')) return 0;
-  if (terrainSegment.includes('1')) return 1;
-  if (terrainSegment.includes('2')) return 2;
+  
+  // Debug logging
+  console.log(`🔍 getSlipstreamValue: pos1=${pos1}, pos2=${pos2}, segment="${segment}", nedk=${nedk}, adjustedPos2=${adjustedPos2}, terrainSegment="${terrainSegment}"`);
+  
+  if (terrainSegment.includes('0')) {
+    console.log(`🔍 getSlipstreamValue: returning 0 (found '0' in terrainSegment)`);
+    return 0;
+  }
+  if (terrainSegment.includes('1')) {
+    console.log(`🔍 getSlipstreamValue: returning 1 (found '1' in terrainSegment)`);
+    return 1;
+  }
+  if (terrainSegment.includes('2')) {
+    console.log(`🔍 getSlipstreamValue: returning 2 (found '2' in terrainSegment)`);
+    return 2;
+  }
+  console.log(`🔍 getSlipstreamValue: returning 3 (default - no 0/1/2 found)`);
   return 3;
 };
 
