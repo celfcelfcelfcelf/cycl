@@ -266,7 +266,7 @@ const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floating = 
 
   let chance_tl = 0;
 
-  if (prob_team_group_share > (prob_team_front / (prob_front + 0.1))) {
+  if (prob_team_group_share > (prob_team_front / (prob_front + 0.0001))) {
     chance_tl = Math.pow((prob_team_group_share - prob_team_front) * numberOfTeams, 2);
 
     if (rider.attacking_status === 'attacked') {

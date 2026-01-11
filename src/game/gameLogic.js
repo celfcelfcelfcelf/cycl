@@ -100,6 +100,118 @@ export const getValue = (track) => {
   return tr.length > 0 ? 100 * Math.pow(2 - sum / tr.length, 2) : 100;
 };
 
+// Helper: Hash string to seed for RNG
+const hashString = (str) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+};
+
+// Helper: Seeded RNG
+const seededRng = (seed) => {
+  let state = seed;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+};
+
+/**
+ * SHARED INVESTMENT LOGIC - TK-test rules
+ * 
+ * Evaluates whether a rider should auto-invest based on TK-test rules.
+ * Uses dynamic formula: more fields remaining = more tests required.
+ * 
+ * Formula:
+ * - numTakesLead = ceil(fieldsRemaining * 4 / 60)
+ * - numCoinFlips = round(fieldsRemaining * 2 / 60)
+ * 
+ * Investment succeeds if:
+ * - ALL takesLeadFC tests pass (must be 100% success rate)
+ * - AND all coin flips succeed (50% chance each)
+ * 
+ * @param {string} riderName - Rider name
+ * @param {object} cardsState - Current cards/riders state
+ * @param {string} trackStr - Track string (e.g., "33111...")
+ * @param {number} round - Current round number
+ * @param {number} groupNum - Group number
+ * @param {number} numberOfTeams - Total number of teams
+ * @param {function} takesLeadFC - Function to check if rider takes lead
+ * @param {function} logger - Optional logging function
+ * @param {boolean} isStageRace - Whether this is a stage race
+ * @returns {number} 1 if should invest, 0 otherwise
+ */
+export const evaluateRiderAutoInvest = (
+  riderName,
+  cardsState,
+  trackStr,
+  round,
+  groupNum,
+  numberOfTeams,
+  takesLeadFC,
+  logger = () => {},
+  isStageRace = false
+) => {
+  try {
+    // Calculate fields remaining (felter tilbage)
+    const finishLine = trackStr.indexOf('F');
+    const trackLength = finishLine !== -1 ? finishLine : trackStr.length;
+    const rider = cardsState[riderName];
+    if (!rider) return 0;
+    const riderPos = Number(rider.position || 0);
+    const fieldsRemaining = Math.max(0, trackLength - riderPos);
+    
+    // Dynamic formula based on fields remaining
+    const numTakesLead = Math.ceil(fieldsRemaining * 4 / 60);
+    const numCoinFlips = Math.round(fieldsRemaining * 2 / 60);
+    
+    const seedBase = `${round}:${groupNum}:${riderName}`;
+    
+    // Generate RNGs for takes lead tests
+    const takesLeadRngs = [];
+    for (let i = 0; i < numTakesLead; i++) {
+      takesLeadRngs.push(seededRng(hashString(seedBase + ':tl' + i)));
+    }
+    
+    // Generate RNGs for coin flips
+    const coinFlipRngs = [];
+    for (let i = 0; i < numCoinFlips; i++) {
+      coinFlipRngs.push(seededRng(hashString(seedBase + ':cf' + i)));
+    }
+    
+    // Run takes lead tests
+    const takesLeadResults = [];
+    for (let i = 0; i < numTakesLead; i++) {
+      const res = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, takesLeadRngs[i], isStageRace);
+      takesLeadResults.push(res === 1 ? 1 : 0);
+    }
+    
+    const succCount = takesLeadResults.reduce((a, b) => a + b, 0);
+    const allTakesLeadSuccess = takesLeadResults.every(r => r === 1);
+    
+    // If all takes lead succeed, check coin flips
+    if (allTakesLeadSuccess) {
+      let coinFlipSuccess = true;
+      for (let i = 0; i < numCoinFlips; i++) {
+        if (Math.floor(coinFlipRngs[i]() * 2) !== 0) {
+          coinFlipSuccess = false;
+          break;
+        }
+      }
+      if (coinFlipSuccess) {
+        try { logger(`Evaluated auto-invest for ${riderName}: 1 (${succCount}/${numTakesLead} takes lead, ${numCoinFlips} coin flips, ${fieldsRemaining} fields remaining)`); } catch (e) {}
+        return 1;
+      }
+    }
+    try { logger(`Evaluated auto-invest for ${riderName}: 0 (${succCount}/${numTakesLead} takes lead, ${fieldsRemaining} fields remaining)`); } catch (e) {}
+  } catch (e) {}
+  return 0;
+};
+
 export const getGroupSize = (cards, group) => {
   return Object.values(cards).filter(r => r.group === group && !r.finished).length;
 };
@@ -1268,7 +1380,7 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
   let chance_tl = 0;
 
-  if (prob_team_group_share > (prob_team_front / (prob_front + 0.1))) {
+  if (prob_team_group_share > (prob_team_front / (prob_front + 0.0001))) {
     chance_tl = Math.pow((prob_team_group_share - prob_team_front) * numberOfTeams, 2);
 
     if (rider.attacking_status === 'attacked') {
@@ -1904,7 +2016,18 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
     const minRequiredToFollow = Math.max(0, groupSpeed - slipstream);
     let eligibleForSlip = effectiveValue >= minRequiredToFollow;
+    
+    // For lead riders, they should move at group speed (not exceed it)
+    // Even if their card value is higher, they pace the group at groupSpeed
     let moveBy = eligibleForSlip ? Math.min(effectiveValue + slipstream, groupSpeed) : effectiveValue;
+    
+    // IMPORTANT: Lead riders should never move faster than groupSpeed
+    // They are pacing the group, not breaking away
+    if (isLeadRider && moveBy > groupSpeed) {
+      moveBy = groupSpeed;
+      logs.push(`${name}: Lead rider limited to groupSpeed=${groupSpeed} (card would allow ${effectiveValue + slipstream})`);
+    }
+    
     let newPos = (rider.position || 0) + moveBy;
     let caughtOtherGroup = false;
 

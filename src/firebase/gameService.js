@@ -68,15 +68,39 @@ export const joinGame = async (roomCode, playerName) => {
   
   const gameData = gameSnap.data();
   
-  if (gameData.status !== 'lobby') {
+  // Check if player is rejoining (already in players list)
+  const existingPlayer = gameData.players.find(p => p.name === playerName);
+  const isRejoin = !!existingPlayer;
+  
+  if (gameData.status !== 'lobby' && !isRejoin) {
     throw new Error('Game already started');
   }
   
-  if (gameData.players.length >= gameData.config.numberOfTeams) {
+  if (gameData.players.length >= gameData.config.numberOfTeams && !isRejoin) {
     throw new Error('Game is full');
   }
   
-  // Check if player name already exists
+  // If rejoining, just update connected status
+  if (isRejoin) {
+    const updatedPlayers = gameData.players.map(p => 
+      p.name === playerName 
+        ? { ...p, connected: true, joinedAt: Date.now() }
+        : p
+    );
+    
+    await updateDoc(gameRef, {
+      players: updatedPlayers
+    });
+    
+    return {
+      roomCode: roomCode.toUpperCase(),
+      playerName,
+      isHost: existingPlayer.isHost,
+      team: existingPlayer.team
+    };
+  }
+  
+  // Check if player name already exists (only for new joins)
   if (gameData.players.some(p => p.name === playerName)) {
     throw new Error('Player name already taken');
   }

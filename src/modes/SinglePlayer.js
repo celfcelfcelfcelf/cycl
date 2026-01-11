@@ -28,6 +28,7 @@ import {
   takesLeadFC,
   colourTrackTokens,
   computeInitialStats,
+  evaluateRiderAutoInvest,
   computeNonAttackerMoves,
   runSprintsPure,
   computeAttackerMoves,
@@ -416,77 +417,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     });
   };
 
-  // Deterministic helpers for evaluating AI invests so UI predictions match processing
-  const hashString = (s) => {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
-    return h >>> 0;
-  };
-  const seededRng = (seed) => {
-    let state = seed >>> 0;
-    return () => {
-      state = (state * 1664525 + 1013904223) >>> 0;
-      return state / 4294967296;
-    };
-  };
+  // Deterministic helpers - hashString and seededRng are now in gameLogic.js
+  // evaluateRiderAutoInvest is imported from gameLogic.js
 
-  const evaluateRiderAutoInvest = (groupNum, riderName, cardsState, logger = () => {}) => {
-    try {
-      const trackStr = getResolvedTrack();
-      
-      // Calculate fields remaining (felter tilbage)
-      const finishLine = trackStr.indexOf('F');
-      const trackLength = finishLine !== -1 ? finishLine : trackStr.length;
-      const rider = cardsState[riderName];
-      if (!rider) return 0;
-      const riderPos = Number(rider.position || 0);
-      const fieldsRemaining = Math.max(0, trackLength - riderPos);
-      
-      // Dynamic formula based on fields remaining
-      const numTakesLead = Math.ceil(fieldsRemaining * 4 / 60);
-      const numCoinFlips = Math.round(fieldsRemaining * 2 / 60);
-      
-      const seedBase = `${round}:${groupNum}:${riderName}`;
-      
-      // Generate RNGs for takes lead tests
-      const takesLeadRngs = [];
-      for (let i = 0; i < numTakesLead; i++) {
-        takesLeadRngs.push(seededRng(hashString(seedBase + ':tl' + i)));
-      }
-      
-      // Generate RNGs for coin flips
-      const coinFlipRngs = [];
-      for (let i = 0; i < numCoinFlips; i++) {
-        coinFlipRngs.push(seededRng(hashString(seedBase + ':cf' + i)));
-      }
-      
-      // Run takes lead tests
-      const takesLeadResults = [];
-      for (let i = 0; i < numTakesLead; i++) {
-        const res = takesLeadFC(riderName, cardsState, trackStr, numberOfTeams, false, false, [], logger, takesLeadRngs[i], isStageRace);
-        takesLeadResults.push(res === 1 ? 1 : 0);
-      }
-      
-      const succCount = takesLeadResults.reduce((a, b) => a + b, 0);
-      const allTakesLeadSuccess = takesLeadResults.every(r => r === 1);
-      
-      // If all takes lead succeed, check coin flips
-      if (allTakesLeadSuccess) {
-        let coinFlipSuccess = true;
-        for (let i = 0; i < numCoinFlips; i++) {
-          if (Math.floor(coinFlipRngs[i]() * 2) !== 0) {
-            coinFlipSuccess = false;
-            break;
-          }
-        }
-        if (coinFlipSuccess) {
-          try { logger(`Evaluated auto-invest for ${riderName}: 1 (${succCount}/${numTakesLead} takes lead, ${numCoinFlips} coin flips, ${fieldsRemaining} fields remaining)`); } catch (e) {}
-          return 1;
-        }
-      }
-      try { logger(`Evaluated auto-invest for ${riderName}: 0 (${succCount}/${numTakesLead} takes lead, ${fieldsRemaining} fields remaining)`); } catch (e) {}
-    } catch (e) {}
-    return 0;
+  // Wrapper to adapt evaluateRiderAutoInvest to local context
+  const evaluateRiderAutoInvestLocal = (groupNum, riderName, cardsState, logger = () => {}) => {
+    const trackStr = getResolvedTrack();
+    return evaluateRiderAutoInvest(
+      riderName,
+      cardsState,
+      trackStr,
+      round,
+      groupNum,
+      numberOfTeams,
+      takesLeadFC,
+      logger,
+      isStageRace
+    );
   };
 
   const predictTeamInvest = (groupNum, teamName) => {
@@ -494,7 +441,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const members = Object.entries(cards).filter(([, rr]) => rr.group === groupNum && !rr.finished && rr.team === teamName);
       for (const [nm, rr] of members) {
         if (!rr) continue;
-        if (evaluateRiderAutoInvest(groupNum, nm, cards, () => {}) === 1) return true;
+        if (evaluateRiderAutoInvestLocal(groupNum, nm, cards, () => {}) === 1) return true;
       }
     } catch (e) {}
     return false;
@@ -609,7 +556,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           for (const [nm, rr] of teamsMap[teamName]) {
             if (slotsLeft <= 0) break;
             try {
-              const invest = evaluateRiderAutoInvest(g, nm, updated, addLog);
+              const invest = evaluateRiderAutoInvestLocal(g, nm, updated, addLog);
               // Detailed evaluation logging is performed inside evaluateRiderAutoInvest
               if (invest === 1) {
                 // decide how much to invest: random 0..2
