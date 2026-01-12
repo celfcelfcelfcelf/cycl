@@ -1088,6 +1088,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     );
     const humanRidersInGroup = ridersInGroup.filter(([, r]) => humanTeamNames.includes(r.team));
     
+    console.log('🔍 AI check:', {
+      multiplayerPlayers: multiplayerPlayers.map(p => `${p.name}:${p.team}`),
+      humanTeamNames,
+      ridersInGroup: ridersInGroup.map(([name, r]) => `${name}(${r.team})`),
+      humanRidersInGroup: humanRidersInGroup.map(([name, r]) => `${name}(${r.team})`)
+    });
+    
     // If there are NO human riders at all in this group, auto-play ALL teams sequentially
     // This reuses the "Play Group" logic from singleplayer
     if (humanRidersInGroup.length === 0 && ridersInGroup.length > 0) {
