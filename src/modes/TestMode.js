@@ -1021,7 +1021,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // local penalties (TK-1 / kort:16) and slipstream are always considered.
       // This prevents AI choosing a selected_value that cannot actually be played
       // when penalties are present.
-      selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, addLog);
+      selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, [], addLog);
 
       // IMPORTANT: selected_value must be limited to what the rider can actually play
       // If takes_lead > 0, verify the rider has a card that can produce this value
@@ -1178,16 +1178,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const otherPaces = Object.entries(teamPaceMap).filter(([k]) => k !== teamName).map(([, v]) => Number(v) || 0);
   const otherMax = otherPaces.length > 0 ? Math.max(...otherPaces) : 0;
 
+  // Use the team's declared pace directly
+  // If no riders want to lead, pace will be 0
   let finalPace = teamDeclaredPace;
-  // If our declared pace is non-positive or would not affect the group (<= otherMax)
-  // fall back to the random minimal choice (2-4) to mirror original AI unpredictability.
-  if (!finalPace || finalPace <= otherMax) {
+  
+  // If our declared pace would not affect the group (<= otherMax), set to 0
+  if (finalPace > 0 && finalPace <= otherMax) {
     finalPace = 0;
   }
-  if (finalPace === 0) finalPace = Math.floor(Math.random() * 3) + 2;
-  if (finalPace <= otherMax) finalPace = 0;
-  // Ensure integer >= 2
-  pace = Math.max(2, Math.round(finalPace || 0));
+  
+  pace = Math.round(finalPace || 0);
   
   // In choice-2, enforce that pace is at least minPace (if provided)
   if (typeof minPace !== 'undefined' && minPace > 0) {

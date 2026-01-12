@@ -1380,6 +1380,12 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
 
   let chance_tl = 0;
 
+  if (write) { 
+    try { 
+      logger(`📈 ${riderName}: prob_team_group_share=${prob_team_group_share.toFixed(4)} vs prob_team_front/(prob_front+0.0001)=${(prob_team_front / (prob_front + 0.0001)).toFixed(4)}`); 
+    } catch(e) {} 
+  }
+
   if (prob_team_group_share > (prob_team_front / (prob_front + 0.0001))) {
     chance_tl = Math.pow((prob_team_group_share - prob_team_front) * numberOfTeams, 2);
 
@@ -1555,6 +1561,13 @@ export const takesLeadFC = (riderName, cardsState, trackStr, numberOfTeams, floa
       }
     } else {
       return chance_tl;
+    }
+  } else {
+    // Team doesn't have enough strength in group to warrant taking lead
+    if (write) { 
+      try { 
+        logger(`⊘ ${riderName}: No take-lead (team group share ${(prob_team_group_share*100).toFixed(1)}% ≤ team front share ${((prob_team_front / (prob_front + 0.0001))*100).toFixed(1)}%)`); 
+      } catch(e) {} 
     }
   }
 

@@ -1121,21 +1121,39 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             // Guard: If team already submitted for this round, skip
             if (existingMeta && existingMeta.round >= currentRound) {
               console.log(`🤖 Team ${team} already submitted for group ${currentGroup} round ${currentRound} - skipping`);
+              addLog(`⚠️ DEBUG: ${team} skipped in batch autoplay (already submitted round ${existingMeta.round})`);
               continue;
             }
             
             console.log('🤖 Auto-playing team:', team, 'in group', currentGroup);
+            addLog(`🤖 DEBUG: Batch autoplay calling autoPlayTeam for ${team} group ${currentGroup}`);
+            
             const result = autoPlayTeam(currentGroup, team, currentRound === 2 ? prevPace : undefined, accumulatedCards);
             
             if (result) {
               accumulatedCards = { ...accumulatedCards, ...result.updatedCards };
+              
+              // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
+              // fall back to inferring from the per-rider selected_value in updatedCards.
+              let aiTeamPace = 0;
+              if (typeof result.pace === 'number') {
+                aiTeamPace = Math.round(result.pace || 0);
+              }
+              
+              // Fallback: infer from selected_value if pace is 0 or missing
+              if ((!aiTeamPace || aiTeamPace === 0) && result.updatedCards) {
+                const teamRiders = Object.entries(result.updatedCards)
+                  .filter(([, r]) => r.group === currentGroup && r.team === team)
+                  .map(([n, r]) => ({ name: n, ...r }));
+                const nonAttackerPaces = teamRiders
+                  .filter(r => r.attacking_status !== 'attacker')
+                  .map(r => Math.round(r.selected_value || 0));
+                aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+              }
+              
               const teamRiders = Object.entries(result.updatedCards)
                 .filter(([, r]) => r.group === currentGroup && r.team === team)
                 .map(([n, r]) => ({ name: n, ...r }));
-              const nonAttackerPaces = teamRiders
-                .filter(r => r.attacking_status !== 'attacker')
-                .map(r => Math.round(r.selected_value || 0));
-              let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
               const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
               const aiDoubleLead = result.doubleLead || null;
               
@@ -1228,25 +1246,43 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         // - If currentRound is 2 and existing is 1: 1 >= 2 (false) -> proceed
         // - If currentRound is 2 and existing is 2: 2 >= 2 (true) -> skip
         if (existingMeta && existingMeta.round >= currentRound) {
-          console.log(`🤖 AI ${currentTeam} already submitted for group ${currentGroup} round ${currentRound} - skipping`);
+          console.log(`🤖 AI ${currentTeam} already submitted for group ${currentGroup} round ${currentRound} - SKIPPING autoPlayTeam (existingMeta.round=${existingMeta.round})`);
+          addLog(`⚠️ DEBUG: ${currentTeam} skipped autoPlayTeam (already submitted round ${existingMeta.round})`);
           return;
         }
 
-        console.log('🤖 Calling autoPlayTeam for', currentTeam, 'group', currentGroup);
+        console.log('🤖 Calling autoPlayTeam for', currentTeam, 'group', currentGroup, 'round', currentRound);
+        addLog(`🤖 DEBUG: Calling autoPlayTeam for ${currentTeam} group ${currentGroup} round ${currentRound}`);
         const result = autoPlayTeam(currentGroup, currentTeam, currentRound === 2 ? prevPace : undefined);
         console.log('🤖 autoPlayTeam returned:', !!result);
+        addLog(`🤖 DEBUG: autoPlayTeam completed for ${currentTeam} (returned: ${!!result})`);
         
         if (result) {
           setCards(result.updatedCards);
+          
+          // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
+          // fall back to inferring from the per-rider selected_value in updatedCards.
+          let aiTeamPace = 0;
+          if (typeof result.pace === 'number') {
+            aiTeamPace = Math.round(result.pace || 0);
+          }
+          
+          // Fallback: infer from selected_value if pace is 0 or missing
+          if ((!aiTeamPace || aiTeamPace === 0) && result.updatedCards) {
+            const teamRiders = Object.entries(result.updatedCards)
+              .filter(([, r]) => r.group === currentGroup && r.team === currentTeam)
+              .map(([n, r]) => ({ name: n, ...r }));
+            
+            const nonAttackerPaces = teamRiders
+              .filter(r => r.attacking_status !== 'attacker')
+              .map(r => Math.round(r.selected_value || 0));
+            
+            aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+          }
+          
           const teamRiders = Object.entries(result.updatedCards)
             .filter(([, r]) => r.group === currentGroup && r.team === currentTeam)
             .map(([n, r]) => ({ name: n, ...r }));
-          
-          const nonAttackerPaces = teamRiders
-            .filter(r => r.attacking_status !== 'attacker')
-            .map(r => Math.round(r.selected_value || 0));
-          
-          let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
           const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
           const aiDoubleLead = result.doubleLead || null;
           
@@ -1259,8 +1295,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           const aiAttackerName = (teamRiders.find(r => r.attacking_status === 'attacker') || {}).name || null;
           setAiMessage(`${currentTeam} has chosen ${aiTeamPace}`);
           console.log('🤖 About to call handlePaceSubmit:', { currentGroup, aiTeamPace, currentTeam, aiIsAttack, aiAttackerName });
+          addLog(`🤖 DEBUG: About to call handlePaceSubmit(group=${currentGroup}, pace=${aiTeamPace}, team=${currentTeam}, attack=${aiIsAttack}, attacker=${aiAttackerName})`);
           handlePaceSubmit(currentGroup, aiTeamPace, currentTeam, aiIsAttack, aiAttackerName, aiDoubleLead, result.updatedCards);
           console.log('🤖 handlePaceSubmit completed');
+          addLog(`🤖 DEBUG: handlePaceSubmit completed for ${currentTeam}`);
         } else {
           console.warn('⚠️ autoPlayTeam returned no result for', currentTeam);
         }
@@ -2045,14 +2083,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 // Schedule on next tick to ensure state is updated
                 setTimeout(() => {
                   try {
-                    console.log('🔄 Executing handlePaceSubmit to trigger leader assignment (NOT forceFinalize)');
-                    // Call handlePaceSubmit WITHOUT forceFinalize - this will:
+                    console.log('🔄 Executing handlePaceSubmit to trigger leader assignment WITH forceFinalize=true');
+                    // Call handlePaceSubmit WITH forceFinalize=true - this will:
+                    // - Skip pace recording (use existing submissions from teamPacesRef)
                     // - Calculate speed
                     // - Assign leader
                     // - Set movePhase to 'cardSelection'
                     // - Card selection dialog will auto-open
                     // Use currentTeamFromFirebase and pass state.cards as cardsSnapshot
-                    handlePaceSubmit(groupNum, 0, currentTeamFromFirebase, false, null, null, state.cards, false);
+                    // IMPORTANT: forceFinalize=true prevents overwriting existing submissions with pace=0
+                    handlePaceSubmit(groupNum, 0, currentTeamFromFirebase, false, null, null, state.cards, true);
                     console.log('🔄 handlePaceSubmit completed, should now be in cardSelection phase');
                   } catch (err) {
                     console.error('🔄 Error calling handlePaceSubmit:', err);
@@ -2591,12 +2631,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   
   const updatedCards = {...cardsToUse};
   
+  // Log all riders on this team in this group for debugging
+  try {
+    const riderNames = teamRiders.map(([name]) => name).join(', ');
+    addLog(`🔍 autoPlayTeam ${teamName} group ${groupNum}: evaluating riders [${riderNames}]`);
+  } catch(e) {}
+  
   // Evaluate each rider individually
   const teamAttackDeclared = {};
   for (const [name] of teamRiders) {
   // Pass the app logger into takesLeadFC so its internal debug/probability
   // messages are routed to the game log. Set write=true to enable detailed logging.
   updatedCards[name].takes_lead = takesLeadFC(name, updatedCards, track, numberOfTeams, false, true, [], addLog, Math.random, isStageRace);
+  
+  // Log the result of takesLeadFC evaluation
+  try {
+    addLog(`   → ${name}: takes_lead=${updatedCards[name].takes_lead}`);
+  } catch(e) {}
 
     // Enforce max one attacker per team: if this rider wants to attack but
     // their team already has an attacker, cancel this attack intent.
@@ -2671,6 +2722,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
 
       updatedCards[name].selected_value = updatedCards[name].takes_lead * validatedSelected;
+      
+      // Log the computed selected_value
+      try {
+        addLog(`   → ${name}: selected_value=${updatedCards[name].selected_value} (takes_lead=${updatedCards[name].takes_lead} × validatedSelected=${validatedSelected})`);
+      } catch(e) {}
 
       // Sanity check: selected_value must equal takes_lead * selected
       try {
@@ -2749,9 +2805,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         pace = Math.max(pace, updatedCards[name].selected_value);
         const tname = updatedCards[name].team;
         teamPaceMap[tname] = Math.max(teamPaceMap[tname] || 0, Math.round(updatedCards[name].selected_value));
+        try {
+          addLog(`   → ${name}: contributes ${updatedCards[name].selected_value} to team pace (now ${teamPaceMap[tname]})`);
+        } catch(e) {}
       }
     } else {
       updatedCards[name].selected_value = 0;
+      try {
+        addLog(`   → ${name}: selected_value=0 (takes_lead=0)`);
+      } catch(e) {}
     }
   }
   
@@ -2799,16 +2861,27 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const otherPaces = Object.entries(teamPaceMap).filter(([k]) => k !== teamName).map(([, v]) => Number(v) || 0);
   const otherMax = otherPaces.length > 0 ? Math.max(...otherPaces) : 0;
 
+  try {
+    addLog(`🎯 ${teamName}: teamDeclaredPace=${teamDeclaredPace}, otherMax=${otherMax}`);
+  } catch(e) {}
+
+  // Use the team's declared pace directly
+  // If no riders want to lead, pace will be 0
   let finalPace = teamDeclaredPace;
-  // If our declared pace is non-positive or would not affect the group (<= otherMax)
-  // fall back to the random minimal choice (2-4) to mirror original AI unpredictability.
-  if (!finalPace || finalPace <= otherMax) {
+  
+  // If our declared pace would not affect the group (<= otherMax), set to 0
+  if (finalPace > 0 && finalPace <= otherMax) {
+    try {
+      addLog(`🎯 ${teamName}: teamDeclaredPace ${finalPace} ≤ otherMax ${otherMax} → setting pace to 0`);
+    } catch(e) {}
     finalPace = 0;
   }
-  if (finalPace === 0) finalPace = Math.floor(Math.random() * 3) + 2;
-  if (finalPace <= otherMax) finalPace = 0;
-  // Ensure integer >= 2
-  pace = Math.max(2, Math.round(finalPace || 0));
+  
+  pace = Math.round(finalPace || 0);
+  
+  try {
+    addLog(`🎯 ${teamName}: Final computed pace=${pace}`);
+  } catch(e) {}
   
   // In choice-2, enforce that pace is at least minPace (if provided)
   if (typeof minPace !== 'undefined' && minPace > 0) {
@@ -2830,6 +2903,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Show a short-lived AI message for UX, but avoid adding a log here because
   // the definitive submission (and its log) is created by handlePaceSubmit.
   setAiMessage(msg);
+
+  try {
+    addLog(`🎯 ${teamName}: Returning from autoPlayTeam with pace=${pace}, doubleLead=${doubleLead}`);
+  } catch(e) {}
 
 // Return data i stedet for at kalde handlePaceSubmit direkte
 return { pace, updatedCards, doubleLead };
@@ -4142,7 +4219,7 @@ return { pace, updatedCards, doubleLead };
     // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
     // forceFinalize: skip double-submission check and proceed to finalization (for multiplayer HOST)
-    console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize);
+    console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize, 'leaderAssignedForGroup=', leaderAssignedForGroupRef.current);
     console.log('🔍 dobbeltføringLeadersRef at START:', JSON.stringify(dobbeltføringLeadersRef.current || []));
     
     // Get track string early so it's available throughout the function
@@ -4153,6 +4230,21 @@ return { pace, updatedCards, doubleLead };
     if (movePhaseRef.current !== 'input') {
       console.warn(`⚠️ handlePaceSubmit called but movePhase is ${movePhaseRef.current} (expected input) - ignoring`);
       return;
+    }
+    
+    // Guard: if leader was already assigned for this group, ignore duplicate calls
+    // This prevents React re-renders from triggering handlePaceSubmit multiple times
+    if (leaderAssignedForGroupRef.current === groupNum && !forceFinalize) {
+      console.warn(`⚠️ handlePaceSubmit called but leader already assigned for group ${groupNum} - ignoring duplicate`);
+      return;
+    }
+    
+    // Mark that we're processing this group immediately to prevent duplicate processing
+    // This happens BEFORE any setCards calls to block concurrent calls
+    // Note: This will be cleared in transitionToNextGroup
+    if (!forceFinalize) {
+      leaderAssignedForGroupRef.current = groupNum;
+      console.log(`🔒 Early set leaderAssignedForGroupRef = ${groupNum} to block duplicates`);
     }
 
     const submittingTeam = team || currentTeam;
@@ -4191,7 +4283,8 @@ return { pace, updatedCards, doubleLead };
 
     // Prevent double-submission by same team for the same round.
     // If the group is in round 2 we allow replacing a round-1 submission.
-    const existingMeta = teamPaceMeta[paceKey];
+    // CRITICAL: Use ref instead of state to avoid async state update issues
+    const existingMeta = teamPaceMetaRef.current[paceKey];
     const existingRound = existingMeta && existingMeta.round ? existingMeta.round : 1;
     const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
     
@@ -4200,11 +4293,10 @@ return { pace, updatedCards, doubleLead };
     // If forceFinalize is false and pace is 0, check if this team already submitted a non-zero pace
     // This prevents overwriting actual submissions when HOST calls handlePaceSubmit to trigger leader calculation
     if (!forceFinalize && pace === 0 && existingMeta && existingMeta.pace && existingMeta.pace > 0 && existingRound === currentRound) {
-      console.log('🚀 Team already has a valid submission (pace=', existingMeta.pace, ') - using that instead of overwriting with 0');
-      // Skip to finalization logic without overwriting the existing submission
-      // Set forceFinalize to true to skip the pace recording block
-      forceFinalize = true;
-      console.log('🚀 Set forceFinalize=true to prevent overwrite, will jump to finalization');
+      console.log('🚀 Team already has a valid submission (pace=', existingMeta.pace, ') - skipping pace=0 call entirely');
+      // This team already submitted - just return without doing anything
+      // The existing submission in teamPaces/teamPaceMeta will be used
+      return;
     }
     
     if (existingMeta && existingRound >= currentRound && !forceFinalize) {
@@ -4809,28 +4901,13 @@ return { pace, updatedCards, doubleLead };
       try { addLog(msg); } catch (e) {}
     });
     
-    // If speed was forced by catch-up, clear selected_value/takes_lead for all riders
+    // If speed was forced by catch-up (group ahead), DON'T clear selected_value/takes_lead
+    // The rider still plays their card and gets fatigue - they just move to catch the group ahead
+    // Only clear if explicitly told to (future: when caught from behind by faster group)
     if (speedResult.forcedByCatchUp) {
-      addLog(`⚡ Group ${groupNum} overtaget bagfra — ingen lead rider (ingen træthedskort)`);
-      
-      // Clear dobbeltføring leaders since catch-up forcing overrides manual selection
-      dobbeltføringLeadersRef.current = [];
-      
-      // Clear immediately in snapshot so confirmMove sees the cleared values
-      if (cardsSnapshotRef.current) {
-        for (const [n, r] of Object.entries(cardsSnapshotRef.current)) {
-          if (r.group === groupNum) {
-            cardsSnapshotRef.current[n] = { ...r, selected_value: 0, takes_lead: 0 };
-          }
-        }
-      }
-      setCards(prev => {
-        const updated = { ...prev };
-        for (const [n, r] of Object.entries(updated)) {
-          if (r.group === groupNum) updated[n] = { ...r, selected_value: 0, takes_lead: 0 };
-        }
-        return updated;
-      });
+      addLog(`⚡ Group ${groupNum} catches group ahead - riders play cards to speed ${speed}`);
+      // DON'T clear selected_value/takes_lead - riders still play their cards
+      // DON'T clear dobbeltføring leaders - dobbeltføring still applies when catching
     }
     
     // If speed was blocked by group ahead, clear takes_lead/selected_value
@@ -4891,23 +4968,8 @@ return { pace, updatedCards, doubleLead };
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
       if (chosenTeam) {
-        // GUARD: Prevent duplicate leader assignment for the same group
-        // This protects against React batching multiple setCards calls
-        if (leaderAssignedForGroupRef.current === groupNum) {
-          console.warn(`⚠️ Leader already assigned for group ${groupNum} - skipping duplicate assignment`);
-          // Still need to set movePhase to cardSelection, so jump to that section
-          if (cardsSnapshot) {
-            cardsSnapshotRef.current = cardsSnapshot;
-          }
-          setMovePhase('cardSelection');
-          movePhaseRef.current = 'cardSelection';
-          console.log('✅ Set movePhase to cardSelection (skipped leader assignment)');
-          return;
-        }
-        
-        // Mark that we're assigning a leader for this group
-        leaderAssignedForGroupRef.current = groupNum;
-        console.log(`🔒 Set leaderAssignedForGroupRef = ${groupNum}`);
+        // leaderAssignedForGroupRef was already set early in handlePaceSubmit to block duplicates
+        // No need to check or set it again here
         
         // Special handling for manual dobbeltføring: both riders are already marked as leaders
         const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cardsToUse[name] && cardsToUse[name].group === groupNum);
@@ -4923,8 +4985,16 @@ return { pace, updatedCards, doubleLead };
             const groupRiders = Object.entries(updated).filter(([, r]) => r.group === groupNum).map(([n, r]) => ({ name: n, ...r }));
             
             // Clear takes_lead for all riders first
+            // IMPORTANT: Preserve attacking_status and attack_card to avoid clearing attackers
             for (const r of groupRiders) {
-              updated[r.name] = { ...updated[r.name], takes_lead: 0 };
+              const preservedAttackStatus = updated[r.name].attacking_status;
+              const preservedAttackCard = updated[r.name].attack_card;
+              updated[r.name] = { 
+                ...updated[r.name], 
+                takes_lead: 0,
+                ...(preservedAttackStatus ? { attacking_status: preservedAttackStatus } : {}),
+                ...(preservedAttackCard ? { attack_card: preservedAttackCard } : {})
+              };
             }
             
             // Set takes_lead and planned card for both dobbeltføring leaders
@@ -5018,6 +5088,7 @@ return { pace, updatedCards, doubleLead };
             // to the group's speed. Prefer non-attacking riders first.
             const speedVal = Math.round(speed);
             console.log('🎯 Looking for candidates with selected_value =', speedVal, 'in team', chosenTeam);
+            console.log('🎯 DEBUG ALL RIDERS SELECTED_VALUE:', groupRiders.map(r => `${r.name}(team=${r.team},sv=${r.selected_value},tl=${r.takes_lead})`).join(', '));
             let candidates = groupRiders.filter(r => r.team === chosenTeam && r.attacking_status !== 'attacker' && Math.round(r.selected_value || 0) === speedVal);
             console.log('🎯 Non-attacker candidates:', candidates.length, candidates.map(c => `${c.name}(sv=${c.selected_value})`));
             if (candidates.length === 0) {
@@ -5160,8 +5231,17 @@ return { pace, updatedCards, doubleLead };
             const bestName = candidates[0].name;
 
             // Clear takes_lead/selected_value for all riders in group
+            // IMPORTANT: Preserve attacking_status and attack_card to avoid clearing attackers
             for (const r of groupRiders) {
-              updated[r.name] = { ...updated[r.name], takes_lead: 0, selected_value: 0 };
+              const preservedAttackStatus = updated[r.name].attacking_status;
+              const preservedAttackCard = updated[r.name].attack_card;
+              updated[r.name] = { 
+                ...updated[r.name], 
+                takes_lead: 0, 
+                selected_value: 0,
+                ...(preservedAttackStatus ? { attacking_status: preservedAttackStatus } : {}),
+                ...(preservedAttackCard ? { attack_card: preservedAttackCard } : {})
+              };
             }
 
             // Leader selected_value = group's speed (must match final speed after all adjustments)
@@ -5492,6 +5572,12 @@ const handleHumanChoices = (groupNum, choice) => {
     
     addLog(`${playerTeam}: følger (0)`);
   }
+  
+  // Mark all human riders in this group as having their cards planned
+  // This allows multiplayer HOST to detect that player has submitted card choices
+  humanRiders.forEach(name => {
+    updatedCards[name].human_planned = true;
+  });
   
   setCards(updatedCards);
   
@@ -5965,60 +6051,17 @@ const confirmMove = (cardsSnapshot) => {
     addLog(`Debug groups: all=${remainingGroupsSet.join(',') || 'none'} movedLocal=${groupsMovedLocal.join(',') || 'none'} remainingNotMoved=${remainingNotMoved.join(',') || 'none'}`);
 
     if (remainingNotMoved.length > 0) {
-      const nextGroup = Math.max(...remainingNotMoved);
-      console.log('🔍 Moving to next group:', nextGroup, 'from current:', currentGroup);
-      // If nextGroup is the same as currentGroup (possible if some riders remained),
-      // still set up for the next input phase to avoid a stuck UI.
-      setCurrentGroup(nextGroup);
-  setTeamPaces({});
-  setTeamPaceMeta({});
-  setTeamPaceRound({});  // Reset round tracking for new group
-  setGroupSpeed(0);  // Reset groupSpeed for the new group
-  
-  // Reset refs to match cleared state
-  teamPacesRef.current = {};
-  teamPaceMetaRef.current = {};
-  cardSelectionOpenedForGroupRef.current = null; // Reset card selection tracking for new group
-      
-      // Reset selected_value and takes_lead for ALL riders to prevent values from
-      // previous groups affecting speed calculations in the new group
-      // Also clear planned_card_id and human_planned from the moved group
-      setCards(prev => {
-        const updated = { ...prev };
-        for (const [name, rider] of Object.entries(updated)) {
-          const needsUpdate = 
-            rider.selected_value !== 0 || 
-            rider.takes_lead !== 0 ||
-            (rider.group === currentGroup && (rider.planned_card_id || rider.human_planned));
-          
-          if (needsUpdate) {
-            updated[name] = { 
-              ...rider, 
-              selected_value: 0, 
-              takes_lead: 0,
-              // Clear planned_card_id only for riders in the group that just moved
-              ...(rider.group === currentGroup ? { planned_card_id: undefined, human_planned: false } : {})
-            };
-          }
-        }
-        return updated;
-      });
-      
-      const shuffled = [...teams].sort(() => Math.random() - 0.5);
-      setTeams(shuffled);
-      // choose first team that actually has non-attacker riders in the next group
-      const firstTeam = findNextTeamWithRiders(0, nextGroup);
-      if (firstTeam) setCurrentTeam(firstTeam);
-      else setCurrentTeam(shuffled[0]);
-      setMovePhase('input');
-      movePhaseRef.current = 'input'; // IMPORTANT: Update ref so handlePaceSubmit guard allows submissions
-      console.log('✅ Set movePhase to input for next group:', nextGroup);
-      
-      // Sync cleared planned_card_id values to Firebase for next group
-      if (roomCodeRef.current && isHost) {
-        console.log('🚀 confirmMove: Syncing to Firebase after moving to next group (clearing planned_card_id)');
+      // Use centralized transition function
+      const success = transitionToNextGroup(currentGroup);
+      if (!success) {
+        console.error('🔍 transitionToNextGroup failed - falling back to round complete');
+        // Fallback to round complete
         setTimeout(() => {
-          syncMoveToFirebase().catch(err => console.error('Failed to sync next group state:', err));
+          setCards(prev => prev);
+          setGroupsMovedThisRound([]);
+          setMovePhase('roundComplete');
+          setWaitingForCardSelections(false);
+          addLog('All groups moved. Groups reassigned');
         }, 100);
       }
     } else {
@@ -6169,6 +6212,221 @@ const confirmMove = (cardsSnapshot) => {
   }
 };
 
+// ============================================================================
+// CENTRALIZED GROUP & ROUND TRANSITION FUNCTIONS
+// ============================================================================
+// These functions handle state transitions between groups and rounds,
+// ensuring proper synchronization in multiplayer games.
+// ============================================================================
+
+/**
+ * Transition to the next unfinished group
+ * Called after a group completes its move
+ * @param {number} fromGroup - The group that just finished moving
+ */
+const transitionToNextGroup = (fromGroup) => {
+  console.log('🔄 transitionToNextGroup: from group', fromGroup);
+  addLog(`────────────────────────────────`);
+  addLog(`Group ${fromGroup} completed. Moving to next group...`);
+  addLog(`────────────────────────────────`);
+  
+  // Mark the group as moved FIRST before finding next group
+  setGroupsMovedThisRound(prev => {
+    const updated = Array.from(new Set([...(prev || []), fromGroup]));
+    console.log('🔄 Updated groupsMovedThisRound:', updated);
+    return updated;
+  });
+  
+  // Find remaining unfinished groups
+  const allGroups = Object.values(cardsRef.current)
+    .filter(r => !r.finished)
+    .map(r => r.group);
+  const uniqueGroups = [...new Set(allGroups)];
+  // Build local view including the group we just moved
+  const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRound || []), fromGroup]));
+  const remainingNotMoved = uniqueGroups.filter(g => !groupsMovedLocal.includes(g));
+  
+  console.log('🔄 Groups remaining:', remainingNotMoved);
+  
+  if (remainingNotMoved.length === 0) {
+    console.log('🔄 No groups remaining - need reassignment or round end');
+    return false; // Signal that we need round transition
+  }
+  
+  const nextGroup = Math.max(...remainingNotMoved);
+  console.log('🔄 Next group:', nextGroup);
+  addLog(``);
+  addLog(`➤ NEXT GROUP: ${nextGroup}`);
+  addLog(``);
+  
+  // Clear state for new group
+  setTeamPaces({});
+  setTeamPaceMeta({});
+  setTeamPaceRound({});
+  setGroupSpeed(0);
+  
+  // Clear refs immediately
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
+  teamPaceRoundRef.current = {};
+  cardSelectionOpenedForGroupRef.current = null;
+  confirmMoveCalledForGroupRef.current = null; // Reset so new group can call confirmMove
+  
+  // Clear selected_value and takes_lead ONLY for the group that just moved
+  // Other groups need to keep their values from autoPlayTeam for leader assignment
+  // Clear planned_card_id and human_planned from the group that just moved
+  setCards(prev => {
+    const updated = { ...prev };
+    for (const [name, rider] of Object.entries(updated)) {
+      // Only update riders in the group that just moved
+      if (rider.group === fromGroup) {
+        const needsUpdate = 
+          rider.selected_value !== 0 || 
+          rider.takes_lead !== 0 ||
+          rider.planned_card_id ||
+          rider.human_planned;
+        
+        if (needsUpdate) {
+          updated[name] = { 
+            ...rider, 
+            selected_value: 0, 
+            takes_lead: 0,
+            planned_card_id: undefined, 
+            human_planned: false
+          };
+        }
+      }
+    }
+    return updated;
+  });
+  
+  // Set new group and phase
+  setCurrentGroup(nextGroup);
+  const shuffled = [...teams].sort(() => Math.random() - 0.5);
+  setTeams(shuffled);
+  
+  const firstTeam = findNextTeamWithRiders(0, nextGroup);
+  if (firstTeam) {
+    setCurrentTeam(firstTeam);
+    currentTeamRef.current = firstTeam;
+  } else {
+    setCurrentTeam(shuffled[0]);
+    currentTeamRef.current = shuffled[0];
+  }
+  
+  setMovePhase('input');
+  movePhaseRef.current = 'input';
+  
+  // Clear leader assignment guard so next group can assign leader
+  leaderAssignedForGroupRef.current = null;
+  console.log('🔓 Cleared leaderAssignedForGroupRef for next group');
+  
+  addLog(`=== GROUP ${nextGroup} ===`);
+  
+  // Sync to Firebase if multiplayer HOST
+  if (roomCodeRef.current && isHost) {
+    console.log('🔄 transitionToNextGroup: Syncing to Firebase');
+    setTimeout(() => {
+      syncMoveToFirebase().catch(err => console.error('Failed to sync group transition:', err));
+    }, 100);
+  }
+  
+  return true; // Successfully transitioned
+};
+
+/**
+ * Transition to the next round
+ * Called when all groups have finished moving
+ */
+const transitionToNextRound = () => {
+  console.log('🔄 transitionToNextRound: from round', round);
+  
+  const newRound = round + 1;
+  addLog(``);
+  addLog(`════════════════════════════════════════`);
+  addLog(`           ROUND ${newRound}           `);
+  addLog(`════════════════════════════════════════`);
+  addLog(``);
+  
+  // Clear round state
+  setPostMoveInfo(null);
+  postMoveInfoRef.current = null;
+  setWaitingForCardSelections(false);
+  setPullInvestOutcome({});
+  setTeamPaces({});
+  setTeamPaceMeta({});
+  setTeamPaceRound({});
+  setGroupSpeed(0);
+  setGroupsMovedThisRound([]);
+  
+  // Clear refs immediately
+  teamPacesRef.current = {};
+  teamPaceMetaRef.current = {};
+  teamPaceRoundRef.current = {};
+  allGroupsThisTurnRef.current = [];
+  
+  // Clear planned_card_id and human_planned for ALL riders at round start
+  // This ensures card selection dialog opens for human players in new round
+  setCards(prev => {
+    const updated = { ...prev };
+    for (const [name, rider] of Object.entries(updated)) {
+      if (rider.planned_card_id || rider.human_planned) {
+        updated[name] = { 
+          ...rider, 
+          planned_card_id: undefined, 
+          human_planned: false 
+        };
+      }
+    }
+    return updated;
+  });
+  
+  // Increment round
+  setRound(newRound);
+  roundRef.current = newRound;
+  
+  // Find max group and set as current
+  const maxGroup = Math.max(...Object.values(cardsRef.current).filter(r => !r.finished).map(r => r.group));
+  setCurrentGroup(maxGroup);
+  
+  // Compute team order for this round
+  const base = teamBaseOrder && teamBaseOrder.length === teams.length ? teamBaseOrder : [...teams];
+  let order = [...base];
+  const half = Math.floor(newRound / 2);
+  const rotate = (arr, k) => arr.slice(k % arr.length).concat(arr.slice(0, k % arr.length));
+  
+  if (newRound % 2 === 0) {
+    order = rotate(base, half);
+  } else {
+    const prev = rotate(base, half);
+    order = [...prev].reverse();
+  }
+  
+  setTeams(order);
+  const firstTeam = findNextTeamWithRiders(0, maxGroup);
+  const teamToSet = firstTeam || order[0];
+  setCurrentTeam(teamToSet);
+  currentTeamRef.current = teamToSet;
+  
+  setMovePhase('input');
+  movePhaseRef.current = 'input';
+  
+  console.log('🔄 Round transition complete:', { newRound, maxGroup, teamToSet, teamOrder: order });
+  addLog(`Team order for round ${newRound}: ${order.join(', ')}`);
+  
+  // Sync to Firebase if multiplayer HOST
+  if (roomCodeRef.current && isHost) {
+    console.log('🔄 transitionToNextRound: Syncing to Firebase');
+    setTimeout(() => {
+      syncMoveToFirebase().catch(err => console.error('Failed to sync round transition:', err));
+    }, 100);
+  }
+};
+
+// ============================================================================
+// END CENTRALIZED TRANSITION FUNCTIONS
+// ============================================================================
+
 // Called by the UI after a move has been confirmed and the post-move
 // summary is displayed. Advances to the next not-yet-moved group, or
 // if none remain, starts the next round.
@@ -6245,61 +6503,15 @@ const startNewRound = async () => {
   // the top status box returns to the normal chosen-speed UI.
   try { setSprintAnimMsgs([]); } catch (e) {}
   console.log('Current cards:', cards);
-  // Clear the post-move yellow panel when the user starts a new round
-  // so the played-cards summary is not left visible between rounds.
-  setPostMoveInfo(null);
-  postMoveInfoRef.current = null; // Clear ref so Firebase sync sends null
-  setWaitingForCardSelections(false); // Clear monitoring flag for new round
   
-  // Reset confirmMove tracking for new round - REMOVED to rely on useEffect
-  // confirmMoveCalledForGroupRef.current = null;
+  // Use centralized transition function for state clearing and round increment
+  transitionToNextRound();
   
-  const maxGroup = Math.max(...Object.values(cards).filter(r => !r.finished).map(r => r.group));
-  const newRound = round + 1;
+  const newRound = roundRef.current; // Use ref since state update is async
+  const maxGroup = Math.max(...Object.values(cardsRef.current).filter(r => !r.finished).map(r => r.group));
   
   console.log('Max group:', maxGroup);
   console.log('New round:', newRound);
-  
-  setRound(newRound);
-  roundRef.current = newRound; // Update ref immediately for Firebase sync
-  setCurrentGroup(maxGroup);
-  // clear any stored invest outcomes from previous round
-  setPullInvestOutcome({});
-  setTeamPaces({});
-  setTeamPaceMeta({});
-  setTeamPaceRound({}); // Clear round tracking for new round
-  teamPacesRef.current = {}; // Clear refs immediately for Firebase sync
-  teamPaceMetaRef.current = {}; // Clear refs immediately for Firebase sync
-  teamPaceRoundRef.current = {}; // Clear round tracking ref immediately for Firebase sync
-  allGroupsThisTurnRef.current = []; // Clear group positions for new round
-  setGroupSpeed(0);  // Reset groupSpeed for the new round
-  // Compute deterministic team order for this round based on base order
-  const base = teamBaseOrder && teamBaseOrder.length === teams.length ? teamBaseOrder : [...teams];
-  let order = [...base];
-  // For even rounds (round % 2 === 0) we rotate clockwise by (round/2) steps
-  // For odd rounds we take the reverse of the previous order after rotation
-  const half = Math.floor(newRound / 2);
-  const rotate = (arr, k) => arr.slice(k % arr.length).concat(arr.slice(0, k % arr.length));
-  if (newRound % 2 === 0) {
-    order = rotate(base, half);
-  } else {
-    // reverse the previous rotation
-    const prev = rotate(base, half);
-    order = [...prev].reverse();
-  }
-  setTeams(order);
-  // pick first team that has riders in the leading group to avoid starting with an empty team
-  const firstTeamForRound = findNextTeamWithRiders(0, maxGroup);
-  const teamToSet = firstTeamForRound || order[0];
-  setCurrentTeam(teamToSet);
-  currentTeamRef.current = teamToSet; // Update ref immediately for Firebase sync
-  setMovePhase('input');
-  movePhaseRef.current = 'input'; // Update ref immediately for Firebase sync
-  // Clear groups moved tracker for the new round
-  setGroupsMovedThisRound([]);
-  
-  console.log('Computed team order for round:', order);
-  console.log('Current team set to:', teamToSet);
   
   // ===== REASSIGN GROUPS BASED ON POSITION =====
   // At the start of each new round, reassign all riders to groups based on their current position
@@ -6335,6 +6547,7 @@ const startNewRound = async () => {
       takes_lead: 0,
       selected_value: 0,
       planned_card_id: undefined,
+      human_planned: false, // Clear human_planned flag between rounds
       // Ensure old_position matches current position at the start of the new round
       // so groups are not flagged as "moved" immediately after round rollover.
       old_position: Number(updatedCards[n].position || 0),
@@ -6566,7 +6779,7 @@ if (potentialLeaders.length > 0) {
   
   // Update currentTeam to a team that has riders in the new maxGroup
   const firstTeamAfterReassign = findNextTeamWithRiders(0, maxGroupAfterReassign);
-  const teamToSetAfterReassign = firstTeamAfterReassign || order[0];
+  const teamToSetAfterReassign = firstTeamAfterReassign || teams[0];
   setCurrentTeam(teamToSetAfterReassign);
   currentTeamRef.current = teamToSetAfterReassign; // Update ref immediately for Firebase sync
   console.log('Current team after reassignment:', teamToSetAfterReassign);
@@ -9543,17 +9756,24 @@ const checkCrash = () => {
                       const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
                       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
                       
+                      // In multiplayer, find this player's actual team from multiplayerPlayers
+                      const myTeam = gameMode === 'multi' && multiplayerPlayers.length > 0
+                        ? multiplayerPlayers.find(p => p.name === playerName)?.team || playerName
+                        : currentPlayerTeam;
+                      
                       console.log('🎮 Turn check:', {
                         gameMode,
                         currentTeam,
                         playerName,
+                        myTeam,
                         currentPlayerTeam,
-                        isMyTurn: currentTeam === playerName,
-                        humanRidersCount: humanRiders.length
+                        isMyTurn: currentTeam === myTeam,
+                        humanRidersCount: humanRiders.length,
+                        multiplayerPlayers: multiplayerPlayers.map(p => `${p.name}:${p.team}`)
                       });
                       
                       // In multiplayer mode, check if it's actually this player's turn
-                      if (gameMode === 'multi' && currentTeam !== playerName) {
+                      if (gameMode === 'multi' && currentTeam !== myTeam) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
                             Waiting for {getTeamDisplayName(currentTeam)} to make their move...
@@ -9892,9 +10112,22 @@ const checkCrash = () => {
                                           if (result) {
                                             // Merge result.updatedCards into accumulatedCards instead of calling setCards
                                             accumulatedCards = { ...accumulatedCards, ...result.updatedCards };
+                                            
+                                            // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
+                                            // fall back to inferring from the per-rider selected_value in updatedCards.
+                                            let aiTeamPace = 0;
+                                            if (typeof result.pace === 'number') {
+                                              aiTeamPace = Math.round(result.pace || 0);
+                                            }
+                                            
+                                            // Fallback: infer from selected_value if pace is 0 or missing
+                                            if ((!aiTeamPace || aiTeamPace === 0) && result.updatedCards) {
+                                              const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === team).map(([n, r]) => ({ name: n, ...r }));
+                                              const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                              aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                            }
+                                            
                                             const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === team).map(([n, r]) => ({ name: n, ...r }));
-                                            const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                                            let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                             const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
                                             const aiDoubleLead = result.doubleLead || null;
                                             
@@ -9941,9 +10174,22 @@ const checkCrash = () => {
                                       const teamAtCall = currentTeam;
                                       if (result) {
                                         setCards(result.updatedCards);
+                                        
+                                        // Prefer the explicit pace computed by autoPlayTeam. If missing or 0,
+                                        // fall back to inferring from the per-rider selected_value in updatedCards.
+                                        let aiTeamPace = 0;
+                                        if (typeof result.pace === 'number') {
+                                          aiTeamPace = Math.round(result.pace || 0);
+                                        }
+                                        
+                                        // Fallback: infer from selected_value if pace is 0 or missing
+                                        if ((!aiTeamPace || aiTeamPace === 0) && result.updatedCards) {
+                                          const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
+                                          const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
+                                          aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
+                                        }
+                                        
                                         const teamRiders = Object.entries(result.updatedCards).filter(([, r]) => r.group === currentGroup && r.team === teamAtCall).map(([n, r]) => ({ name: n, ...r }));
-                                        const nonAttackerPaces = teamRiders.filter(r => r.attacking_status !== 'attacker').map(r => Math.round(r.selected_value || 0));
-                                        let aiTeamPace = nonAttackerPaces.length > 0 ? Math.max(...nonAttackerPaces) : 0;
                                         const aiIsAttack = teamRiders.some(r => r.attacking_status === 'attacker');
                                         const aiDoubleLead = result.doubleLead || null;
                                         
@@ -10463,7 +10709,35 @@ const checkCrash = () => {
                       })}
                     </div>
                     <div className="flex justify-end gap-3">
-                      <button onClick={() => setCardSelectionOpen(false)} className="px-3 py-2 border rounded">Cancel</button>
+                      <button onClick={() => {
+                        // Cancel card selection - reset to input phase so player can choose pace again
+                        console.log('🎴 Card selection cancelled - resetting to input phase');
+                        setCardSelectionOpen(false);
+                        
+                        // Clear human_planned flags for this player's riders in this group
+                        const playerTeam = gameMode === 'multi' ? playerName : 'Me';
+                        setCards(prev => {
+                          const updated = { ...prev };
+                          for (const [name, rider] of Object.entries(updated)) {
+                            if (rider.group === currentGroup && rider.team === playerTeam && rider.human_planned) {
+                              updated[name] = { ...rider, human_planned: false, planned_card_id: undefined };
+                            }
+                          }
+                          return updated;
+                        });
+                        
+                        // Reset to input phase
+                        setMovePhase('input');
+                        movePhaseRef.current = 'input';
+                        setWaitingForCardSelections(false);
+                        
+                        // Sync to Firebase if multiplayer
+                        if (roomCodeRef.current) {
+                          setTimeout(() => {
+                            syncMoveToFirebase().catch(err => console.error('Failed to sync cancel:', err));
+                          }, 50);
+                        }
+                      }} className="px-3 py-2 border rounded">Cancel</button>
                       <button disabled={Object.values(cardSelections).length === 0 || Object.values(cardSelections).some(v => v === null)} onClick={submitCardSelections} className="px-4 py-2 bg-green-600 text-white rounded">Submit</button>
                     </div>
                   </div>
@@ -10857,12 +11131,26 @@ const checkCrash = () => {
                     {(() => {
                       // Compute kilometers left from the furthest-forward rider
                       const kmLeft = computeKmLeft(getResolvedTrack(), cards);
+                      // Determine game phase for display
+                      const phaseDisplay = movePhase === 'cardSelection' ? 'Selecting cards' 
+                        : movePhase === 'input' ? `Group ${currentGroup}` 
+                        : movePhase === 'tkConversion' ? 'Between rounds'
+                        : movePhase === 'pullback' ? 'Pull-back'
+                        : 'Moving';
+                      
                       return (
                         <div className="mb-1">
                           <div className="text-sm font-semibold"><strong>{`Km's left: ${kmLeft}`}</strong></div>
                           {gameMode === 'multi' && playerName && (
                             <div className="text-xs text-gray-600 mt-0.5">
                               Playing as: <span className="font-semibold text-indigo-700">{playerName}</span>
+                              {' • '}
+                              Round <span className="font-semibold">{round}</span>
+                              {' • '}
+                              <span className="font-semibold">{phaseDisplay}</span>
+                              {movePhase === 'input' && currentTeam && (
+                                <span className="text-xs ml-1">({currentTeam}'s turn)</span>
+                              )}
                             </div>
                           )}
                         </div>
