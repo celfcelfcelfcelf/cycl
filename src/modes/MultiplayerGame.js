@@ -5420,7 +5420,8 @@ return { pace, updatedCards, doubleLead };
   };
 
 const handleHumanChoices = (groupNum, choice) => {
-  console.log('Human choices:', choice);
+  console.log('🔵 handleHumanChoices CALLED:', { groupNum, choice, timestamp: Date.now() });
+  addLog(`🔵 DEBUG: handleHumanChoices called for group ${groupNum}, choice type: ${choice.type}`);
   
   const updatedCards = {...cards};
   const playerTeam = getPlayerTeamName();
@@ -5579,7 +5580,9 @@ const handleHumanChoices = (groupNum, choice) => {
     updatedCards[name].human_planned = true;
   });
   
+  addLog(`🔵 DEBUG: About to setCards with updatedCards`);
   setCards(updatedCards);
+  addLog(`🔵 DEBUG: setCards completed`);
   
   // Submit the team's pace (max of all riders' values)
   // Compute the team's non-attacker pace (attackers should not determine this)
@@ -5591,9 +5594,11 @@ const handleHumanChoices = (groupNum, choice) => {
   });
   addLog(`Calculated teamPace: ${teamPace}`);
   addLog(`========== PACE CALCULATION END ==========`);
+  addLog(`🔵 DEBUG: About to compute isAttack and attackerName`);
   const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
   const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
   
+  addLog(`🔵 DEBUG: About to build doubleLead object`);
   // Build doubleLead object if this is a doublelead choice
   const doubleLead = choice.type === 'doublelead' ? {
     pace1: choice.pace1,
@@ -5602,16 +5607,25 @@ const handleHumanChoices = (groupNum, choice) => {
     rider2: choice.rider2
   } : null;
   
-  // Pass updatedCards as snapshot to avoid React state timing issues
-  console.log('📤 handleHumanChoices: About to call handlePaceSubmit', {
-    groupNum,
-    teamPace,
-    playerTeam,
-    isAttack,
-    attackerName,
-    gameMode
-  });
-  handlePaceSubmit(groupNum, teamPace, playerTeam, isAttack, attackerName, doubleLead, updatedCards);
+  addLog(`🔵 DEBUG: About to call handlePaceSubmit`);
+  
+  try {
+    // Pass updatedCards as snapshot to avoid React state timing issues
+    console.log('📤 handleHumanChoices: About to call handlePaceSubmit', {
+      groupNum,
+      teamPace,
+      playerTeam,
+      isAttack,
+      attackerName,
+      gameMode
+    });
+    handlePaceSubmit(groupNum, teamPace, playerTeam, isAttack, attackerName, doubleLead, updatedCards);
+    addLog(`✅ DEBUG: handlePaceSubmit call completed`);
+    console.log('✅ handleHumanChoices: handlePaceSubmit call completed');
+  } catch (error) {
+    addLog(`❌ ERROR in handlePaceSubmit call: ${error.message}`);
+    console.error('❌ ERROR in handleHumanChoices calling handlePaceSubmit:', error);
+  }
 };
 
 /**
