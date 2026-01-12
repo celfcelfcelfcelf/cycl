@@ -783,8 +783,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // Clear confirmMove guard when moving to a new group
     // This allows confirmMove to be called for the new group
     confirmMoveCalledForGroupRef.current = null;
-    leaderAssignedForGroupRef.current = null;
-    console.log('🔄 Cleared confirmMoveCalledForGroupRef and leaderAssignedForGroupRef for new group:', currentGroup);
+    teamSubmissionsForGroupRef.current = {};
+    console.log('🔄 Cleared confirmMoveCalledForGroupRef and teamSubmissionsForGroupRef for new group:', currentGroup);
   }, [currentGroup]);
   
   useEffect(() => {
@@ -793,8 +793,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // This allows confirmMove to be called again for this group
     if (movePhase === 'input') {
       confirmMoveCalledForGroupRef.current = null;
-      leaderAssignedForGroupRef.current = null;
-      console.log('🔄 Cleared confirmMoveCalledForGroupRef and leaderAssignedForGroupRef on input phase');
+      teamSubmissionsForGroupRef.current = {};
+      console.log('🔄 Cleared confirmMoveCalledForGroupRef and teamSubmissionsForGroupRef on input phase');
     }
   }, [movePhase]);
   
@@ -4219,7 +4219,7 @@ return { pace, updatedCards, doubleLead };
     // doubleLead: { pace1, pace2, rider1, rider2 } when dobbeltføring is active
     // cardsSnapshot: pass through updated cards from handleHumanChoices to avoid React state timing issues
     // forceFinalize: skip double-submission check and proceed to finalization (for multiplayer HOST)
-    console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize, 'leaderAssignedForGroup=', leaderAssignedForGroupRef.current);
+    console.log('🚀 handlePaceSubmit START: group=', groupNum, 'team=', team || currentTeam, 'pace=', pace, 'hasSnapshot=', !!cardsSnapshot, 'forceFinalize=', forceFinalize, 'teamSubmissions=', teamSubmissionsForGroupRef.current[groupNum]);
     console.log('🔍 dobbeltføringLeadersRef at START:', JSON.stringify(dobbeltføringLeadersRef.current || []));
     
     // Get track string early so it's available throughout the function
@@ -4232,22 +4232,24 @@ return { pace, updatedCards, doubleLead };
       return;
     }
     
-    // Guard: if leader was already assigned for this group, ignore duplicate calls
-    // This prevents React re-renders from triggering handlePaceSubmit multiple times
-    if (leaderAssignedForGroupRef.current === groupNum && !forceFinalize) {
-      console.warn(`⚠️ handlePaceSubmit called but leader already assigned for group ${groupNum} - ignoring duplicate`);
-      return;
-    }
-    
-    // Mark that we're processing this group immediately to prevent duplicate processing
-    // This happens BEFORE any setCards calls to block concurrent calls
-    // Note: This will be cleared in transitionToNextGroup
-    if (!forceFinalize) {
-      leaderAssignedForGroupRef.current = groupNum;
-      console.log(`🔒 Early set leaderAssignedForGroupRef = ${groupNum} to block duplicates`);
-    }
-
     const submittingTeam = team || currentTeam;
+    
+    // Guard: if this team already submitted for this group, ignore duplicate calls
+    // This prevents React re-renders from triggering handlePaceSubmit multiple times for same team
+    if (!forceFinalize) {
+      if (!teamSubmissionsForGroupRef.current[groupNum]) {
+        teamSubmissionsForGroupRef.current[groupNum] = new Set();
+      }
+      
+      if (teamSubmissionsForGroupRef.current[groupNum].has(submittingTeam)) {
+        console.warn(`⚠️ handlePaceSubmit called but ${submittingTeam} already submitted for group ${groupNum} - ignoring duplicate`);
+        return;
+      }
+      
+      // Mark that this team has submitted for this group
+      teamSubmissionsForGroupRef.current[groupNum].add(submittingTeam);
+      console.log(`🔒 Marked ${submittingTeam} as submitted for group ${groupNum}. Teams submitted: ${Array.from(teamSubmissionsForGroupRef.current[groupNum]).join(', ')}`);
+    }
     
     console.log('🚀 Check 1: gameMode=', gameMode, 'submittingTeam=', submittingTeam, 'playerName=', playerName);
     
@@ -4968,7 +4970,7 @@ return { pace, updatedCards, doubleLead };
       for (const t of teams) { if (teamsWithMax.includes(t)) { chosenTeam = t; break; } }
 
       if (chosenTeam) {
-        // leaderAssignedForGroupRef was already set early in handlePaceSubmit to block duplicates
+        // teamSubmissionsForGroupRef was already updated early in handlePaceSubmit to block duplicate team submissions
         // No need to check or set it again here
         
         // Special handling for manual dobbeltføring: both riders are already marked as leaders
@@ -6332,8 +6334,8 @@ const transitionToNextGroup = (fromGroup) => {
   movePhaseRef.current = 'input';
   
   // Clear leader assignment guard so next group can assign leader
-  leaderAssignedForGroupRef.current = null;
-  console.log('🔓 Cleared leaderAssignedForGroupRef for next group');
+  teamSubmissionsForGroupRef.current = {};
+  console.log('🔓 Cleared teamSubmissionsForGroupRef for next group');
   
   addLog(`=== GROUP ${nextGroup} ===`);
   
@@ -8426,7 +8428,8 @@ const checkCrash = () => {
   
   // Track which group has had confirmMove called to prevent duplicate calls
   const confirmMoveCalledForGroupRef = useRef(null);
-  const leaderAssignedForGroupRef = useRef(null);
+  // Track which teams have submitted for each group: { groupNum: Set<teamName> }
+  const teamSubmissionsForGroupRef = useRef({});
   
   useEffect(() => {
     if (movePhase === 'cardSelection' && roomCodeRef.current) {
