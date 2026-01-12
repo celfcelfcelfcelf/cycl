@@ -2267,38 +2267,47 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
     logs.push(`${name}: TK-1=${tk1Cards.length} (converted to TK), Exhaustion=${exhaustionCards.length} (keeping half=${halfExhaustion})`);
     
     // Generate fresh cards for the rider
-    const freshCards = generateCards(originalRider, isBreakaway);
+    const allFreshCards = generateCards(originalRider, isBreakaway);
     
-    // Add converted TK-1 cards and half of exhaustion cards
-    const cardsToAdd = [];
+    // CRITICAL: Separate TK-16 cards from regular cards (same as initial game setup)
+    // TK-16 cards should go to discarded pile, not hand
+    const freshTK16 = allFreshCards.filter(c => c.id === 'kort: 16');
+    const freshRegular = allFreshCards.filter(c => c.id !== 'kort: 16');
     
-    // Add all TK-1 as regular TK (kort: 16)
+    // Add converted TK-1 cards and half of exhaustion cards to discarded pile
+    const cardsToAddToDiscarded = [];
+    
+    // Add all TK-1 as regular TK (kort: 16) - goes to discarded
     for (let i = 0; i < convertedTKFromTK1; i++) {
-      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      cardsToAddToDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     }
     
-    // Add half of exhaustion cards
+    // Add half of exhaustion cards - goes to discarded
     for (let i = 0; i < halfExhaustion; i++) {
-      cardsToAdd.push({ id: 'kort: 16', flat: 2, uphill: 2 });
+      cardsToAddToDiscarded.push({ id: 'kort: 16', flat: 2, uphill: 2 });
     }
     
-    // Combine fresh cards with kept TK cards and shuffle
-    const allNewCards = [...freshCards, ...cardsToAdd];
+    // Combine all TK-16 cards: fresh + converted TK-1 + half of old exhaustion
+    const allTK16Cards = [...freshTK16, ...cardsToAddToDiscarded];
+    
+    // Shuffle only the regular (non-TK-16) cards for the hand
+    const handCards = [...freshRegular];
     // Shuffle using Fisher-Yates
-    for (let i = allNewCards.length - 1; i > 0; i--) {
+    for (let i = handCards.length - 1; i > 0; i--) {
       const j = Math.floor(rng() * (i + 1));
-      [allNewCards[i], allNewCards[j]] = [allNewCards[j], allNewCards[i]];
+      [handCards[i], handCards[j]] = [handCards[j], handCards[i]];
     }
     
-    logs.push(`${name}: Added ${cardsToAdd.length} TK cards (${convertedTKFromTK1} from TK-1 conversion, ${halfExhaustion} from exhaustion)`);
+    logs.push(`${name}: Added ${cardsToAddToDiscarded.length} TK cards to discarded (${convertedTKFromTK1} from TK-1 conversion, ${halfExhaustion} from exhaustion)`);
+    logs.push(`${name}: Fresh hand=${handCards.length} cards, discarded=${allTK16Cards.length} TK-16 cards`);
     
     updatedCards[name] = {
       ...rider,
       position: isBreakaway ? attackerLeadFields : 0,
       old_position: isBreakaway ? attackerLeadFields : 0,
       group: isBreakaway ? 1 : 2,
-      cards: allNewCards,
-      discarded: [],
+      cards: handCards,
+      discarded: allTK16Cards,
       finished: false,
       prel_time: 10000,
       time_after_winner: 10000,
@@ -2307,7 +2316,7 @@ export const prepareNextStage = (cardsObj, riderData, attackerLeadFields = 5, nu
       takes_lead: 0,
       selected_value: -1,
       attacking_status: 'no',
-      fatigue: cardsToAdd.length / allNewCards.length, // Recalculate fatigue based on TK ratio
+      fatigue: allTK16Cards.length / (handCards.length + allTK16Cards.length), // Recalculate fatigue based on TK ratio
       penalty: 0,
       sprint_points: 0, // Reset sprint points for new stage
       tk_penalty: 0, // Reset TK penalty for new stage
