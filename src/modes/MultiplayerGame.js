@@ -9789,16 +9789,20 @@ const checkCrash = () => {
                   {movePhase === 'input' && (
                     (() => {
                       // If it's the human's turn and human has riders in this group, show human interface
-                      const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
+                      // Use roomCode instead of gameMode to detect multiplayer (gameMode can be null due to async state)
+                      const isMultiplayer = !!roomCode;
+                      const currentPlayerTeam = isMultiplayer ? playerName : 'Me';
                       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
                       
                       // In multiplayer, find this player's actual team from multiplayerPlayers
-                      const myTeam = gameMode === 'multi' && multiplayerPlayers.length > 0
+                      const myTeam = isMultiplayer && multiplayerPlayers.length > 0
                         ? multiplayerPlayers.find(p => p.name === playerName)?.team || playerName
                         : currentPlayerTeam;
                       
                       console.log('🎮 Turn check:', {
                         gameMode,
+                        isMultiplayer,
+                        roomCode: !!roomCode,
                         currentTeam,
                         playerName,
                         myTeam,
@@ -9809,7 +9813,7 @@ const checkCrash = () => {
                       });
                       
                       // In multiplayer mode, check if it's actually this player's turn
-                      if (gameMode === 'multi' && currentTeam !== myTeam) {
+                      if (isMultiplayer && currentTeam !== myTeam) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
                             Waiting for {getTeamDisplayName(currentTeam)} to make their move...
