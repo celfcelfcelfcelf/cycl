@@ -1922,9 +1922,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const shouldReplace = firebaseKeys.length === 0 || roundChanged;
         
         // When round changes, drop all old data. Otherwise merge normally.
-        const merged = shouldReplace ? state.teamPaces : { ...prev, ...state.teamPaces };
+        // CRITICAL: Preserve null values for attacks (don't convert null to NaN)
+        const merged = shouldReplace ? {...state.teamPaces} : { ...prev, ...state.teamPaces };
         
         console.log('🔄 teamPaces:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'roundChanged:', roundChanged, '(prev:', previousRound, 'new:', state.round, ') result keys:', Object.keys(merged).length);
+        console.log('🔄 teamPaces merged values:', merged);
         // Also update ref to keep it in sync
         teamPacesRef.current = merged;
         return merged;
