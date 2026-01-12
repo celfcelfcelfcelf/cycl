@@ -1735,6 +1735,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       playerNameParam: playerNameParam
     });
     
+    // CRITICAL: Ensure gameMode stays 'multi' when loading multiplayer updates
+    // This was getting reset to null causing turn checks to fail
+    setGameMode(current => {
+      if (current !== 'multi') {
+        console.warn('⚠️ gameMode was', current, '- forcing to multi during state load');
+        return 'multi';
+      }
+      return current;
+    });
+    
     if (!state) {
       console.log('🔄 Skipping: no state');
       return;
