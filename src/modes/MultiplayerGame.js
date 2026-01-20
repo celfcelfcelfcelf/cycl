@@ -1485,7 +1485,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       cardsSnapshotRef.current = null;
       cardSelectionAutoOpenedRef.current = null;
       confirmMoveCalledForGroupRef.current = null;
-      previousCurrentTeamRef.current = null;
       console.log('✅ JOINER: Refs reset');
       
       setPlayerName(name);
@@ -1742,7 +1741,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       cardsSnapshotRef.current = null;
       cardSelectionAutoOpenedRef.current = null;
       confirmMoveCalledForGroupRef.current = null;
-      previousCurrentTeamRef.current = null;
       gameInitializedRef.current = false;
       console.log('✅ Refs reset');
       
@@ -2487,7 +2485,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       cardsSnapshotRef.current = null;
       cardSelectionAutoOpenedRef.current = null;
       confirmMoveCalledForGroupRef.current = null;
-      previousCurrentTeamRef.current = null;
       console.log('✅ Refs reset - ready to start game');
       
       // Generate draft pool locally (host controls the draft)
