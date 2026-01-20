@@ -6544,6 +6544,21 @@ const moveToNextGroup = () => {
       setTimeout(() => {
         syncMoveToFirebase(null, true).catch(err => console.error('Failed to sync moveToNextGroup:', err));
       }, 100);
+      
+      // AUTO-START cardSelection phase for new group in multiplayer
+      // After moving to next group, automatically trigger pace calculation and cardSelection
+      // This ensures the "Choose Cards" dialog opens for human players
+      console.log('🚀 moveToNextGroup: Auto-starting cardSelection for group', nextGroup);
+      setTimeout(() => {
+        try {
+          // Call handlePaceSubmit with forceFinalize=true to skip pace recording
+          // and immediately calculate speed + assign leader + enter cardSelection
+          handlePaceSubmit(nextGroup, 0, preferred || shuffled[0], false, null, null, cardsRef.current, true);
+          console.log('🚀 moveToNextGroup: Auto-started cardSelection phase');
+        } catch (err) {
+          console.error('🚀 moveToNextGroup: Error auto-starting cardSelection:', err);
+        }
+      }, 200);
     }
   } else {
     // No remaining groups -> start new round
