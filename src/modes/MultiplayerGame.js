@@ -47,7 +47,8 @@ import {
   leaveGame,
   updatePlayerConnection,
   syncPlayerMove,
-  syncAIMove
+  syncAIMove,
+  deleteGame
 } from '../firebase/gameService';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase/config';
@@ -1471,6 +1472,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Handle joining a multiplayer game
   const handleJoinGame = async (code, name) => {
     try {
+      // 🧹 JOINER CLEAN START: Clear local state before joining
+      console.log('🧹 JOINER: Clearing local state and flags...');
+      
+      // Clear all window flags
+      const flagKeys = Object.keys(window).filter(k => k.startsWith('handlePaceSubmit-') || k.startsWith('confirmMove-'));
+      flagKeys.forEach(k => delete window[k]);
+      console.log('✅ JOINER: Cleared', flagKeys.length, 'window flags');
+      
+      // Reset refs
+      lastSyncTime = 0;
+      cardsSnapshotRef.current = null;
+      cardSelectionAutoOpenedRef.current = null;
+      confirmMoveCalledForGroupRef.current = null;
+      previousCurrentTeamRef.current = null;
+      console.log('✅ JOINER: Refs reset');
+      
       setPlayerName(name);
       const team = await joinGame(code, name);
       setRoomCode(code);
@@ -1701,14 +1718,33 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // Handle leaving lobby
   const handleLeaveLobby = async () => {
     try {
+      // 🧹 CLEAN UP: Unsubscribe listeners and clear state
+      console.log('🧹 Leaving lobby, cleaning up...');
+      
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
+        console.log('✅ Unsubscribed from Firebase listener');
       }
       
       if (roomCode && playerName) {
         await leaveGame(roomCode, playerName);
+        console.log('✅ Left game in Firebase');
       }
+      
+      // Clear all window flags
+      const flagKeys = Object.keys(window).filter(k => k.startsWith('handlePaceSubmit-') || k.startsWith('confirmMove-'));
+      flagKeys.forEach(k => delete window[k]);
+      console.log('✅ Cleared', flagKeys.length, 'window flags');
+      
+      // Reset refs
+      lastSyncTime = 0;
+      cardsSnapshotRef.current = null;
+      cardSelectionAutoOpenedRef.current = null;
+      confirmMoveCalledForGroupRef.current = null;
+      previousCurrentTeamRef.current = null;
+      gameInitializedRef.current = false;
+      console.log('✅ Refs reset');
       
       setInLobby(false);
       setRoomCode(null);
@@ -1717,6 +1753,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setMultiplayerPlayers([]);
       setGameMode(null);
       setMultiplayerMode(null);
+      
+      console.log('✅ Lobby cleanup complete');
     } catch (error) {
       console.error('Failed to leave lobby:', error);
     }
@@ -2436,6 +2474,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (!isHost || !roomCode) return;
     
     try {
+      // 🧹 CLEAN START: Clear window flags and reset refs (but DON'T delete Firebase doc - it was created by lobby)
+      console.log('🧹 CLEAN START: Clearing flags and resetting refs...');
+      
+      // Clear all window flags that might prevent proper game flow
+      const flagKeys = Object.keys(window).filter(k => k.startsWith('handlePaceSubmit-') || k.startsWith('confirmMove-'));
+      flagKeys.forEach(k => delete window[k]);
+      console.log('✅ Cleared', flagKeys.length, 'window flags');
+      
+      // Reset all refs to clean state
+      lastSyncTime = 0;
+      cardsSnapshotRef.current = null;
+      cardSelectionAutoOpenedRef.current = null;
+      confirmMoveCalledForGroupRef.current = null;
+      previousCurrentTeamRef.current = null;
+      console.log('✅ Refs reset - ready to start game');
+      
       // Generate draft pool locally (host controls the draft)
       const total = numberOfTeams * ridersPerTeam;
       const pool = [...ridersData];

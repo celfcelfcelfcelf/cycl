@@ -5,6 +5,8 @@ import TestMode from './modes/TestMode';
 import MultiplayerGame from './modes/MultiplayerGame';
 import './App.css';
 
+const VERSION = '4.0-CLEAN-FROM-JAN12';
+
 function App() {
   const [selectedMode, setSelectedMode] = useState(null);
 
@@ -30,7 +32,26 @@ function App() {
   }
 
   // Default: Show Mode Selector
-  return <ModeSelector onSelectMode={handleModeSelect} />;
+  return (
+    <>
+      <ModeSelector onSelectMode={handleModeSelect} />
+      <div style={{
+        position: 'fixed',
+        bottom: '10px',
+        right: '10px',
+        padding: '8px 16px',
+        backgroundColor: 'yellow',
+        color: 'red',
+        fontWeight: 'bold',
+        fontSize: '24px',
+        borderRadius: '8px',
+        zIndex: 9999,
+        border: '2px solid red'
+      }}>
+        🔥 {VERSION} 🔥
+      </div>
+    </>
+  );
 }
 
 export default App;
