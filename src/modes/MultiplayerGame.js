@@ -8458,6 +8458,38 @@ const checkCrash = () => {
       '| roomCode:', !!roomCode);
   }, [postMoveInfo, movePhase, isHost, roomCode]);
 
+  // Auto-start next round when all groups are finished in multiplayer
+  useEffect(() => {
+    if (!postMoveInfo || !roomCodeRef.current || !isHost || movePhase !== 'moving') return;
+    
+    const remaining = postMoveInfo.remainingNotMoved || [];
+    console.log('🔄 Round completion check:', {
+      hasPostMoveInfo: !!postMoveInfo,
+      remainingCount: remaining.length,
+      isHost,
+      movePhase,
+      groupMoved: postMoveInfo.groupMoved
+    });
+    
+    // If no remaining groups, automatically start next round
+    if (remaining.length === 0) {
+      console.log('🔄 All groups finished in round - auto-starting next round in 2 seconds');
+      const timer = setTimeout(() => {
+        console.log('🔄 Auto-start timer fired, calling moveToNextGroup -> startNewRound');
+        moveToNextGroup();
+      }, 2000);
+      return () => clearTimeout(timer);
+    } else {
+      // If there are remaining groups, automatically advance to next group
+      console.log('🔄 Remaining groups:', remaining, '- auto-advancing to next group in 2 seconds');
+      const timer = setTimeout(() => {
+        console.log('🔄 Auto-advance timer fired, calling moveToNextGroup');
+        moveToNextGroup();
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [postMoveInfo, isHost, roomCode, movePhase]);
+
   // Auto-advance in multiplayer: DISABLED for now to fix card selection issue
   // TODO: Re-enable with proper guards after fixing card selection flow
   /*
