@@ -5,7 +5,7 @@ import TestMode from './modes/TestMode';
 import MultiplayerGame from './modes/MultiplayerGame';
 import './App.css';
 
-const VERSION = 'v4.0.4-CLEAN-JAN12';
+const VERSION = 'v4.0.5-CLEAN-JAN12';
 
 function App() {
   const [selectedMode, setSelectedMode] = useState(null);
