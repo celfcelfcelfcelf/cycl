@@ -1065,6 +1065,45 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     } catch (e) {}
   }, [pullInvestSelections]);
 
+  // Auto-start cardSelection phase in multiplayer when in input phase with no submissions
+  // This handles the case where game just started or moved to next group
+  useEffect(() => {
+    console.log('🚀 Auto-start cardSelection check:', {
+      gameState,
+      movePhase,
+      gameMode,
+      isHost,
+      roomCode: !!roomCode,
+      teamPaceMetaEmpty: Object.keys(teamPaceMeta).length === 0,
+      currentGroup
+    });
+    
+    if (gameState !== 'playing') return;
+    if (movePhase !== 'input') return;
+    if (gameMode !== 'multi' && gameMode !== 'join') return;
+    if (!isHost) return; // Only host triggers cardSelection
+    if (!roomCode) return;
+    
+    // Only auto-start if teamPaceMeta is empty (no submissions yet)
+    if (Object.keys(teamPaceMeta).length > 0) {
+      console.log('🚀 teamPaceMeta not empty, skipping auto-start');
+      return;
+    }
+    
+    // Auto-start cardSelection after a delay to allow state to settle
+    console.log('🚀 Scheduling auto-start of cardSelection for group', currentGroup);
+    const timer = setTimeout(() => {
+      try {
+        console.log('🚀 AUTO-START: Calling handlePaceSubmit to start cardSelection');
+        handlePaceSubmit(currentGroup, 0, currentTeam, false, null, null, cards, true);
+      } catch (err) {
+        console.error('🚀 AUTO-START: Error calling handlePaceSubmit:', err);
+      }
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [gameState, movePhase, gameMode, isHost, roomCode, teamPaceMeta, currentGroup]);
+
   // Auto-trigger AI moves in multiplayer mode (host only)
   useEffect(() => {
     console.log('🤖 AI useEffect triggered:', { 
@@ -3356,21 +3395,7 @@ return { pace, updatedCards, doubleLead };
     setCurrentGroup(2);
     setCurrentTeam(firstTeamToUse);
     setMovePhase('input');
-    
-    // In multiplayer, automatically start cardSelection phase after game starts
-    if (effectiveGameMode === 'multi' && roomCode) {
-      console.log('🚀 Game start: Auto-starting cardSelection for first group in multiplayer');
-      setTimeout(() => {
-        try {
-          // Call handlePaceSubmit with forceFinalize=true to skip pace recording
-          // and immediately calculate speed + assign leader + enter cardSelection
-          handlePaceSubmit(2, 0, firstTeamToUse, false, null, null, cardsObj, true);
-          console.log('🚀 Game start: Auto-started cardSelection phase');
-        } catch (err) {
-          console.error('🚀 Game start: Error auto-starting cardSelection:', err);
-        }
-      }, 300);
-    }
+    // Note: cardSelection will be auto-started by useEffect when conditions are met
   }
   
   setLogs([`Game started! Length: ${getLength(selectedTrack)} km`]);
@@ -6559,21 +6584,7 @@ const moveToNextGroup = () => {
       setTimeout(() => {
         syncMoveToFirebase(null, true).catch(err => console.error('Failed to sync moveToNextGroup:', err));
       }, 100);
-      
-      // AUTO-START cardSelection phase for new group in multiplayer
-      // After moving to next group, automatically trigger pace calculation and cardSelection
-      // This ensures the "Choose Cards" dialog opens for human players
-      console.log('🚀 moveToNextGroup: Auto-starting cardSelection for group', nextGroup);
-      setTimeout(() => {
-        try {
-          // Call handlePaceSubmit with forceFinalize=true to skip pace recording
-          // and immediately calculate speed + assign leader + enter cardSelection
-          handlePaceSubmit(nextGroup, 0, preferred || shuffled[0], false, null, null, cardsRef.current, true);
-          console.log('🚀 moveToNextGroup: Auto-started cardSelection phase');
-        } catch (err) {
-          console.error('🚀 moveToNextGroup: Error auto-starting cardSelection:', err);
-        }
-      }, 200);
+      // Note: cardSelection will be auto-started by useEffect when conditions are met
     }
   } else {
     // No remaining groups -> start new round
