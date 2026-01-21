@@ -4351,14 +4351,14 @@ return { pace, updatedCards, doubleLead };
     
     console.log('🚀 Check 1: gameMode=', gameMode, 'submittingTeam=', submittingTeam, 'playerName=', playerName);
     
+    // Check if this is an AI team (needed later)
+    const playerTeams = multiplayerPlayers.map(p => p.team);
+    const isAITeam = !playerTeams.includes(submittingTeam);
+    
     // Skip team checks if forceFinalize=true (auto-start cardSelection)
     if (forceFinalize) {
       console.log('🚀 forceFinalize=true - skipping team checks');
     } else {
-      // Check if this is an AI team
-      const playerTeams = multiplayerPlayers.map(p => p.team);
-      const isAITeam = !playerTeams.includes(submittingTeam);
-      
       // In multiplayer mode, only allow submissions from:
       // 1. AI teams (if this is the host)
       // 2. The player's own team
