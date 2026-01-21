@@ -1094,10 +1094,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     console.log('🚀 Scheduling auto-start of cardSelection for group', currentGroup);
     const timer = setTimeout(() => {
       try {
-        console.log('🚀 AUTO-START: Calling handlePaceSubmit to start cardSelection');
-        handlePaceSubmit(currentGroup, 0, currentTeam, false, null, null, cards, true);
+        console.log('🚀 AUTO-START: Directly setting movePhase to cardSelection');
+        // Instead of calling handlePaceSubmit, directly set movePhase to cardSelection
+        // This allows human players to submit their paces normally
+        setMovePhase('cardSelection');
+        // Sync to Firebase
+        if (roomCodeRef.current) {
+          syncMoveToFirebase().catch(err => console.error('Failed to sync auto-start:', err));
+        }
       } catch (err) {
-        console.error('🚀 AUTO-START: Error calling handlePaceSubmit:', err);
+        console.error('🚀 AUTO-START: Error setting movePhase:', err);
       }
     }, 500);
     
