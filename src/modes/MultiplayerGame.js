@@ -4351,29 +4351,34 @@ return { pace, updatedCards, doubleLead };
     
     console.log('🚀 Check 1: gameMode=', gameMode, 'submittingTeam=', submittingTeam, 'playerName=', playerName);
     
-    // Check if this is an AI team
-    const playerTeams = multiplayerPlayers.map(p => p.team);
-    const isAITeam = !playerTeams.includes(submittingTeam);
-    
-    // In multiplayer mode, only allow submissions from:
-    // 1. AI teams (if this is the host)
-    // 2. The player's own team
-    if (gameMode === 'multi' && submittingTeam !== playerName) {
+    // Skip team checks if forceFinalize=true (auto-start cardSelection)
+    if (forceFinalize) {
+      console.log('🚀 forceFinalize=true - skipping team checks');
+    } else {
+      // Check if this is an AI team
+      const playerTeams = multiplayerPlayers.map(p => p.team);
+      const isAITeam = !playerTeams.includes(submittingTeam);
       
-      console.log('🚀 Check 2: isAITeam=', isAITeam, 'isHost=', isHost, 'playerTeams=', playerTeams);
-      
-      // Only host can submit AI moves
-      if (isAITeam && !isHost) {
-        console.log('❌ BLOCKED: Non-host attempted AI move');
-        addLog(`⚠️ Non-host attempted to submit AI move for ${submittingTeam} - blocked`);
-        return;
-      }
-      
-      // Players can only submit for their own team
-      if (!isAITeam && submittingTeam !== playerName) {
-        console.log('❌ BLOCKED: Player attempted move for another team');
-        addLog(`⚠️ Player attempted to submit for another player's team ${submittingTeam} - blocked`);
-        return;
+      // In multiplayer mode, only allow submissions from:
+      // 1. AI teams (if this is the host)
+      // 2. The player's own team
+      if (gameMode === 'multi' && submittingTeam !== playerName) {
+        
+        console.log('🚀 Check 2: isAITeam=', isAITeam, 'isHost=', isHost, 'playerTeams=', playerTeams);
+        
+        // Only host can submit AI moves
+        if (isAITeam && !isHost) {
+          console.log('❌ BLOCKED: Non-host attempted AI move');
+          addLog(`⚠️ Non-host attempted to submit AI move for ${submittingTeam} - blocked`);
+          return;
+        }
+        
+        // Players can only submit for their own team
+        if (!isAITeam && submittingTeam !== playerName) {
+          console.log('❌ BLOCKED: Player attempted move for another team');
+          addLog(`⚠️ Player attempted to submit for another player's team ${submittingTeam} - blocked`);
+          return;
+        }
       }
     }
     
