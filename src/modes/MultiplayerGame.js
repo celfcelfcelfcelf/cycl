@@ -6573,6 +6573,22 @@ const moveToNextGroup = () => {
     const preferred = findNextTeamWithRiders(0, nextGroup);
     if (preferred) setCurrentTeam(preferred);
     else setCurrentTeam(shuffled[0]);
+    
+    // CRITICAL: Clear human_planned flags for the new group BEFORE entering cardSelection
+    // This prevents Firebase from syncing stale human_planned=true values from the previous group
+    setCards(prev => {
+      const updated = { ...prev };
+      let cleared = false;
+      for (const [name, rider] of Object.entries(updated)) {
+        if (rider.group === nextGroup && !rider.finished && rider.human_planned) {
+          console.log('🎴 moveToNextGroup: Clearing human_planned for', name, 'in group', nextGroup);
+          updated[name] = { ...rider, human_planned: false };
+          cleared = true;
+        }
+      }
+      return cleared ? updated : prev;
+    });
+    
     setMovePhase('input');
     // clear stored invest outcome for this moved group so UI doesn't retain old results
     try {
