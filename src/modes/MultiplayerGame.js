@@ -1098,6 +1098,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         // Instead of calling handlePaceSubmit, directly set movePhase to cardSelection
         // This allows human players to submit their paces normally
         setMovePhase('cardSelection');
+        movePhaseRef.current = 'cardSelection'; // CRITICAL: Update ref immediately so sync uses correct value
         // Sync to Firebase
         if (roomCodeRef.current) {
           syncMoveToFirebase().catch(err => console.error('Failed to sync auto-start:', err));
