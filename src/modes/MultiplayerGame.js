@@ -419,6 +419,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const teamPullInvestsRef = useRef({});
   // Meta information about team submissions for a given group: key -> { isAttack, attacker }
   const [teamPaceMeta, setTeamPaceMeta] = useState({});
+  // Track card selections from teams in multiplayer: key (round-group-team) -> { timestamp, submitted: true }
+  const [teamCardMeta, setTeamCardMeta] = useState({});
+  const teamCardMetaRef = useRef({});
   // Per-group submission round tracker: 1 (initial) or 2 (choice-2)
   const [teamPaceRound, setTeamPaceRound] = useState({});
   // When the user selects the sentinel 'random' track we pick one random
@@ -2055,26 +2058,43 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         console.log('🔄 teamPaceMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'roundChanged:', roundChanged, '(prev:', previousRound, 'new:', state.round, ') result keys:', Object.keys(merged).length);
         // Also update ref to keep it in sync
         teamPaceMetaRef.current = merged;
-        
-        // HOST ONLY: Check if we need to advance turn after receiving new submissions
-        // This handles the case where a non-host player submits and the host needs to
-        // advance currentTeam so the next team can submit
-        // Check using multiple conditions since isHost/gameMode might not be set yet
-        const playersToCheck = players || multiplayerPlayers;
-        const nameToCheck = playerNameParam || playerName;
-        console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
-        const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
-                             playersToCheck.some(p => {
-                               console.log('🔄 Checking player:', p, 'p.isHost:', p.isHost, 'p.name:', p.name, 'matches:', p.name === nameToCheck);
-                               return p.isHost && p.name === nameToCheck;
-                             }));
-        const isMultiplayer = gameMode === 'multi' || gameMode === 'join' || playersToCheck.length > 0;
-        console.log('🔄 Host check result - isLikelyHost:', isLikelyHost, 'isMultiplayer:', isMultiplayer);
-        
-        if (isLikelyHost && isMultiplayer) {
-          // Use currentTeam from Firebase state, not from React state (which might be stale)
-          const currentTeamFromFirebase = state.currentTeam;
-          console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
+        return merged;
+      });
+    }
+    // Load teamCardMeta from Firebase
+    if (state.teamCardMeta !== undefined) {
+      console.log('🔄 Setting teamCardMeta from Firebase:', state.teamCardMeta);
+      setTeamCardMeta(prev => {
+        const firebaseKeys = Object.keys(state.teamCardMeta);
+        const roundChanged = state.round !== undefined && state.round !== previousRound;
+        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
+        const merged = shouldReplace ? state.teamCardMeta : { ...prev, ...state.teamCardMeta };
+        console.log('🔄 teamCardMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'result keys:', Object.keys(merged).length);
+        teamCardMetaRef.current = merged;
+        return merged;
+      });
+    }
+    
+    // HOST ONLY: Check if we need to advance turn after receiving new submissions
+    {
+      // This handles the case where a non-host player submits and the host needs to
+      // advance currentTeam so the next team can submit
+      // Check using multiple conditions since isHost/gameMode might not be set yet
+      const playersToCheck = players || multiplayerPlayers;
+      const nameToCheck = playerNameParam || playerName;
+      console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
+      const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
+                           playersToCheck.some(p => {
+                             console.log('🔄 Checking player:', p, 'p.isHost:', p.isHost, 'p.name:', p.name, 'matches:', p.name === nameToCheck);
+                             return p.isHost && p.name === nameToCheck;
+                           }));
+      const isMultiplayer = gameMode === 'multi' || gameMode === 'join' || playersToCheck.length > 0;
+      console.log('🔄 Host check result - isLikelyHost:', isLikelyHost, 'isMultiplayer:', isMultiplayer);
+      
+      if (isLikelyHost && isMultiplayer) {
+        // Use currentTeam from Firebase state, not from React state (which might be stale)
+        const currentTeamFromFirebase = state.currentTeam;
+        console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
           
           // Allow turn advancement during 'input' phase (pace selection) and 'cardSelection' phase
           // During cardSelection, HOST may still need to advance turn if other players submit paces
@@ -2154,25 +2174,31 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 if (!isLikelyHost) {
                   console.log('🔄 JOINER: Skipping card selection check, waiting for HOST');
                 } else {
-                  // Check if all human teams have also submitted their card selections
+                  // Check if all human teams have also submitted their card selections using teamCardMeta
                   const groupNum = state.currentGroup || currentGroup;
-                  // Use cardsRef.current instead of state.cards to get merged data with preserved human_planned flags
+                  const roundNum = state.round !== undefined ? state.round : (roundRef.current !== undefined ? roundRef.current : round);
+                  
+                  // Get merged teamCardMeta (local + Firebase)
+                  const cardMetaToCheck = teamCardMetaRef.current || teamCardMeta || state.teamCardMeta || {};
+                  
+                  // Find all human teams with riders in current group
                   const cardsToCheck = cardsRef.current || state.cards || cards;
                   const allHumanRidersInGroup = Object.entries(cardsToCheck)
                     .filter(([, r]) => r.group === groupNum && !r.finished && teamsArray.includes(r.team) && !r.team.startsWith('Comp'));
                   
                   const humanTeamsInGroup = [...new Set(allHumanRidersInGroup.map(([, r]) => r.team))];
+                  
+                  // Check teamCardMeta for submissions instead of human_planned flags
                   const humanTeamsWithCardSelections = humanTeamsInGroup.filter(team => {
-                    return Object.entries(cardsToCheck).some(([, r]) => 
-                      r.group === groupNum && 
-                      r.team === team && 
-                      (r.planned_card_id || r.human_planned)
-                    );
+                    const cardKey = `${roundNum}-${groupNum}-${team}`;
+                    return !!cardMetaToCheck[cardKey];
                   });
                   
                   console.log('🔄 HOST card selection check:', {
                     humanTeamsInGroup: humanTeamsInGroup.length,
                     humanTeamsWithCardSelections: humanTeamsWithCardSelections.length,
+                    cardKeys: humanTeamsInGroup.map(t => `${roundNum}-${groupNum}-${t}`),
+                    cardMetaKeys: Object.keys(cardMetaToCheck),
                     allCardsSubmitted: humanTeamsWithCardSelections.length === humanTeamsInGroup.length,
                     waitingForCardSelections
                   });
@@ -2449,6 +2475,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // (setState is async, so state variables may be stale)
     const teamPacesToSync = teamPacesRef.current || teamPaces;
     const teamPaceMetaToSync = teamPaceMetaRef.current || teamPaceMeta;
+    const teamCardMetaToSync = teamCardMetaRef.current || teamCardMeta;
     const teamPaceRoundToSync = teamPaceRoundRef.current !== undefined ? teamPaceRoundRef.current : teamPaceRound;
     const teamPullInvestsToSync = teamPullInvestsRef.current || teamPullInvests;
     
@@ -2481,6 +2508,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // Debug: Log teamPaces being synced
     console.log('📤 syncMoveToFirebase - teamPaces being synced:', JSON.stringify(teamPacesToSync));
     console.log('📤 syncMoveToFirebase - teamPaceMeta being synced:', JSON.stringify(teamPaceMetaToSync));
+    console.log('📤 syncMoveToFirebase - teamCardMeta being synced:', JSON.stringify(teamCardMetaToSync));
     
     console.log('📤 Syncing move to Firebase:', {
       currentTeam: teamToSync,
@@ -2490,6 +2518,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       cardsCount: Object.keys(cardsToSync).length,
       teamPacesKeys: Object.keys(teamPacesToSync),
       teamPaceMetaKeys: Object.keys(teamPaceMetaToSync),
+      teamCardMetaKeys: Object.keys(teamCardMetaToSync),
       postMoveInfo: postMoveInfoToSync ? `Group ${postMoveInfoToSync.groupMoved}` : 'null',
       groupSpeed,
       slipstream,
@@ -2509,6 +2538,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         currentTeam: teamToSync,
         teamPaces: teamPacesToSync,
         teamPaceMeta: teamPaceMetaToSync,
+        teamCardMeta: teamCardMetaToSync, // Track card selections separately
         teamPaceRound: teamPaceRoundToSync,
         teamPullInvests: teamPullInvestsToSync,
         movePhase: phaseToSync,
@@ -6593,6 +6623,9 @@ const moveToNextGroup = () => {
   setTeamPaceMeta({});
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
+  setTeamCardMeta({}); // Clear card submissions for new group
+  teamCardMetaRef.current = {};
+  console.log('🎴 moveToNextGroup: Cleared teamCardMeta for new group', nextGroup);
   setGroupSpeed(0);  // Reset groupSpeed for the new group
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
@@ -8344,22 +8377,18 @@ const checkCrash = () => {
       const playerTeam = getPlayerTeamName();
       const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === playerTeam && !r.finished);
       
-      // Check if this player has already submitted their card selections
-      // IMPORTANT: Only check human_planned, not planned_card_id, because planned_card_id
-      // can be set by lead assignment but the player still needs to confirm it
-      const alreadySubmitted = humanRiders.length > 0 && humanRiders.every(([, r]) => r.human_planned);
+      // Check if this player has already submitted their card selections using teamCardMeta
+      // This is more reliable than human_planned flag which can get stale
+      const cardKey = `${round}-${currentGroup}-${playerTeam}`;
+      const alreadySubmitted = !!teamCardMeta[cardKey];
       
       console.log('🎴 Auto-open check:', {
         playerTeam,
         humanRidersCount: humanRiders.length,
+        cardKey,
         alreadySubmitted,
-        waitingForCardSelections,
-        riderDetails: humanRiders.map(([n, r]) => ({
-          name: n,
-          planned_card_id: r.planned_card_id,
-          human_planned: r.human_planned,
-          hasSubmitted: !!(r.planned_card_id || r.human_planned)
-        }))
+        teamCardMetaKeys: Object.keys(teamCardMeta),
+        waitingForCardSelections
       });
       
       // IMPORTANT: If we're already waiting for card selections (monitoring is active),
@@ -8797,6 +8826,23 @@ const checkCrash = () => {
     // IMPORTANT: Update cardsRef immediately so syncMoveToFirebase gets the updated cards
     // (useEffect that updates cardsRef runs AFTER this function completes)
     cardsRef.current = updated;
+    
+    // Track card submission in teamCardMeta (similar to teamPaceMeta for pace submissions)
+    const playerTeam = getPlayerTeamName();
+    const cardKey = `${round}-${currentGroup}-${playerTeam}`;
+    const cardSubmission = {
+      timestamp: Date.now(),
+      submitted: true
+    };
+    console.log('🎴 Recording card submission in teamCardMeta:', cardKey, cardSubmission);
+    setTeamCardMeta(prev => ({
+      ...prev,
+      [cardKey]: cardSubmission
+    }));
+    teamCardMetaRef.current = {
+      ...teamCardMetaRef.current,
+      [cardKey]: cardSubmission
+    };
     
     console.log('🎴 submitCardSelections completed for', Object.keys(cardSelections).length, 'riders');
     console.log('🎴 Updated cards with planned_card_id:', Object.entries(updated)
