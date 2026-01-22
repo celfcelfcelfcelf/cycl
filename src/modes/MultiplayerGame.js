@@ -1065,8 +1065,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     } catch (e) {}
   }, [pullInvestSelections]);
 
-  // Auto-start cardSelection phase in multiplayer when in input phase with no submissions
-  // This handles the case where game just started or moved to next group
+  // Auto-start cardSelection phase in multiplayer when ALL teams have submitted their paces
+  // This handles the transition from 'input' to 'cardSelection' after pace selection is complete
   useEffect(() => {
     console.log('🚀 Auto-start cardSelection check:', {
       gameState,
@@ -1074,7 +1074,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       gameMode,
       isHost,
       roomCode: !!roomCode,
-      teamPaceMetaEmpty: Object.keys(teamPaceMeta).length === 0,
+      teamPaceMetaCount: Object.keys(teamPaceMeta).length,
       currentGroup
     });
     
@@ -1084,19 +1084,38 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (!isHost) return; // Only host triggers cardSelection
     if (!roomCode) return;
     
-    // Only auto-start if teamPaceMeta is empty (no submissions yet)
-    if (Object.keys(teamPaceMeta).length > 0) {
-      console.log('🚀 teamPaceMeta not empty, skipping auto-start');
+    // Check if all teams with riders in current group have submitted their paces
+    const teamsWithRidersInGroup = teams.filter(t => {
+      return Object.values(cards).some(r => r.team === t && r.group === currentGroup && !r.finished);
+    });
+    
+    if (teamsWithRidersInGroup.length === 0) {
+      console.log('🚀 No teams with riders in group', currentGroup, '- skipping auto-start');
       return;
     }
     
-    // Auto-start cardSelection after a delay to allow state to settle
-    console.log('🚀 Scheduling auto-start of cardSelection for group', currentGroup);
+    const submittedTeams = Object.keys(teamPaceMeta)
+      .filter(key => key.startsWith(`${currentGroup}-`))
+      .map(key => key.split('-')[1]);
+    
+    const allSubmitted = teamsWithRidersInGroup.every(t => submittedTeams.includes(t));
+    
+    console.log('🚀 Pace submission check:', {
+      teamsWithRidersInGroup,
+      submittedTeams,
+      allSubmitted
+    });
+    
+    if (!allSubmitted) {
+      console.log('🚀 Not all teams have submitted paces yet - waiting for submissions');
+      return;
+    }
+    
+    // All teams submitted - auto-start cardSelection after a delay
+    console.log('🚀 All teams submitted paces, scheduling auto-start of cardSelection for group', currentGroup);
     const timer = setTimeout(() => {
       try {
-        console.log('🚀 AUTO-START: Directly setting movePhase to cardSelection');
-        // Instead of calling handlePaceSubmit, directly set movePhase to cardSelection
-        // This allows human players to submit their paces normally
+        console.log('🚀 AUTO-START: All paces submitted, setting movePhase to cardSelection');
         setMovePhase('cardSelection');
         movePhaseRef.current = 'cardSelection'; // CRITICAL: Update ref immediately so sync uses correct value
         // Sync to Firebase
