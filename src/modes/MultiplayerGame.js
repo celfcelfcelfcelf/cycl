@@ -2076,10 +2076,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
     
     // HOST ONLY: Check if we need to advance turn after receiving new submissions
-    {
-      // This handles the case where a non-host player submits and the host needs to
-      // advance currentTeam so the next team can submit
-      // Check using multiple conditions since isHost/gameMode might not be set yet
+    // This handles the case where a non-host player submits and the host needs to
+    // advance currentTeam so the next team can submit
+    // Check using multiple conditions since isHost/gameMode might not be set yet
+    if (state.teamPaceMeta !== undefined) {
       const playersToCheck = players || multiplayerPlayers;
       const nameToCheck = playerNameParam || playerName;
       console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
@@ -2102,7 +2102,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           const currentPhase = state.movePhase || movePhase;
           if (currentPhase !== 'input' && currentPhase !== 'cardSelection') {
             console.log('🔄 Skipping turn advancement - not in input/cardSelection phase (current phase:', currentPhase, ')');
-            return merged;
+            return;
           }
           
           // Check if the current team (from Firebase) has already submitted
