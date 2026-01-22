@@ -2418,7 +2418,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // clearPostMoveInfo: explicitly set postMoveInfo to null in Firebase (for HOST when moving to next group)
   // Add rate limiting to prevent Firebase quota exhaustion
   let lastSyncTime = 0;
-  const syncMoveToFirebase = async (currentTeamOverride = null, clearPostMoveInfo = false) => {
+  const syncMoveToFirebase = async (currentTeamOverride = null, clearPostMoveInfo = false, cardsOverride = null) => {
     const currentRoomCode = roomCodeRef.current;
     
     // Rate limit: max 1 sync per 200ms to prevent quota exhaustion
@@ -2428,7 +2428,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       return;
     }
     lastSyncTime = now;
-    console.log('📤 syncMoveToFirebase called:', { roomCode: !!currentRoomCode, currentTeamOverride, timestamp: now });
+    console.log('📤 syncMoveToFirebase called:', { roomCode: !!currentRoomCode, currentTeamOverride, cardsOverride: !!cardsOverride, timestamp: now });
     
     // Check if we're in a multiplayer game by checking roomCode presence
     // Use ref instead of state variable to avoid stale closure value
@@ -2448,7 +2448,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const teamToSync = currentTeamOverride !== null ? currentTeamOverride : currentTeamRef.current;
     const groupToSync = currentGroupRef.current;
     const phaseToSync = movePhaseRef.current;
-    const cardsToSync = cardsRef.current || cards;
+    const cardsToSync = cardsOverride || cardsRef.current || cards; // Use override if provided
     const postMoveInfoToSync = postMoveInfoRef.current;
     const roundToSync = roundRef.current;
     
@@ -6596,18 +6596,18 @@ const moveToNextGroup = () => {
     
     // CRITICAL: Clear human_planned flags for the new group BEFORE entering cardSelection
     // This prevents Firebase from syncing stale human_planned=true values from the previous group
-    setCards(prev => {
-      const updated = { ...prev };
-      let cleared = false;
-      for (const [name, rider] of Object.entries(updated)) {
-        if (rider.group === nextGroup && !rider.finished && rider.human_planned) {
-          console.log('🎴 moveToNextGroup: Clearing human_planned for', name, 'in group', nextGroup);
-          updated[name] = { ...rider, human_planned: false };
-          cleared = true;
-        }
+    const clearedCards = { ...cards };
+    let cleared = false;
+    for (const [name, rider] of Object.entries(clearedCards)) {
+      if (rider.group === nextGroup && !rider.finished && rider.human_planned) {
+        console.log('🎴 moveToNextGroup: Clearing human_planned for', name, 'in group', nextGroup);
+        clearedCards[name] = { ...rider, human_planned: false };
+        cleared = true;
       }
-      return cleared ? updated : prev;
-    });
+    }
+    if (cleared) {
+      setCards(clearedCards);
+    }
     
     setMovePhase('input');
     // clear stored invest outcome for this moved group so UI doesn't retain old results
@@ -6625,11 +6625,11 @@ const moveToNextGroup = () => {
     
     // Sync state to Firebase so JOINER knows to move to next group
     // IMPORTANT: Clear postMoveInfo in Firebase by passing clearPostMoveInfo=true
-    // This ensures JOINER doesn't see old results from previous group
+    // AND sync the cleared cards so human_planned flags are properly reset
     if (roomCodeRef.current && isHost) {
-      console.log('🚀 moveToNextGroup: Syncing to Firebase and clearing postMoveInfo');
+      console.log('🚀 moveToNextGroup: Syncing to Firebase with cleared cards and clearing postMoveInfo');
       setTimeout(() => {
-        syncMoveToFirebase(null, true).catch(err => console.error('Failed to sync moveToNextGroup:', err));
+        syncMoveToFirebase(null, true, cleared ? clearedCards : null).catch(err => console.error('Failed to sync moveToNextGroup:', err));
       }, 100);
       // Note: cardSelection will be auto-started by useEffect when conditions are met
     }
