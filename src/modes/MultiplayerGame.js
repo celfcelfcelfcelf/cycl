@@ -1897,10 +1897,18 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const mergedCards = { ...state.cards };
       if (cardsRef.current) {
         for (const [name, rider] of Object.entries(cardsRef.current)) {
-          if (rider.human_planned && mergedCards[name] && !mergedCards[name].human_planned) {
-            // Local has human_planned but Firebase doesn't - keep local value (own submission)
-            mergedCards[name] = { ...mergedCards[name], human_planned: true };
-            console.log('🔄 Preserving local human_planned for:', name);
+          if (rider.human_planned && mergedCards[name]) {
+            // Local has human_planned=true
+            // IMPORTANT: If Firebase explicitly has human_planned=false, it means HOST cleared it
+            // for a new group - we must respect that and NOT preserve local value
+            if (mergedCards[name].human_planned === false) {
+              console.log('🔄 Firebase has human_planned=false for:', name, '- respecting HOST clear (not preserving local)');
+              // Don't overwrite - Firebase's false is intentional
+            } else if (!mergedCards[name].human_planned) {
+              // Firebase doesn't have human_planned at all (undefined) - keep local value (own submission)
+              mergedCards[name] = { ...mergedCards[name], human_planned: true };
+              console.log('🔄 Preserving local human_planned for:', name);
+            }
           }
         }
       }
