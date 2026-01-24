@@ -6608,6 +6608,7 @@ const transitionToNextRound = () => {
   teamCardMetaRef.current = {}; // Clear card meta ref for new round
   teamPaceRoundRef.current = {};
   allGroupsThisTurnRef.current = [];
+  teamSubmissionsForGroupRef.current = {}; // 🔧 Clear submission tracking for new round
   
   // Clear planned_card_id and human_planned for ALL riders at round start
   // This ensures card selection dialog opens for human players in new round
