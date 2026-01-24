@@ -4884,6 +4884,7 @@ return { pace, updatedCards, doubleLead };
     if (isHost && nextTeam && !isOnlyHumanTeam) {
       console.log('🔄 Host advancing currentTeam to:', nextTeam);
       setCurrentTeam(nextTeam);
+      currentTeamRef.current = nextTeam; // CRITICAL: Update ref immediately so turn checks use correct value
       // Pass nextTeam to sync since setState is async
       syncMoveToFirebase(nextTeam).catch(err => console.error('Failed to sync partial submission:', err));
     } else if (!isHost && submittingTeam === currentTeamRef.current && nextTeam && !isOnlyHumanTeam) {
@@ -4891,6 +4892,7 @@ return { pace, updatedCards, doubleLead };
       // This prevents JOINER from getting stuck on "Your Teams turn" after submission
       console.log('🔄 JOINER advancing currentTeam to:', nextTeam, '(after own submission)');
       setCurrentTeam(nextTeam);
+      currentTeamRef.current = nextTeam; // CRITICAL: Update ref immediately so turn checks use correct value
       // Sync with new currentTeam so HOST sees the advancement
       syncMoveToFirebase(nextTeam).catch(err => console.error('Failed to sync JOINER turn advancement:', err));
     } else {
