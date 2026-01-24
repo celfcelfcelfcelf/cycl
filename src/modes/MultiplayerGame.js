@@ -1136,6 +1136,43 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     return () => clearTimeout(timer);
   }, [gameState, movePhase, gameMode, isHost, roomCode, teamPaceMeta, currentGroup]);
 
+  // CRITICAL: Clear human_planned flags when entering cardSelection phase
+  // This prevents stale human_planned=true from previous card selection cycles
+  // from causing the monitoring useEffect to immediately call confirmMove
+  useEffect(() => {
+    if (movePhase !== 'cardSelection') return;
+    if (!roomCodeRef.current) return; // Only in multiplayer
+    
+    const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+    if (!amHost) return; // Only HOST clears flags
+    
+    console.log('🎴 CLEAR: Entering cardSelection phase for group', currentGroup, '- clearing human_planned flags');
+    
+    // Clear human_planned for riders in current group
+    setCards(prev => {
+      const updated = { ...prev };
+      let cleared = false;
+      for (const [name, rider] of Object.entries(updated)) {
+        if (rider.group === currentGroup && !rider.finished && rider.human_planned) {
+          console.log('🎴 CLEAR: Clearing human_planned for', name);
+          updated[name] = { ...rider, human_planned: false };
+          cleared = true;
+        }
+      }
+      if (cleared) {
+        // Update ref immediately
+        cardsRef.current = updated;
+        // Sync to Firebase so JOINER gets the cleared flags
+        if (roomCodeRef.current) {
+          setTimeout(() => {
+            syncMoveToFirebase(null, false, updated).catch(err => console.error('Failed to sync cleared flags:', err));
+          }, 100);
+        }
+      }
+      return updated;
+    });
+  }, [movePhase, currentGroup, isHost, multiplayerPlayers, playerName]);
+
   // Auto-trigger AI moves in multiplayer mode (host only)
   useEffect(() => {
     console.log('🤖 AI useEffect triggered:', { 
