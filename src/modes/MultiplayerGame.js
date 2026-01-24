@@ -6623,6 +6623,8 @@ const transitionToNextRound = () => {
         };
       }
     }
+    // 🔧 Update cardsRef synchronously so maxGroup calculation uses cleared flags
+    cardsRef.current = updated;
     return updated;
   });
   
@@ -6632,6 +6634,7 @@ const transitionToNextRound = () => {
   
   // Find max group and set as current
   const maxGroup = Math.max(...Object.values(cardsRef.current).filter(r => !r.finished).map(r => r.group));
+  console.log('🔄 transitionToNextRound: maxGroup calculated:', maxGroup);
   setCurrentGroup(maxGroup);
   
   // Compute team order for this round
@@ -8562,22 +8565,33 @@ const checkCrash = () => {
     
     const humanTeamsInGroupForCheck = [...new Set(allHumanRidersInGroup.map(([, r]) => r.team))];
     
+    // 🔧 Use teamCardMeta instead of human_planned flags to check submissions
+    // This is more reliable because it's synced to Firebase
     const humanTeamsWithSelections = humanTeamsInGroupForCheck.filter(team => {
-      // A team has submitted if ALL their riders in the group have human_planned set
+      // Check if team has a submission in teamCardMeta for this round-group
+      const cardMetaKey = `${round}-${currentGroup}-${team}`;
+      const hasCardMetaSubmission = teamCardMeta && teamCardMeta[cardMetaKey];
+      
+      // Fallback: Check if ALL riders have human_planned (for backwards compatibility)
       const teamRiders = Object.entries(cardsRef.current).filter(([, r]) => r.group === currentGroup && r.team === team && !r.finished);
       const allHavePlanned = teamRiders.length > 0 && teamRiders.every(([, r]) => r.human_planned);
       
+      const hasSubmitted = hasCardMetaSubmission || allHavePlanned;
+      
       console.log(`🎴 Team ${team} submission check:`, {
         ridersCount: teamRiders.length,
+        cardMetaKey,
+        hasCardMetaSubmission: !!hasCardMetaSubmission,
+        allHavePlanned,
+        hasSubmitted,
         riders: teamRiders.map(([n, r]) => ({ 
           name: n, 
           planned_card_id: r.planned_card_id, 
           human_planned: r.human_planned 
-        })),
-        allHavePlanned
+        }))
       });
       
-      return allHavePlanned;
+      return hasSubmitted;
     });
     
     console.log('🎴 Monitoring card selections:', {
