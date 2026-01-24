@@ -222,6 +222,13 @@ export const syncPlayerMove = async (roomCode, moveData) => {
     movePhase: moveData.movePhase,
     logs: moveData.logs
   };
+  
+  // Add teamCardMeta if present (tracks card selections like teamPaceMeta tracks pace selections)
+  if ('teamCardMeta' in moveData) {
+    const existingTeamCardMeta = (gameData.gameState && gameData.gameState.teamCardMeta) || {};
+    const shouldResetCardMeta = Object.keys(moveData.teamCardMeta || {}).length === 0 && 'teamCardMeta' in moveData;
+    gameStateUpdate.teamCardMeta = shouldResetCardMeta ? {} : { ...existingTeamCardMeta, ...moveData.teamCardMeta };
+  }
 
   // Conditionally add optional fields if they exist in moveData
   if ('groupSpeed' in moveData) {

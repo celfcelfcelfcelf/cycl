@@ -1893,8 +1893,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Debug: Log what's in state.teamPaces before loading
       console.log('🔄 Firebase state.teamPaces:', JSON.stringify(state.teamPaces || {}));
       console.log('🔄 Firebase state.teamPaceMeta:', JSON.stringify(state.teamPaceMeta || {}));
-      console.log('🔄 Firebase state.teamCardMeta:', JSON.stringify(state.teamCardMeta || {}));
-      console.log('🔄 Firebase state has teamCardMeta?', state.teamCardMeta !== undefined, 'keys:', Object.keys(state).includes('teamCardMeta'));
       
       // Merge human_planned flags from both Firebase and local state
       // Firebase is source of truth for OTHER players' submissions
@@ -2166,9 +2164,6 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   // Get merged teamCardMeta (local + Firebase)
                   const cardMetaToCheck = teamCardMetaRef.current || teamCardMeta || state.teamCardMeta || {};
                   
-                  console.log('🔄 HOST card meta check - roundNum:', roundNum, 'groupNum:', groupNum, 'state.round:', state.round, 'roundRef.current:', roundRef.current, 'round:', round);
-                  console.log('🔄 HOST card meta check - cardMetaToCheck:', cardMetaToCheck);
-                  
                   // Find all human teams with riders in current group
                   const cardsToCheck = cardsRef.current || state.cards || cards;
                   const allHumanRidersInGroup = Object.entries(cardsToCheck)
@@ -2179,9 +2174,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   // Check teamCardMeta for submissions instead of human_planned flags
                   const humanTeamsWithCardSelections = humanTeamsInGroup.filter(team => {
                     const cardKey = `${roundNum}-${groupNum}-${team}`;
-                    const hasSubmitted = !!cardMetaToCheck[cardKey];
-                    console.log('🔄 Checking card submission for team', team, 'key:', cardKey, 'found:', hasSubmitted);
-                    return hasSubmitted;
+                    return !!cardMetaToCheck[cardKey];
                   });
                   
                   console.log('🔄 HOST card selection check:', {
@@ -6543,7 +6536,6 @@ const transitionToNextRound = () => {
   setPullInvestOutcome({});
   setTeamPaces({});
   setTeamPaceMeta({});
-  setTeamCardMeta({}); // Clear card submissions for new round
   setTeamPaceRound({});
   setGroupSpeed(0);
   setGroupsMovedThisRound([]);
@@ -6551,6 +6543,7 @@ const transitionToNextRound = () => {
   // Clear refs immediately
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
+  setTeamCardMeta({}); // Clear card submissions for new round
   teamCardMetaRef.current = {}; // Clear card meta ref for new round
   teamPaceRoundRef.current = {};
   allGroupsThisTurnRef.current = [];
@@ -6638,16 +6631,8 @@ const moveToNextGroup = () => {
     // Prefer a team that actually has riders in the next group so we don't
     // land on an empty team and stall the UI. Use existing helper.
     const preferred = findNextTeamWithRiders(0, nextGroup);
-    console.log('🔄 moveToNextGroup: Finding team with riders in group', nextGroup, 'preferred:', preferred, 'shuffled[0]:', shuffled[0]);
-    if (preferred) {
-      setCurrentTeam(preferred);
-      currentTeamRef.current = preferred; // Update ref immediately
-      console.log('🔄 moveToNextGroup: Set currentTeam to', preferred, '(has riders in group)');
-    } else {
-      setCurrentTeam(shuffled[0]);
-      currentTeamRef.current = shuffled[0]; // Update ref immediately
-      console.log('🔄 moveToNextGroup: Set currentTeam to', shuffled[0], '(fallback)');
-    }
+    if (preferred) setCurrentTeam(preferred);
+    else setCurrentTeam(shuffled[0]);
     
     // CRITICAL: Clear human_planned flags for the new group BEFORE entering cardSelection
     // This prevents Firebase from syncing stale human_planned=true values from the previous group
@@ -8849,17 +8834,14 @@ const checkCrash = () => {
       submitted: true
     };
     console.log('🎴 Recording card submission in teamCardMeta:', cardKey, cardSubmission);
-    
-    // Update teamCardMeta state and ref BEFORE syncing to Firebase
-    const updatedTeamCardMeta = {
+    setTeamCardMeta(prev => ({
+      ...prev,
+      [cardKey]: cardSubmission
+    }));
+    teamCardMetaRef.current = {
       ...teamCardMetaRef.current,
       [cardKey]: cardSubmission
     };
-    teamCardMetaRef.current = updatedTeamCardMeta;
-    setTeamCardMeta(updatedTeamCardMeta);
-    
-    console.log('🎴 teamCardMeta after update:', updatedTeamCardMeta);
-    console.log('🎴 teamCardMetaRef.current after update:', teamCardMetaRef.current);
     
     console.log('🎴 submitCardSelections completed for', Object.keys(cardSelections).length, 'riders');
     console.log('🎴 Updated cards with planned_card_id:', Object.entries(updated)
