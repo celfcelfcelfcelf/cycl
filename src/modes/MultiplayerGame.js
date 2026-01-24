@@ -6653,6 +6653,7 @@ const moveToNextGroup = () => {
     }
     
     setMovePhase('input');
+    movePhaseRef.current = 'input'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
     // clear stored invest outcome for this moved group so UI doesn't retain old results
     try {
       const gMoved = postMoveInfo && postMoveInfo.groupMoved;
