@@ -2058,52 +2058,35 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         console.log('🔄 teamPaceMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'roundChanged:', roundChanged, '(prev:', previousRound, 'new:', state.round, ') result keys:', Object.keys(merged).length);
         // Also update ref to keep it in sync
         teamPaceMetaRef.current = merged;
-        return merged;
-      });
-    }
-    // Load teamCardMeta from Firebase
-    if (state.teamCardMeta !== undefined) {
-      console.log('🔄 Setting teamCardMeta from Firebase:', state.teamCardMeta);
-      setTeamCardMeta(prev => {
-        const firebaseKeys = Object.keys(state.teamCardMeta);
-        const roundChanged = state.round !== undefined && state.round !== previousRound;
-        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
-        const merged = shouldReplace ? state.teamCardMeta : { ...prev, ...state.teamCardMeta };
-        console.log('🔄 teamCardMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'result keys:', Object.keys(merged).length);
-        teamCardMetaRef.current = merged;
-        return merged;
-      });
-    }
-    
-    // HOST ONLY: Check if we need to advance turn after receiving new submissions
-    // This handles the case where a non-host player submits and the host needs to
-    // advance currentTeam so the next team can submit
-    // Check using multiple conditions since isHost/gameMode might not be set yet
-    if (state.teamPaceMeta !== undefined) {
-      const playersToCheck = players || multiplayerPlayers;
-      const nameToCheck = playerNameParam || playerName;
-      console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
-      const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
-                           playersToCheck.some(p => {
-                             console.log('🔄 Checking player:', p, 'p.isHost:', p.isHost, 'p.name:', p.name, 'matches:', p.name === nameToCheck);
-                             return p.isHost && p.name === nameToCheck;
-                           }));
-      const isMultiplayer = gameMode === 'multi' || gameMode === 'join' || playersToCheck.length > 0;
-      console.log('🔄 Host check result - isLikelyHost:', isLikelyHost, 'isMultiplayer:', isMultiplayer);
-      
-      if (isLikelyHost && isMultiplayer) {
-        // Use currentTeam from Firebase state, not from React state (which might be stale)
-        const currentTeamFromFirebase = state.currentTeam;
-        console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
-          
-          // Allow turn advancement during 'input' phase (pace selection) and 'cardSelection' phase
-          // During cardSelection, HOST may still need to advance turn if other players submit paces
-          // Use Firebase movePhase if available to avoid race conditions
-          const currentPhase = state.movePhase || movePhase;
-          if (currentPhase !== 'input' && currentPhase !== 'cardSelection') {
-            console.log('🔄 Skipping turn advancement - not in input/cardSelection phase (current phase:', currentPhase, ')');
-            return;
-          }
+        
+        // HOST ONLY: Check if we need to advance turn after receiving new submissions
+        // This handles the case where a non-host player submits and the host needs to
+        // advance currentTeam so the next team can submit
+        // Check using multiple conditions since isHost/gameMode might not be set yet
+        const playersToCheck = players || multiplayerPlayers;
+        const nameToCheck = playerNameParam || playerName;
+        console.log('🔄 Host check - playersToCheck:', playersToCheck, 'nameToCheck:', nameToCheck, 'isHost:', isHost);
+        const isLikelyHost = isHost || (nameToCheck && playersToCheck.length > 0 && 
+                             playersToCheck.some(p => {
+                               console.log('🔄 Checking player:', p, 'p.isHost:', p.isHost, 'p.name:', p.name, 'matches:', p.name === nameToCheck);
+                               return p.isHost && p.name === nameToCheck;
+                             }));
+        const isMultiplayer = gameMode === 'multi' || gameMode === 'join' || playersToCheck.length > 0;
+        console.log('🔄 Host check result - isLikelyHost:', isLikelyHost, 'isMultiplayer:', isMultiplayer);
+        
+        if (isLikelyHost && isMultiplayer) {
+          // Use currentTeam from Firebase state, not from React state (which might be stale)
+          const currentTeamFromFirebase = state.currentTeam;
+          console.log('🔄 HOST checking for submissions. isHost:', isHost, 'isLikelyHost:', isLikelyHost, 'gameMode:', gameMode, 'movePhase:', movePhase, 'currentTeam from state:', currentTeam, 'from Firebase:', currentTeamFromFirebase);
+            
+            // Allow turn advancement during 'input' phase (pace selection) and 'cardSelection' phase
+            // During cardSelection, HOST may still need to advance turn if other players submit paces
+            // Use Firebase movePhase if available to avoid race conditions
+            const currentPhase = state.movePhase || movePhase;
+            if (currentPhase !== 'input' && currentPhase !== 'cardSelection') {
+              console.log('🔄 Skipping turn advancement - not in input/cardSelection phase (current phase:', currentPhase, ')');
+              return merged;
+            }
           
           // Check if the current team (from Firebase) has already submitted
           // Use merged state (prev + Firebase) to check submissions
@@ -2303,6 +2286,21 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         return merged;
       });
     }
+    
+    // Load teamCardMeta from Firebase
+    if (state.teamCardMeta !== undefined) {
+      console.log('🔄 Setting teamCardMeta from Firebase:', state.teamCardMeta);
+      setTeamCardMeta(prev => {
+        const firebaseKeys = Object.keys(state.teamCardMeta);
+        const roundChanged = state.round !== undefined && state.round !== previousRound;
+        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
+        const merged = shouldReplace ? state.teamCardMeta : { ...prev, ...state.teamCardMeta };
+        console.log('🔄 teamCardMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'result keys:', Object.keys(merged).length);
+        teamCardMetaRef.current = merged;
+        return merged;
+      });
+    }
+    
     if (state.teamPaceRound !== undefined) {
       console.log('🔄 Loading teamPaceRound from Firebase:', state.teamPaceRound);
       // Replace (don't merge) if round has changed - clear old round submissions
