@@ -4452,6 +4452,7 @@ return { pace, updatedCards, doubleLead };
     
     // Guard: if this team already submitted for this group, ignore duplicate calls
     // This prevents React re-renders from triggering handlePaceSubmit multiple times for same team
+    // NOTE: We check early but only mark as submitted AFTER passing all validation checks
     if (!forceFinalize) {
       if (!teamSubmissionsForGroupRef.current[groupNum]) {
         teamSubmissionsForGroupRef.current[groupNum] = new Set();
@@ -4461,10 +4462,6 @@ return { pace, updatedCards, doubleLead };
         console.warn(`⚠️ handlePaceSubmit called but ${submittingTeam} already submitted for group ${groupNum} - ignoring duplicate`);
         return;
       }
-      
-      // Mark that this team has submitted for this group
-      teamSubmissionsForGroupRef.current[groupNum].add(submittingTeam);
-      console.log(`🔒 Marked ${submittingTeam} as submitted for group ${groupNum}. Teams submitted: ${Array.from(teamSubmissionsForGroupRef.current[groupNum]).join(', ')}`);
     }
     
     console.log('🚀 Check 1: gameMode=', gameMode, 'submittingTeam=', submittingTeam, 'playerName=', playerName);
@@ -4501,6 +4498,13 @@ return { pace, updatedCards, doubleLead };
     }
     
     console.log('🚀 Passed multiplayer checks');
+    
+    // 🔧 Mark that this team has submitted AFTER passing all validation checks
+    // This ensures failed submissions don't block future attempts
+    if (!forceFinalize) {
+      teamSubmissionsForGroupRef.current[groupNum].add(submittingTeam);
+      console.log(`🔒 Marked ${submittingTeam} as submitted for group ${groupNum}. Teams submitted: ${Array.from(teamSubmissionsForGroupRef.current[groupNum]).join(', ')}`);
+    }
     
     const paceKey = `${groupNum}-${submittingTeam}`;
 
