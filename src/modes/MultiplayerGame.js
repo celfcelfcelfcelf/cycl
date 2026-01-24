@@ -6543,6 +6543,7 @@ const transitionToNextRound = () => {
   setPullInvestOutcome({});
   setTeamPaces({});
   setTeamPaceMeta({});
+  setTeamCardMeta({}); // Clear card submissions for new round
   setTeamPaceRound({});
   setGroupSpeed(0);
   setGroupsMovedThisRound([]);
@@ -6550,6 +6551,7 @@ const transitionToNextRound = () => {
   // Clear refs immediately
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
+  teamCardMetaRef.current = {}; // Clear card meta ref for new round
   teamPaceRoundRef.current = {};
   allGroupsThisTurnRef.current = [];
   
@@ -6628,9 +6630,8 @@ const moveToNextGroup = () => {
   setTeamPaceMeta({});
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
-  setTeamCardMeta({}); // Clear card submissions for new group
-  teamCardMetaRef.current = {};
-  console.log('🎴 moveToNextGroup: Cleared teamCardMeta for new group', nextGroup);
+  // DON'T clear teamCardMeta here - it tracks submissions by round-group-team key
+  // and should persist across groups within the same round
   setGroupSpeed(0);  // Reset groupSpeed for the new group
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
