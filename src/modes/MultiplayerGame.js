@@ -8898,6 +8898,7 @@ const checkCrash = () => {
       ...teamCardMetaRef.current,
       [cardKey]: cardSubmission
     };
+    console.log('🎴 teamCardMetaRef after update:', JSON.stringify(teamCardMetaRef.current));
     
     console.log('🎴 submitCardSelections completed for', Object.keys(cardSelections).length, 'riders');
     console.log('🎴 Updated cards with planned_card_id:', Object.entries(updated)
