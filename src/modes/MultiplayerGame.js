@@ -10070,6 +10070,7 @@ const checkCrash = () => {
                         currentPlayerTeam,
                         isMyTurn: currentTeam === myTeam,
                         humanRidersCount: humanRiders.length,
+                        ridersInGroup: Object.entries(cards).filter(([, r]) => r.group === currentGroup).length,
                         multiplayerPlayers: multiplayerPlayers.map(p => `${p.name}:${p.team}`)
                       });
                       
