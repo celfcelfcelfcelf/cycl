@@ -1893,6 +1893,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Debug: Log what's in state.teamPaces before loading
       console.log('🔄 Firebase state.teamPaces:', JSON.stringify(state.teamPaces || {}));
       console.log('🔄 Firebase state.teamPaceMeta:', JSON.stringify(state.teamPaceMeta || {}));
+      console.log('🔄 Firebase state.teamCardMeta:', JSON.stringify(state.teamCardMeta || {}));
+      console.log('🔄 Firebase state has teamCardMeta?', state.teamCardMeta !== undefined, 'keys:', Object.keys(state).includes('teamCardMeta'));
       
       // Merge human_planned flags from both Firebase and local state
       // Firebase is source of truth for OTHER players' submissions
