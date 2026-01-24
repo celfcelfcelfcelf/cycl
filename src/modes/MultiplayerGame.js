@@ -6638,8 +6638,16 @@ const moveToNextGroup = () => {
     // Prefer a team that actually has riders in the next group so we don't
     // land on an empty team and stall the UI. Use existing helper.
     const preferred = findNextTeamWithRiders(0, nextGroup);
-    if (preferred) setCurrentTeam(preferred);
-    else setCurrentTeam(shuffled[0]);
+    console.log('🔄 moveToNextGroup: Finding team with riders in group', nextGroup, 'preferred:', preferred, 'shuffled[0]:', shuffled[0]);
+    if (preferred) {
+      setCurrentTeam(preferred);
+      currentTeamRef.current = preferred; // Update ref immediately
+      console.log('🔄 moveToNextGroup: Set currentTeam to', preferred, '(has riders in group)');
+    } else {
+      setCurrentTeam(shuffled[0]);
+      currentTeamRef.current = shuffled[0]; // Update ref immediately
+      console.log('🔄 moveToNextGroup: Set currentTeam to', shuffled[0], '(fallback)');
+    }
     
     // CRITICAL: Clear human_planned flags for the new group BEFORE entering cardSelection
     // This prevents Firebase from syncing stale human_planned=true values from the previous group
