@@ -1146,6 +1146,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
     if (!amHost) return; // Only HOST clears flags
     
+    // CRITICAL: Don't clear if monitoring is already active (waitingForCardSelections=true)
+    // This means players have already submitted and we're waiting for confirmMove
+    if (waitingForCardSelections) {
+      console.log('🎴 CLEAR: Skipping flag clear - monitoring already active (players have submitted)');
+      return;
+    }
+    
     console.log('🎴 CLEAR: Entering cardSelection phase for group', currentGroup, '- clearing human_planned flags');
     
     // Clear human_planned for riders in current group
@@ -1171,7 +1178,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
       return updated;
     });
-  }, [movePhase, currentGroup, isHost, multiplayerPlayers, playerName]);
+  }, [movePhase, currentGroup, isHost, multiplayerPlayers, playerName, waitingForCardSelections]);
 
   // Auto-trigger AI moves in multiplayer mode (host only)
   useEffect(() => {
