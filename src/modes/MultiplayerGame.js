@@ -6283,6 +6283,7 @@ const confirmMove = (cardsSnapshot) => {
           setCards(prev => prev);
           setGroupsMovedThisRound([]);
           setMovePhase('roundComplete');
+          movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately
           setWaitingForCardSelections(false);
           addLog('All groups moved. Groups reassigned');
         }, 100);
@@ -6406,6 +6407,7 @@ const confirmMove = (cardsSnapshot) => {
         });
         setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
+        movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         addLog('All groups moved. Groups reassigned');
       }, 100);
@@ -6428,6 +6430,7 @@ const confirmMove = (cardsSnapshot) => {
         setCards(prev => prev);
         setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
+        movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         addLog('All groups moved. Groups reassigned');
       }, 100);
