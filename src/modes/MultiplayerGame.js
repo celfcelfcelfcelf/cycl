@@ -2164,6 +2164,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   // Get merged teamCardMeta (local + Firebase)
                   const cardMetaToCheck = teamCardMetaRef.current || teamCardMeta || state.teamCardMeta || {};
                   
+                  console.log('🔄 HOST card meta check - roundNum:', roundNum, 'groupNum:', groupNum, 'state.round:', state.round, 'roundRef.current:', roundRef.current, 'round:', round);
+                  console.log('🔄 HOST card meta check - cardMetaToCheck:', cardMetaToCheck);
+                  
                   // Find all human teams with riders in current group
                   const cardsToCheck = cardsRef.current || state.cards || cards;
                   const allHumanRidersInGroup = Object.entries(cardsToCheck)
@@ -2174,7 +2177,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   // Check teamCardMeta for submissions instead of human_planned flags
                   const humanTeamsWithCardSelections = humanTeamsInGroup.filter(team => {
                     const cardKey = `${roundNum}-${groupNum}-${team}`;
-                    return !!cardMetaToCheck[cardKey];
+                    const hasSubmitted = !!cardMetaToCheck[cardKey];
+                    console.log('🔄 Checking card submission for team', team, 'key:', cardKey, 'found:', hasSubmitted);
+                    return hasSubmitted;
                   });
                   
                   console.log('🔄 HOST card selection check:', {
