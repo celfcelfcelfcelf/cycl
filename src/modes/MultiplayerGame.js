@@ -3134,6 +3134,12 @@ return { pace, updatedCards, doubleLead };
   const effectiveGameMode = gameModeParam || gameMode;
   const effectivePlayers = playersParam || multiplayerPlayers;
   
+  // 🔧 Fix: Set gameMode state if gameModeParam is provided (ensures gameMode is set correctly in multiplayer)
+  if (gameModeParam && gameModeParam !== gameMode) {
+    console.log('🔧 Setting gameMode to:', gameModeParam);
+    setGameMode(gameModeParam);
+  }
+  
   // Debug logging - ALWAYS log
   console.log('🎮 initializeGame called:', {
     gameMode: effectiveGameMode,
@@ -4374,6 +4380,9 @@ return { pace, updatedCards, doubleLead };
             currentTeam: startingTeam, // Sync starting team
             track: getResolvedTrack(), // Sync track for consistent visuals
             trackName: trackName, // Sync track name
+            teamPaces: {}, // 🧹 Clear stale data from previous games
+            teamPaceMeta: {}, // 🧹 Clear stale data from previous games
+            teamCardMeta: {}, // 🧹 Clear stale card submissions from previous games
             lastUpdate: serverTimestamp()
           });
           console.log('📤 Synced game start to Firebase with', drafted.length, 'riders and', breakawayTeamsWithPlayers.length, 'breakaway teams:', breakawayTeamsWithPlayers);
