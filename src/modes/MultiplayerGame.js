@@ -8325,6 +8325,7 @@ const checkCrash = () => {
   // --- Card selection UI for human riders when moving a group ---
   const [cardSelectionOpen, setCardSelectionOpen] = useState(false);
   const [cardSelections, setCardSelections] = useState({}); // { riderName: cardId }
+  const [attackSelection, setAttackSelection] = useState({ isAttack: false, attackerName: null }); // Track attack choice
   const [fallBackOpen, setFallBackOpen] = useState(false);
   const [fallRider, setFallRider] = useState(null);
   const [fallTargetGroup, setFallTargetGroup] = useState(null);
@@ -8781,6 +8782,7 @@ const checkCrash = () => {
       }
     });
     setCardSelections(initial);
+    setAttackSelection({ isAttack: false, attackerName: null }); // Reset attack selection
     setCardSelectionOpen(true);
     // Note: cardsSnapshotRef is cleared in submitCardSelections after confirmMove is called
   };
@@ -8790,7 +8792,7 @@ const checkCrash = () => {
   };
 
   const submitCardSelections = () => {
-    console.log('🎴 submitCardSelections called. cardSelections:', Object.keys(cardSelections).length, 'isMultiplayer:', !!roomCodeRef.current);
+    console.log('🎴 submitCardSelections called. cardSelections:', Object.keys(cardSelections).length, 'attackSelection:', attackSelection, 'isMultiplayer:', !!roomCodeRef.current);
     
     // Apply selections into a fresh cards object
     const updated = JSON.parse(JSON.stringify(cards || {}));
@@ -8815,6 +8817,26 @@ const checkCrash = () => {
       } else {
         // cardId is null/undefined - clear planned_card_id
         updated[riderName].planned_card_id = null;
+      }
+    }
+    
+    // Handle attack if selected
+    if (attackSelection.isAttack && attackSelection.attackerName) {
+      const attackerName = attackSelection.attackerName;
+      if (updated[attackerName]) {
+        console.log('🎴 Setting attack flags for:', attackerName);
+        updated[attackerName].attacking_status = 'attacker';
+        updated[attackerName].takes_lead = 2; // Special lead value for attacker
+        
+        // Find the attack card from the rider's selected card
+        const attackCardId = cardSelections[attackerName];
+        if (attackCardId && attackCardId !== 'tk_extra 99') {
+          const attackCard = (updated[attackerName].cards || []).find(c => c.id === attackCardId);
+          if (attackCard) {
+            updated[attackerName].attack_card = attackCard;
+            console.log('🎴 Attack card set:', attackCard);
+          }
+        }
       }
     }
     
@@ -10924,11 +10946,57 @@ const checkCrash = () => {
                         );
                       })}
                     </div>
+                    
+                    {/* Attack selection section */}
+                    <div className="mb-4 p-3 border-t pt-4">
+                      <label className="flex items-center gap-2 mb-2">
+                        <input
+                          type="checkbox"
+                          checked={attackSelection.isAttack}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            setAttackSelection(prev => ({
+                              ...prev,
+                              isAttack: isChecked,
+                              attackerName: isChecked ? prev.attackerName : null
+                            }));
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span className="font-semibold">Declare Attack</span>
+                      </label>
+                      
+                      {attackSelection.isAttack && (
+                        <div className="ml-6">
+                          <label className="block text-sm font-medium mb-1">Which rider attacks?</label>
+                          <select
+                            value={attackSelection.attackerName || ''}
+                            onChange={(e) => setAttackSelection(prev => ({ ...prev, attackerName: e.target.value || null }))}
+                            className="w-full p-2 border rounded"
+                          >
+                            <option value="">-- select attacker --</option>
+                            {Object.entries(cards).filter(([, r]) => {
+                              const playerTeam = getPlayerTeamName();
+                              return r.group === currentGroup && r.team === playerTeam && !r.finished;
+                            }).map(([name]) => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                          </select>
+                          {attackSelection.attackerName && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              <strong>{attackSelection.attackerName}</strong> will attack using the card you selected above.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
                     <div className="flex justify-end gap-3">
                       <button onClick={() => {
                         // Cancel card selection - reset to input phase so player can choose pace again
                         console.log('🎴 Card selection cancelled - resetting to input phase');
                         setCardSelectionOpen(false);
+                        setAttackSelection({ isAttack: false, attackerName: null }); // Reset attack selection
                         
                         // Clear human_planned flags for this player's riders in this group
                         const playerTeam = gameMode === 'multi' ? playerName : 'Me';
@@ -10954,7 +11022,21 @@ const checkCrash = () => {
                           }, 50);
                         }
                       }} className="px-3 py-2 border rounded">Cancel</button>
-                      <button disabled={Object.values(cardSelections).length === 0 || Object.values(cardSelections).some(v => v === null)} onClick={submitCardSelections} className="px-4 py-2 bg-green-600 text-white rounded">Submit</button>
+                      <button 
+                        disabled={
+                          Object.values(cardSelections).length === 0 || 
+                          Object.values(cardSelections).some(v => v === null) ||
+                          (attackSelection.isAttack && (!attackSelection.attackerName || !cardSelections[attackSelection.attackerName]))
+                        } 
+                        onClick={submitCardSelections} 
+                        className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          (attackSelection.isAttack && !attackSelection.attackerName) ? 'Please select which rider attacks' :
+                          (attackSelection.isAttack && !cardSelections[attackSelection.attackerName]) ? 'Please select a card for the attacker' : ''
+                        }
+                      >
+                        Submit
+                      </button>
                     </div>
                   </div>
                 </div>
