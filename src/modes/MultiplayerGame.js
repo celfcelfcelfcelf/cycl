@@ -8841,14 +8841,17 @@ const checkCrash = () => {
       submitted: true
     };
     console.log('🎴 Recording card submission in teamCardMeta:', cardKey, cardSubmission);
-    setTeamCardMeta(prev => ({
-      ...prev,
-      [cardKey]: cardSubmission
-    }));
-    teamCardMetaRef.current = {
+    
+    // Update teamCardMeta state and ref BEFORE syncing to Firebase
+    const updatedTeamCardMeta = {
       ...teamCardMetaRef.current,
       [cardKey]: cardSubmission
     };
+    teamCardMetaRef.current = updatedTeamCardMeta;
+    setTeamCardMeta(updatedTeamCardMeta);
+    
+    console.log('🎴 teamCardMeta after update:', updatedTeamCardMeta);
+    console.log('🎴 teamCardMetaRef.current after update:', teamCardMetaRef.current);
     
     console.log('🎴 submitCardSelections completed for', Object.keys(cardSelections).length, 'riders');
     console.log('🎴 Updated cards with planned_card_id:', Object.entries(updated)
