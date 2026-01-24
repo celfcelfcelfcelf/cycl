@@ -1083,9 +1083,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     if (gameState !== 'playing') return;
     if (movePhase !== 'input') return;
-    if (gameMode !== 'multi' && gameMode !== 'join') return;
-    if (!isHost) return; // Only host triggers cardSelection
+    // Use roomCode as primary indicator of multiplayer mode (more reliable than gameMode)
     if (!roomCode) return;
+    
+    // Check host status - use both isHost state and multiplayer context
+    const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+    if (!amHost) return; // Only host triggers cardSelection
     
     // Check if all teams with riders in current group have submitted their paces
     const teamsWithRidersInGroup = teams.filter(t => {
