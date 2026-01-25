@@ -5318,6 +5318,15 @@ return { pace, updatedCards, doubleLead };
             
             console.log('🎯 All riders in group', groupNum, ':', groupRiders.map(r => `${r.name}: sv=${r.selected_value}, tl=${r.takes_lead}`));
 
+            // 🔧 FIX: Preserve attackers' selected_value - they should keep their card value
+            // Attackers move separately and their selected_value must not be overwritten
+            const existingAttacker = groupRiders.find(r => r.team === chosenTeam && r.attacking_status === 'attacker');
+            if (existingAttacker) {
+              console.log(`🎯 Preserving existing attacker: ${existingAttacker.name} (attacking_status=${existingAttacker.attacking_status}, selected_value=${existingAttacker.selected_value})`);
+              // Attacker already assigned - keep their state intact and skip re-assignment
+              return updated;
+            }
+
             // 🔧 FIX: Check if chosenTeam already has a leader assigned (takes_lead=1)
             // This preserves human player's leader choice instead of overwriting it
             const existingLeader = groupRiders.find(r => r.team === chosenTeam && r.takes_lead === 1 && r.attacking_status !== 'attacker');
