@@ -5813,31 +5813,19 @@ const handleHumanChoices = (groupNum, choice) => {
   setCards(updatedCards);
   addLog(`🔵 DEBUG: setCards completed`);
   
-  // Submit the team's pace
-  // For attacks: use attacker's card value as the pace
-  // For non-attacks: use max of all riders' values
+  // Submit the team's pace (max of all riders' values)
+  // Compute the team's non-attacker pace (attackers should not determine this)
+  const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(n => updatedCards[n].selected_value || 0));
   addLog(`========== PACE CALCULATION START ==========`);
   addLog(`humanRiders: ${humanRiders.join(', ')}`);
   humanRiders.forEach(n => {
     addLog(`${n}: selected_value=${updatedCards[n].selected_value}, takes_lead=${updatedCards[n].takes_lead}, attacking=${updatedCards[n].attacking_status}`);
   });
-  
-  const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
-  const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
-  
-  let teamPace;
-  if (isAttack && attackerName) {
-    // For attacks, use the attacker's card value as team pace
-    teamPace = updatedCards[attackerName].selected_value || 0;
-    addLog(`🎯 Attack detected: using attacker ${attackerName}'s pace: ${teamPace}`);
-  } else {
-    // For normal moves, use max of all riders' values
-    teamPace = Math.max(...humanRiders.map(n => updatedCards[n].selected_value || 0));
-  }
-  
   addLog(`Calculated teamPace: ${teamPace}`);
   addLog(`========== PACE CALCULATION END ==========`);
-  addLog(`🔵 DEBUG: isAttack=${isAttack}, attackerName=${attackerName}`);
+  addLog(`🔵 DEBUG: About to compute isAttack and attackerName`);
+  const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
+  const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
   
   addLog(`🔵 DEBUG: About to build doubleLead object`);
   // Build doubleLead object if this is a doublelead choice
