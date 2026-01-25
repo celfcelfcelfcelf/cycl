@@ -4703,7 +4703,12 @@ return { pace, updatedCards, doubleLead };
   const prevPaceForThisTeam = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
   
   // Handle dobbeltføring: if doubleLead is provided and values are within 1, apply +1 bonus
+  // Ensure pace is a valid number (attacks may have pace=0)
   let finalPace = parseInt(pace);
+  if (isNaN(finalPace)) {
+    console.warn(`⚠️ handlePaceSubmit: pace=${pace} resulted in NaN, defaulting to 0`);
+    finalPace = 0;
+  }
   let isDoubleLead = false;
   
   // Process manual dobbeltføring if provided
@@ -5313,6 +5318,21 @@ return { pace, updatedCards, doubleLead };
             
             console.log('🎯 All riders in group', groupNum, ':', groupRiders.map(r => `${r.name}: sv=${r.selected_value}, tl=${r.takes_lead}`));
 
+            // 🔧 FIX: Check if chosenTeam already has a leader assigned (takes_lead=1)
+            // This preserves human player's leader choice instead of overwriting it
+            const existingLeader = groupRiders.find(r => r.team === chosenTeam && r.takes_lead === 1 && r.attacking_status !== 'attacker');
+            if (existingLeader) {
+              console.log(`🎯 Preserving existing leader: ${existingLeader.name} (takes_lead=${existingLeader.takes_lead}, selected_value=${existingLeader.selected_value})`);
+              // Leader already assigned - keep it and skip re-assignment
+              // Just ensure the leader has correct selected_value for group speed
+              const speedVal = Math.round(speed);
+              if (Math.round(existingLeader.selected_value || 0) !== speedVal) {
+                console.log(`🎯 Updating existing leader ${existingLeader.name} selected_value from ${existingLeader.selected_value} to ${speedVal}`);
+                updated[existingLeader.name] = { ...updated[existingLeader.name], selected_value: speedVal };
+              }
+              return updated;
+            }
+
             // Determine candidates from chosenTeam that have selected_value equal
             // to the group's speed. Prefer non-attacking riders first.
             const speedVal = Math.round(speed);
@@ -5813,19 +5833,31 @@ const handleHumanChoices = (groupNum, choice) => {
   setCards(updatedCards);
   addLog(`🔵 DEBUG: setCards completed`);
   
-  // Submit the team's pace (max of all riders' values)
-  // Compute the team's non-attacker pace (attackers should not determine this)
-  const teamPace = Math.max(...humanRiders.filter(n => updatedCards[n].attacking_status !== 'attacker').map(n => updatedCards[n].selected_value || 0));
+  // Compute attack status first to determine pace calculation
+  const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
+  const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
+  
+  // Submit the team's pace
+  // For attacks: use attacker's card value (0 for non-attacker teammates)
+  // For normal moves: use max of all riders' values
+  let teamPace;
+  if (isAttack && attackerName) {
+    // For attacks, pace should be 0 (attackers move separately, non-attackers follow group)
+    teamPace = 0;
+    addLog(`🎯 Attack: teamPace set to 0 (attacker ${attackerName} moves separately)`);
+  } else {
+    // For normal moves, use max of all riders' values
+    teamPace = Math.max(...humanRiders.map(n => updatedCards[n].selected_value || 0));
+  }
+  
   addLog(`========== PACE CALCULATION START ==========`);
   addLog(`humanRiders: ${humanRiders.join(', ')}`);
   humanRiders.forEach(n => {
     addLog(`${n}: selected_value=${updatedCards[n].selected_value}, takes_lead=${updatedCards[n].takes_lead}, attacking=${updatedCards[n].attacking_status}`);
   });
+  addLog(`isAttack: ${isAttack}, attackerName: ${attackerName}`);
   addLog(`Calculated teamPace: ${teamPace}`);
   addLog(`========== PACE CALCULATION END ==========`);
-  addLog(`🔵 DEBUG: About to compute isAttack and attackerName`);
-  const isAttack = humanRiders.some(n => updatedCards[n].attacking_status === 'attacker');
-  const attackerName = humanRiders.find(n => updatedCards[n].attacking_status === 'attacker') || null;
   
   addLog(`🔵 DEBUG: About to build doubleLead object`);
   // Build doubleLead object if this is a doublelead choice
