@@ -1155,13 +1155,18 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     console.log('🎴 CLEAR: Entering cardSelection phase for group', currentGroup, '- clearing human_planned flags');
     
-    // Clear human_planned for riders in current group
+    // Get HOST's team name to only clear their own riders
+    const hostTeam = getPlayerTeamName();
+    
+    // Clear human_planned only for HOST's own riders in current group
+    // Do NOT clear JOINER's riders - they manage their own flags
     setCards(prev => {
       const updated = { ...prev };
       let cleared = false;
       for (const [name, rider] of Object.entries(updated)) {
-        if (rider.group === currentGroup && !rider.finished && rider.human_planned) {
-          console.log('🎴 CLEAR: Clearing human_planned for', name);
+        // Only clear if: in current group, not finished, has human_planned flag, AND belongs to HOST's team
+        if (rider.group === currentGroup && !rider.finished && rider.human_planned && rider.team === hostTeam) {
+          console.log('🎴 CLEAR: Clearing human_planned for HOST rider', name, 'team', rider.team);
           updated[name] = { ...rider, human_planned: false };
           cleared = true;
         }
@@ -1169,7 +1174,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       if (cleared) {
         // Update ref immediately
         cardsRef.current = updated;
-        // Sync to Firebase so JOINER gets the cleared flags
+        // Sync to Firebase so state is consistent
         if (roomCodeRef.current) {
           setTimeout(() => {
             syncMoveToFirebase(null, false, updated).catch(err => console.error('Failed to sync cleared flags:', err));
