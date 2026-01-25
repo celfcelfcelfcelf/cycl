@@ -1106,10 +1106,30 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     const allSubmitted = teamsWithRidersInGroup.every(t => submittedTeams.includes(t));
     
+    // Check if we're in choice-2 mode (revised pace selection after attack)
+    const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) || 1;
+    const inChoice2 = currentRound === 2;
+    
+    // If in choice-2, check that all submissions are for round 2
+    let allSubmittedForRound2 = true;
+    if (inChoice2) {
+      for (const team of teamsWithRidersInGroup) {
+        const paceKey = `${currentGroup}-${team}`;
+        const meta = teamPaceMeta[paceKey];
+        if (!meta || meta.round !== 2) {
+          allSubmittedForRound2 = false;
+          break;
+        }
+      }
+    }
+    
     console.log('🚀 Pace submission check:', {
       teamsWithRidersInGroup,
       submittedTeams,
-      allSubmitted
+      allSubmitted,
+      currentRound,
+      inChoice2,
+      allSubmittedForRound2
     });
     
     if (!allSubmitted) {
@@ -1117,7 +1137,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       return;
     }
     
-    // All teams submitted - auto-start cardSelection after a delay
+    // If we're in choice-2 mode, wait until all teams have submitted for round 2
+    if (inChoice2 && !allSubmittedForRound2) {
+      console.log('🚀 In choice-2 mode, waiting for all teams to submit round 2 paces');
+      return;
+    }
+    
+    // All teams submitted (and if choice-2, all submitted for round 2) - auto-start cardSelection after a delay
     console.log('🚀 All teams submitted paces, scheduling auto-start of cardSelection for group', currentGroup);
     const timer = setTimeout(() => {
       try {
@@ -6340,20 +6366,15 @@ const confirmMove = (cardsSnapshot) => {
     addLog(`Debug groups: all=${remainingGroupsSet.join(',') || 'none'} movedLocal=${groupsMovedLocal.join(',') || 'none'} remainingNotMoved=${remainingNotMoved.join(',') || 'none'}`);
 
     if (remainingNotMoved.length > 0) {
-      // Use centralized transition function
-      const success = transitionToNextGroup(currentGroup);
-      if (!success) {
-        console.error('🔍 transitionToNextGroup failed - falling back to round complete');
-        // Fallback to round complete
-        setTimeout(() => {
-          setCards(prev => prev);
-          setGroupsMovedThisRound([]);
-          setMovePhase('roundComplete');
-          movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately
-          setWaitingForCardSelections(false);
-          addLog('All groups moved. Groups reassigned');
-        }, 100);
-      }
+      // More groups remaining - set movePhase to roundComplete to show yellow box
+      // Yellow box "Continue" button will call moveToNextGroup() which transitions to input
+      console.log('🔍 More groups remaining - setting movePhase to roundComplete');
+      setMovePhase('roundComplete');
+      movePhaseRef.current = 'roundComplete';
+      setWaitingForCardSelections(false);
+      
+      // Don't call transitionToNextGroup here - let user click Continue first
+      // This gives them a chance to see the yellow box with move results
     } else {
       // No remaining non-finished groups: reassign groups and detect sprints
       // Clear the confirmMove guard so the new group 1 can be processed after reassignment
@@ -6555,12 +6576,14 @@ const transitionToNextGroup = (fromGroup) => {
   setTeamPaces({});
   setTeamPaceMeta({});
   setTeamPaceRound({});
+  setTeamCardMeta({}); // Clear card submissions when moving to new group
   setGroupSpeed(0);
   
   // Clear refs immediately
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
   teamPaceRoundRef.current = {};
+  teamCardMetaRef.current = {}; // Clear card meta ref when moving to new group
   cardSelectionOpenedForGroupRef.current = null;
   confirmMoveCalledForGroupRef.current = null; // Reset so new group can call confirmMove
   
@@ -6729,17 +6752,25 @@ const transitionToNextRound = () => {
 // summary is displayed. Advances to the next not-yet-moved group, or
 // if none remain, starts the next round.
 const moveToNextGroup = () => {
-  if (!postMoveInfo) return;
+  console.log('🚀 moveToNextGroup called with postMoveInfo:', postMoveInfo);
+  if (!postMoveInfo) {
+    console.log('🚀 moveToNextGroup: No postMoveInfo, returning');
+    return;
+  }
   const remaining = postMoveInfo.remainingNotMoved || [];
+  console.log('🚀 moveToNextGroup: remainingNotMoved:', remaining, 'length:', remaining.length);
+  
   if (remaining.length > 0) {
     const nextGroup = Math.max(...remaining);
+    console.log('🚀 moveToNextGroup: Moving to next group:', nextGroup, 'from current:', currentGroup);
     setCurrentGroup(nextGroup);
   setTeamPaces({});
   setTeamPaceMeta({});
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
-  // DON'T clear teamCardMeta here - it tracks submissions by round-group-team key
-  // and should persist across groups within the same round
+  // Clear teamCardMeta when moving to next group so card selection can reopen
+  setTeamCardMeta({});
+  teamCardMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new group
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
@@ -6791,6 +6822,7 @@ const moveToNextGroup = () => {
     }
   } else {
     // No remaining groups -> start new round
+    console.log('🚀 moveToNextGroup: No remaining groups, starting new round');
     setPostMoveInfo(null);
     postMoveInfoRef.current = null; // Clear ref so Firebase sync sends null
     startNewRound();
@@ -8618,22 +8650,32 @@ const checkCrash = () => {
     // 🔧 Use teamCardMeta instead of human_planned flags to check submissions
     // This is more reliable because it's synced to Firebase
     const humanTeamsWithSelections = humanTeamsInGroupForCheck.filter(team => {
-      // Check if team has a submission in teamCardMeta for this round-group
-      const cardMetaKey = `${round}-${currentGroup}-${team}`;
-      const hasCardMetaSubmission = teamCardMeta && teamCardMeta[cardMetaKey];
+      // Check teamCardMeta for ANY submission that matches this team and current group
+      // Don't rely on key format - check submission object instead
+      const hasCardMetaSubmission = teamCardMeta && Object.values(teamCardMeta).some(submission => 
+        submission && 
+        submission.team === team && 
+        submission.group === currentGroup
+      );
       
-      // Fallback: Check if ALL riders have human_planned (for backwards compatibility)
+      // In multiplayer, ONLY check teamCardMeta for explicit submissions
+      // Do NOT use human_planned flags because they sync via Firebase and can make
+      // the system think JOINER has submitted when they haven't
       const teamRiders = Object.entries(cardsRef.current).filter(([, r]) => r.group === currentGroup && r.team === team && !r.finished);
       const allHavePlanned = teamRiders.length > 0 && teamRiders.every(([, r]) => r.human_planned);
       
-      const hasSubmitted = hasCardMetaSubmission || allHavePlanned;
+      // Only use human_planned as fallback in single-player mode
+      const isMultiplayerMode = gameMode === 'multi' || gameMode === 'host' || gameMode === 'join';
+      const hasSubmitted = isMultiplayerMode ? hasCardMetaSubmission : (hasCardMetaSubmission || allHavePlanned);
       
       console.log(`🎴 Team ${team} submission check:`, {
         ridersCount: teamRiders.length,
-        cardMetaKey,
         hasCardMetaSubmission: !!hasCardMetaSubmission,
         allHavePlanned,
         hasSubmitted,
+        matchingSubmissions: teamCardMeta ? Object.entries(teamCardMeta)
+          .filter(([, sub]) => sub && sub.team === team && sub.group === currentGroup)
+          .map(([key, sub]) => ({ key, ...sub })) : [],
         riders: teamRiders.map(([n, r]) => ({ 
           name: n, 
           planned_card_id: r.planned_card_id, 
@@ -8957,13 +8999,19 @@ const checkCrash = () => {
     cardsRef.current = updated;
     
     // Track card submission in teamCardMeta (similar to teamPaceMeta for pace submissions)
+    // IMPORTANT: Store round and group INSIDE the submission object so HOST can find it
+    // even if round/group values are different on HOST vs JOINER
     const playerTeam = getPlayerTeamName();
-    const cardKey = `${round}-${currentGroup}-${playerTeam}`;
+    const currentRoundNum = roundRef.current !== undefined ? roundRef.current : round;
+    const cardKey = `${currentRoundNum}-${currentGroup}-${playerTeam}`;
     const cardSubmission = {
       timestamp: Date.now(),
-      submitted: true
+      submitted: true,
+      round: currentRoundNum, // Store round inside submission
+      group: currentGroup,     // Store group inside submission
+      team: playerTeam         // Store team inside submission
     };
-    console.log('🎴 Recording card submission in teamCardMeta:', cardKey, cardSubmission);
+    console.log('🎴 Recording card submission in teamCardMeta:', cardKey, cardSubmission, 'roundRef:', roundRef.current, 'round state:', round);
     setTeamCardMeta(prev => ({
       ...prev,
       [cardKey]: cardSubmission
