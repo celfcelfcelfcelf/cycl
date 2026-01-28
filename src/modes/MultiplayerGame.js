@@ -1068,6 +1068,32 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     } catch (e) {}
   }, [pullInvestSelections]);
 
+  // Auto-skip to next team if current team has no riders in current group (multiplayer)
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (movePhase !== 'input') return;
+    const isMultiplayerMode = gameMode === 'multi' || gameMode === 'host' || gameMode === 'join';
+    if (!isMultiplayerMode) return;
+    if (!currentTeam || !currentGroup) return;
+    
+    // Check if current team has any riders in current group
+    const teamHasRiders = Object.values(cards).some(r => 
+      r.group === currentGroup && r.team === currentTeam && !r.finished
+    );
+    
+    if (!teamHasRiders) {
+      console.log(`🔄 Current team ${currentTeam} has no riders in group ${currentGroup}, finding next team`);
+      const nextTeam = findNextTeamWithRiders(0, currentGroup);
+      if (nextTeam && nextTeam !== currentTeam) {
+        console.log(`🔄 Auto-skipping to team ${nextTeam}`);
+        setCurrentTeam(nextTeam);
+        if (isHost) {
+          syncMoveToFirebase(null, false).catch(err => console.error('Failed to sync team skip:', err));
+        }
+      }
+    }
+  }, [gameState, movePhase, currentTeam, currentGroup, cards, gameMode, isHost]);
+
   // Auto-start cardSelection phase in multiplayer when ALL teams have submitted their paces
   // This handles the transition from 'input' to 'cardSelection' after pace selection is complete
   useEffect(() => {
@@ -2001,6 +2027,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         }
       }
       
+      // CRITICAL: Restore attacking_status from teamPaceMeta after loading cards from Firebase
+      // The attacking_status field may not sync properly via cards, so we reconstruct it from teamPaceMeta
+      if (state.teamPaceMeta) {
+        for (const [key, meta] of Object.entries(state.teamPaceMeta)) {
+          if (meta && meta.isAttack && meta.attacker) {
+            // Find the rider with this name and mark them as attacker
+            if (mergedCards[meta.attacker]) {
+              mergedCards[meta.attacker] = { ...mergedCards[meta.attacker], attacking_status: 'attacker' };
+              console.log('🔄 Restoring attacking_status for:', meta.attacker, 'from teamPaceMeta');
+            }
+          }
+        }
+      }
+      
       // Quick change detection: compare rider count and a few key properties
       // This is much faster than JSON.stringify for large objects
       const oldKeys = Object.keys(cardsRef.current || {});
@@ -2370,10 +2410,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       console.log('🔄 Setting teamCardMeta from Firebase:', state.teamCardMeta);
       setTeamCardMeta(prev => {
         const firebaseKeys = Object.keys(state.teamCardMeta);
+        const prevKeys = Object.keys(prev);
         const roundChanged = state.round !== undefined && state.round !== previousRound;
-        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
+        // Only replace if round changed - otherwise merge to preserve local submissions
+        // Do NOT replace when Firebase is empty - this would wipe out local submissions that haven't synced yet
+        const shouldReplace = roundChanged && firebaseKeys.length > 0;
         const merged = shouldReplace ? state.teamCardMeta : { ...prev, ...state.teamCardMeta };
-        console.log('🔄 teamCardMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'result keys:', Object.keys(merged).length);
+        console.log('🔄 teamCardMeta:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', prevKeys.length, 'firebase keys:', firebaseKeys.length, 'result keys:', Object.keys(merged).length);
         teamCardMetaRef.current = merged;
         return merged;
       });
@@ -2931,6 +2974,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // This prevents AI choosing a selected_value that cannot actually be played
       // when penalties are present.
       selected = pickValue(name, updatedCards, track, pacesForCall, numberOfTeams, [], addLog);
+      
+      // Debug: log what pickValue returned and rider's cards
+      try {
+        const top4 = (updatedCards[name].cards || []).slice(0, 4);
+        const cardList = top4.map(c => c ? `${c.id}(${c.flat}|${c.uphill})` : 'null').join(', ');
+        addLog(`🎲 ${name} pickValue returned: ${selected}, paces: [${pacesForCall.join(',')}], cards: [${cardList}]`);
+      } catch(e) {}
 
       // IMPORTANT: selected_value must be limited to what the rider can actually play
       // If takes_lead > 0, verify the rider has a card that can produce this value
@@ -2941,20 +2991,32 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const pos = updatedCards[name].position || 0;
         const sv = getSlipstreamValue(pos, pos + Math.floor(selected), track);
         
-        // Check if ANY top-4 card can produce the selected value
-        let maxPlayable = 0;
+        // Build list of all playable values from top-4 cards
+        const playableValues = [];
         for (const c of top4) {
           if (!c || !c.id) continue;
           if (c.id.startsWith('TK-1')) continue; // Skip TK-1 cards
           const cardVal = sv > 2 ? c.flat : c.uphill;
           const effective = cardVal - localPenalty;
-          maxPlayable = Math.max(maxPlayable, effective);
+          if (effective > 0) {
+            playableValues.push(effective);
+          }
         }
         
-        // If selected exceeds what can be played, cap it
-        if (selected > maxPlayable) {
-          validatedSelected = maxPlayable;
-          addLog(`⚠️ ${name} wanted ${selected} but can only play ${maxPlayable} (sv=${sv}, penalty=${localPenalty})`);
+        // Check if selected value is exactly playable
+        if (playableValues.length > 0) {
+          if (!playableValues.includes(selected)) {
+            // Find closest playable value (prefer lower if tie)
+            const closest = playableValues.reduce((prev, curr) => {
+              const prevDiff = Math.abs(prev - selected);
+              const currDiff = Math.abs(curr - selected);
+              if (currDiff < prevDiff) return curr;
+              if (currDiff === prevDiff) return Math.min(prev, curr);
+              return prev;
+            });
+            validatedSelected = closest;
+            addLog(`⚠️ ${name} wanted ${selected} but can only play [${playableValues.sort((a,b)=>b-a).join(',')}] -> chose ${validatedSelected} (sv=${sv}, penalty=${localPenalty})`);
+          }
         }
       }
 
@@ -5817,11 +5879,12 @@ const handleHumanChoices = (groupNum, choice) => {
       if (name === leader) {
         updatedCards[name].selected_value = val;
         updatedCards[name].takes_lead = 1;
-        updatedCards[name].attacking_status = 'no';
+        // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
+        // attacking_status should only be cleared when explicitly choosing a new attack type
       } else {
         updatedCards[name].selected_value = 0;
         updatedCards[name].takes_lead = 0;
-        updatedCards[name].attacking_status = 'no';
+        // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
       }
     });
     
@@ -5838,15 +5901,15 @@ const handleHumanChoices = (groupNum, choice) => {
       if (name === rider1) {
         updatedCards[name].selected_value = pace1;
         updatedCards[name].takes_lead = 1;
-        updatedCards[name].attacking_status = 'no';
+        // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
       } else if (name === rider2) {
         updatedCards[name].selected_value = pace2;
         updatedCards[name].takes_lead = 1;
-        updatedCards[name].attacking_status = 'no';
+        // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
       } else {
         updatedCards[name].selected_value = 0;
         updatedCards[name].takes_lead = 0;
-        updatedCards[name].attacking_status = 'no';
+        // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
       }
     });
     
@@ -5857,7 +5920,7 @@ const handleHumanChoices = (groupNum, choice) => {
     humanRiders.forEach(name => {
       updatedCards[name].selected_value = 0;
       updatedCards[name].takes_lead = 0;
-      updatedCards[name].attacking_status = 'no';
+      // DON'T clear attacking_status here - preserve attacker from round 1 during choice-2
     });
     
     addLog(`${playerTeam}: følger (0)`);
@@ -6492,6 +6555,32 @@ const confirmMove = (cardsSnapshot) => {
 
           return updatedCards2;
         });
+        
+        // Clear all selected_value, takes_lead, and planned_card_id at end of round
+        // ONLY clear if this is actually the last group (check remainingNotMoved is empty)
+        const remainingAfterMove = groupsNewPositions.map(gp => gp[2]).filter(g => g !== currentGroup);
+        const shouldClearForNewRound = remainingAfterMove.length === 0;
+        
+        if (shouldClearForNewRound) {
+          addLog('🧹 Clearing selected_value/takes_lead/planned_card_id for new round');
+          setCards(prevCards => {
+            const clearedCards = {};
+            for (const [name, rider] of Object.entries(prevCards)) {
+              if (!rider.finished) {
+                clearedCards[name] = {
+                  ...rider,
+                  selected_value: 0,
+                  takes_lead: 0,
+                  planned_card_id: null
+                };
+              } else {
+                clearedCards[name] = rider;
+              }
+            }
+            return clearedCards;
+          });
+        }
+        
         setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
         movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
@@ -6514,7 +6603,24 @@ const confirmMove = (cardsSnapshot) => {
       movePhaseRef.current = 'input';
     } else {
       setTimeout(() => {
-        setCards(prev => prev);
+        // Clear all selected_value, takes_lead, and planned_card_id at end of round (fallback path)
+        setCards(prevCards => {
+          const clearedCards = {};
+          for (const [name, rider] of Object.entries(prevCards)) {
+            if (!rider.finished) {
+              clearedCards[name] = {
+                ...rider,
+                selected_value: 0,
+                takes_lead: 0,
+                planned_card_id: null
+              };
+            } else {
+              clearedCards[name] = rider;
+            }
+          }
+          return clearedCards;
+        });
+        
         setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
         movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately
@@ -6782,6 +6888,7 @@ const moveToNextGroup = () => {
     
     // CRITICAL: Clear human_planned flags for the new group BEFORE entering cardSelection
     // This prevents Firebase from syncing stale human_planned=true values from the previous group
+    // Note: selected_value is cleared at end of each round in confirmMove
     const clearedCards = { ...cards };
     let cleared = false;
     for (const [name, rider] of Object.entries(clearedCards)) {
@@ -8497,11 +8604,17 @@ const checkCrash = () => {
   const cardSelectionAutoOpenedRef = useRef(null);
   
   useEffect(() => {
-    console.log('🎴 Auto-open useEffect triggered:', { movePhase, cardSelectionOpen, currentGroup, round, alreadyOpened: cardSelectionAutoOpenedRef.current, pullInvestGroup });
+    console.log('🎴 Auto-open useEffect triggered:', { movePhase, cardSelectionOpen, currentGroup, round, alreadyOpened: cardSelectionAutoOpenedRef.current, pullInvestGroup, hasPostMoveInfo: !!postMoveInfo });
     
     // Reset the ref when leaving cardSelection phase
     if (movePhase !== 'cardSelection') {
       cardSelectionAutoOpenedRef.current = null;
+      return;
+    }
+    
+    // Don't auto-open if the group has already moved (postMoveInfo exists)
+    if (postMoveInfo) {
+      console.log('🎴 Group has already moved (postMoveInfo exists) - skipping auto-open');
       return;
     }
     
@@ -8544,8 +8657,6 @@ const checkCrash = () => {
         console.log('🎴 Monitoring is active (waitingForCardSelections=true) - skipping auto-open');
         return;
       }
-      
-      console.log('🎴 About to check multiplayer/host logic. isMultiplayer:', !!roomCodeRef.current, 'amHost calculation starting...');
       
       // Check if there are ANY human teams in this group (not just current player)
       const isMultiplayer = !!roomCodeRef.current;
@@ -8596,7 +8707,7 @@ const checkCrash = () => {
         console.log('🎴 Player has no riders in group:', currentGroup, '- NOT opening dialog');
       }
     }
-  }, [movePhase, currentGroup, round, cardSelectionOpen, waitingForCardSelections, pullInvestGroup]);
+  }, [movePhase, currentGroup, round, cardSelectionOpen, waitingForCardSelections, pullInvestGroup, postMoveInfo]);
   
   // In multiplayer: HOST monitors when all human teams have submitted card selections
   // OR if a player is the only team in the group, they can finalize themselves
@@ -10149,12 +10260,13 @@ const checkCrash = () => {
                     (() => {
                       // If it's the human's turn and human has riders in this group, show human interface
                       const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
-                      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === currentPlayerTeam && !r.finished);
                       
                       // In multiplayer, find this player's actual team from multiplayerPlayers
                       const myTeam = gameMode === 'multi' && multiplayerPlayers.length > 0
                         ? multiplayerPlayers.find(p => p.name === playerName)?.team || playerName
                         : currentPlayerTeam;
+                      
+                      const humanRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && r.team === myTeam && !r.finished);
                       
                       console.log('🎮 Turn check:', {
                         gameMode,
@@ -10177,7 +10289,7 @@ const checkCrash = () => {
                         );
                       }
                       
-                      if (currentTeam === currentPlayerTeam && humanRiders.length > 0) {
+                      if (currentTeam === myTeam && humanRiders.length > 0) {
                         // Determine if choice-2 is open for this group and whether
                         // the team previously attacked in round 1. If so, force
                         // attack mode in the UI and prevent cancelling the attack.
