@@ -936,7 +936,7 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
 };
 
 // AI helper: choose a card to play from a rider's hand (pure function)
-export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false, riderName = '') => {
+export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false, riderName = '', isAttacker = false) => {
   // (function body preserved from App.js)
   let chosenCard = null;
   let bestCardNumber = 999;
@@ -947,7 +947,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   
   // Debug logging
   if (riderName) {
-    console.log(`🎴 chooseCardToPlay ${riderName}: sv=${sv} penalty=${penalty} speed=${speed} chosenValue=${chosenValue} isDownhill=${isDownhill}`);
+    console.log(`🎴 chooseCardToPlay ${riderName}: sv=${sv} penalty=${penalty} speed=${speed} chosenValue=${chosenValue} isDownhill=${isDownhill} isAttacker=${isAttacker}`);
     console.log(`🎴 Top 4 cards:`, availableCardsBase.map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', '));
   }
 
@@ -1023,13 +1023,17 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
             if (riderName) console.log(`🎴     ✓ Chose TK-1: ${card.id}`);
           }
         } else {
-        // Prefer higher card numbers (worse cards) to save good cards
-        // TK-extra (99) should be preferred over all normal cards
-        if (!chosenCard || (chosenCard.id && chosenCard.id.startsWith('TK-1')) || cardNum > bestCardNumber) {
+        // CRITICAL: Attackers always choose LOWEST card number (best card)
+        // Non-attackers prefer HIGHER card numbers (save good cards for later)
+        const shouldChoose = isAttacker 
+          ? (!chosenCard || (chosenCard.id && chosenCard.id.startsWith('TK-1')) || cardNum < bestCardNumber)
+          : (!chosenCard || (chosenCard.id && chosenCard.id.startsWith('TK-1')) || cardNum > bestCardNumber);
+        
+        if (shouldChoose) {
             chosenCard = card;
             bestCardNumber = cardNum;
             managed = true;
-            if (riderName) console.log(`🎴     ✓ New choice: ${card.id} (cardNum=${cardNum} > bestCardNumber=${bestCardNumber})`);
+            if (riderName) console.log(`🎴     ✓ New choice: ${card.id} (cardNum=${cardNum} ${isAttacker ? '<' : '>'} bestCardNumber=${bestCardNumber})`);
           }
         }
       }
@@ -2674,7 +2678,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (!chosenCard) {
   const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
-  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name);
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name, true); // isAttacker=true
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
@@ -2683,22 +2687,17 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     if (chosenCard && chosenCard.id && (chosenCard.id.startsWith('TK-1') || chosenCard.id === 'tk_extra 99')) {
       const nonTKCards = (rider.cards || []).filter(c => c && c.id && !c.id.startsWith('TK-1') && c.id !== 'tk_extra 99');
       if (nonTKCards.length > 0) {
-        // Pick the highest value card for attacker (lowest card number = best card)
-        const svCheck = getSlipstreamValue(rider.position, rider.position + 10, track);
-        let bestCard = nonTKCards[0];
-        let bestVal = svCheck > 2 ? bestCard.flat : bestCard.uphill;
-        let bestNum = parseInt(bestCard.id.match(/\d+/)?.[0] || '15');
-        for (const c of nonTKCards) {
-          const val = svCheck > 2 ? c.flat : c.uphill;
-          const num = parseInt(c.id.match(/\d+/)?.[0] || '15');
-          if (val > bestVal || (val === bestVal && num < bestNum)) { 
-            bestCard = c; 
-            bestVal = val;
-            bestNum = num;
-          }
-        }
-        chosenCard = bestCard;
-        logs.push(`${name}: Attacker replacing TK-1 with best available card ${bestCard.id}`);
+        // CRITICAL: Attackers always choose the LOWEST card number (best card)
+        // Sort by card number and pick the first one
+        const sortedByNumber = nonTKCards.map(c => ({
+          card: c,
+          num: parseInt(c.id.match(/\d+/)?.[0] || '99')
+        })).sort((a, b) => a.num - b.num);
+        
+        chosenCard = sortedByNumber[0].card;
+        console.log(`🎴 Attacker ${name} forced to choose lowest card number: ${chosenCard.id} (was TK/tk_extra)`);
+        managed = true;
+        logs.push(`${name}: Attacker replacing TK-1 with best available card ${chosenCard.id}`);
       }
     }
 

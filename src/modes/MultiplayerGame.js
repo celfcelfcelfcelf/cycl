@@ -284,6 +284,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const roomCodeRef = useRef(null); // Ref to avoid closure issues with roomCode state
   const currentTeamRef = useRef('Me'); // Ref to avoid closure issues
   const currentGroupRef = useRef(0); // Ref to avoid closure issues
+  const isAutoSkippingRef = useRef(false); // Prevent auto-skip infinite loops
   const movePhaseRef = useRef('input'); // Ref to avoid closure issues
   const cardsRef = useRef({}); // Ref to avoid closure issues with cards state
   const postMoveInfoRef = useRef(null); // Ref to avoid closure issues with postMoveInfo state
@@ -1051,8 +1052,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const humanHasEligible = members.some(([, r]) => r.team === playerTeam && !r.finished && (r.attacking_status || '') !== 'attacker' && (Number(r.position) || 0) >= groupMainPos);
       if (humanHasEligible) {
         try { addLog(`Auto-opening pull-invest modal for ${playerTeam} group ${g}`); } catch (e) {}
-        // Close any other modal that might be open (e.g., card selection)
-        setCardSelectionOpen(false);
+        // IMPORTANT: Do NOT close card selection modal - it must be completed first
+        // User must submit cards before pull-invest
+        // setCardSelectionOpen(false); // REMOVED - don't auto-close
         setPullInvestGroup(g);
         setPullInvestTeam('Me');
         setPullInvestSelections([]);
@@ -1076,6 +1078,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (!isMultiplayerMode) return;
     if (!currentTeam || !currentGroup) return;
     
+    // Prevent infinite loops - if we're already auto-skipping, don't start another one
+    if (isAutoSkippingRef.current) {
+      console.log(`🔄 Already auto-skipping - preventing nested auto-skip`);
+      return;
+    }
+    
     // Check if current team has any riders in current group
     const teamHasRiders = Object.values(cards).some(r => 
       r.group === currentGroup && r.team === currentTeam && !r.finished
@@ -1083,6 +1091,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     if (!teamHasRiders) {
       console.log(`🔄 Current team ${currentTeam} has no riders in group ${currentGroup}, finding next team`);
+      
+      // Check if ANY team has riders in this group before auto-skipping
+      const anyTeamHasRiders = Object.values(cards).some(r => 
+        r.group === currentGroup && !r.finished
+      );
+      
+      if (!anyTeamHasRiders) {
+        console.log(`🔄 NO teams have riders in group ${currentGroup} - skipping auto-skip to prevent infinite loop`);
+        return; // Don't auto-skip if no one has riders in this group
+      }
+      
+      // Set flag to prevent nested auto-skips
+      isAutoSkippingRef.current = true;
+      
       const nextTeam = findNextTeamWithRiders(0, currentGroup);
       if (nextTeam && nextTeam !== currentTeam) {
         console.log(`🔄 Auto-skipping to team ${nextTeam}`);
@@ -1090,7 +1112,19 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         if (isHost) {
           syncMoveToFirebase(null, false).catch(err => console.error('Failed to sync team skip:', err));
         }
+        
+        // Clear flag after a delay to allow state updates to settle
+        setTimeout(() => {
+          isAutoSkippingRef.current = false;
+          console.log(`🔄 Auto-skip flag cleared`);
+        }, 500);
+      } else {
+        console.log(`🔄 No valid next team found (returned: ${nextTeam}) - stopping auto-skip to prevent loop`);
+        isAutoSkippingRef.current = false;
       }
+    } else {
+      // Current team HAS riders, ensure flag is cleared
+      isAutoSkippingRef.current = false;
     }
   }, [gameState, movePhase, currentTeam, currentGroup, cards, gameMode, isHost]);
 
@@ -4835,43 +4869,76 @@ return { pace, updatedCards, doubleLead };
   // Also update React state (asynchronous)
   setTeamPaces(newTeamPaces);
   
-  // If this is a round-2 resubmission and the team previously declared an
-  // attack in round-1, enforce that the attacker remains attacker.
+  // CRITICAL: When forceFinalize=true, use existing attack status from teamPaceMeta
+  // forceFinalize is used when HOST is finalizing after all teams submitted
+  // In this case, we should preserve the attacking_status that was already set
+  // by the team's submission, not use the isAttack parameter (which is passed
+  // as false by the finalization trigger)
   let effectiveIsAttack = !!isAttack;
   let effectiveAttacker = attackerName || null;
-  if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+  
+  console.log('🚀 Attack status check:', {
+    forceFinalize,
+    isAttack,
+    attackerName,
+    existingMeta,
+    effectiveIsAttack,
+    effectiveAttacker,
+    paceKey,
+    submittingTeam
+  });
+  
+  if (forceFinalize) {
+    // When finalizing, use attack status from existing teamPaceMeta
+    if (existingMeta) {
+      effectiveIsAttack = !!existingMeta.isAttack;
+      effectiveAttacker = existingMeta.attacker || null;
+      console.log('🚀 forceFinalize: Using existing meta:', {
+        existingIsAttack: existingMeta.isAttack,
+        existingAttacker: existingMeta.attacker,
+        effectiveIsAttack,
+        effectiveAttacker
+      });
+    } else {
+      console.log('🚀 forceFinalize: No existingMeta found for', paceKey);
+    }
+  } else {
+    // If this is a round-2 resubmission and the team previously declared an
+    // attack in round-1, enforce that the attacker remains attacker.
+    if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+      if (!effectiveIsAttack) {
+        // Force attacker to remain attacker on revise
+        effectiveIsAttack = true;
+        effectiveAttacker = existingMeta.attacker || effectiveAttacker;
+        addLog(`${submittingTeam} revised choice but attacker ${effectiveAttacker} remains attacker`);
+      }
+    }
+    // In choice-2 (round 2) NEW attacks are not allowed. If this team did
+    // not declare an attack in round-1, block any attempt to start an attack
+    // now and log the action for visibility.
+    if (currentRound === 2 && !(existingMeta && existingMeta.isAttack && existingMeta.round === 1)) {
+      if (effectiveIsAttack) {
+        addLog(`${submittingTeam} attempted a new attack in choice-2 — blocked`);
+        effectiveIsAttack = false;
+        effectiveAttacker = null;
+      }
+    }
+    // If we blocked a new attack in choice-2, ensure no riders remain marked
+    // as attackers for this submitting team in this group (clear any stale flags).
     if (!effectiveIsAttack) {
-      // Force attacker to remain attacker on revise
-      effectiveIsAttack = true;
-      effectiveAttacker = existingMeta.attacker || effectiveAttacker;
-      addLog(`${submittingTeam} revised choice but attacker ${effectiveAttacker} remains attacker`);
-    }
-  }
-  // In choice-2 (round 2) NEW attacks are not allowed. If this team did
-  // not declare an attack in round-1, block any attempt to start an attack
-  // now and log the action for visibility.
-  if (currentRound === 2 && !(existingMeta && existingMeta.isAttack && existingMeta.round === 1)) {
-    if (effectiveIsAttack) {
-      addLog(`${submittingTeam} attempted a new attack in choice-2 — blocked`);
-      effectiveIsAttack = false;
-      effectiveAttacker = null;
-    }
-  }
-  // If we blocked a new attack in choice-2, ensure no riders remain marked
-  // as attackers for this submitting team in this group (clear any stale flags).
-  if (!effectiveIsAttack) {
-    setCards(prev => {
-      try {
-        const updated = { ...prev };
-        for (const [nm, rr] of Object.entries(updated)) {
-          if (!rr) continue;
-          if (rr.group === groupNum && rr.team === submittingTeam && (rr.attacking_status || '') === 'attacker') {
-            updated[nm] = { ...rr, attacking_status: 'no', takes_lead: 0, selected_value: 0, planned_card_id: null, attack_card: null };
+      setCards(prev => {
+        try {
+          const updated = { ...prev };
+          for (const [nm, rr] of Object.entries(updated)) {
+            if (!rr) continue;
+            if (rr.group === groupNum && rr.team === submittingTeam && (rr.attacking_status || '') === 'attacker') {
+              updated[nm] = { ...rr, attacking_status: 'no', takes_lead: 0, selected_value: 0, planned_card_id: null, attack_card: null };
+            }
           }
-        }
-        return updated;
-      } catch (e) { return prev; }
-    });
+          return updated;
+        } catch (e) { return prev; }
+      });
+    }
   }
   // record which round this submission belongs to so we can distinguish
   // round-1 vs round-2 submissions when finalizing the group.
@@ -4929,6 +4996,32 @@ return { pace, updatedCards, doubleLead };
     console.log('🚀 forceFinalize=true, using existing teamPaces and teamPaceMeta from refs');
     newTeamPaces = teamPacesRef.current;
     newMeta = teamPaceMetaRef.current;
+    
+    // CRITICAL: Restore attacking_status from teamPaceMeta when finalizing
+    // The attacker's status should be marked in the cards state so the card
+    // selection dialog can detect it
+    for (const [key, meta] of Object.entries(newMeta)) {
+      if (meta && meta.isAttack && meta.attacker) {
+        // Extract group number from key (format: "groupNum-teamName")
+        const keyGroup = parseInt(key.split('-')[0]);
+        if (keyGroup === groupNum) {
+          setCards(prev => {
+            try {
+              const updated = { ...prev };
+              if (updated[meta.attacker]) {
+                updated[meta.attacker] = {
+                  ...updated[meta.attacker],
+                  attacking_status: 'attacker',
+                  takes_lead: 2,
+                };
+                console.log('🔄 Restored attacking_status for', meta.attacker, 'from teamPaceMeta during forceFinalize');
+              }
+              return updated;
+            } catch (e) { return prev; }
+          });
+        }
+      }
+    }
   } // End of if (!forceFinalize) - pace recording block
     
     // Calculate next team for turn advancement
@@ -6255,6 +6348,25 @@ const confirmMove = (cardsSnapshot) => {
   setCards(updatedCards);
   // Update cardsRef immediately so syncMoveToFirebase gets the latest positions
   cardsRef.current = updatedCards;
+  
+  // CRITICAL: Clear selected_value for riders in the group that just moved
+  // This prevents stale selected_value from affecting validation when the same riders
+  // are processed again in a future group (e.g., rider in group 2 has selected_value=6 from group 1)
+  setCards(prev => {
+    const cleared = { ...prev };
+    for (const [name, rider] of Object.entries(cleared)) {
+      if (rider.group === currentGroup && !rider.finished) {
+        cleared[name] = {
+          ...rider,
+          selected_value: 0,
+          takes_lead: 0
+        };
+      }
+    }
+    console.log(`🧹 Cleared selected_value/takes_lead for riders in group ${currentGroup}`);
+    return cleared;
+  });
+  
   // mark this group as moved this round
   setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
   // Apply choice-2 penalty: if a team's submission for THIS GROUP was in
@@ -7229,7 +7341,15 @@ if (potentialLeaders.length > 0) {
   
   // Recalculate maxGroup AFTER reassignment and update currentGroup
   // This ensures we start with the correct highest group after reassignment
-  const maxGroupAfterReassign = Math.max(...Object.values(updatedCards).filter(r => !r.finished).map(r => r.group));
+  const activeRiders = Object.values(updatedCards).filter(r => !r.finished);
+  const ridersPerGroup = activeRiders.reduce((acc, r) => {
+    if (!acc[r.group]) acc[r.group] = [];
+    acc[r.group].push(r.name);
+    return acc;
+  }, {});
+  console.log('🎯 Active riders per group after reassignment:', ridersPerGroup);
+  
+  const maxGroupAfterReassign = Math.max(...activeRiders.map(r => r.group));
   console.log('Max group after reassignment:', maxGroupAfterReassign, '(was:', maxGroup, ')');
   setCurrentGroup(maxGroupAfterReassign);
   currentGroupRef.current = maxGroupAfterReassign; // Update ref immediately for Firebase sync
@@ -8763,11 +8883,20 @@ const checkCrash = () => {
     const humanTeamsWithSelections = humanTeamsInGroupForCheck.filter(team => {
       // Check teamCardMeta for ANY submission that matches this team and current group
       // Don't rely on key format - check submission object instead
-      const hasCardMetaSubmission = teamCardMeta && Object.values(teamCardMeta).some(submission => 
+      const matchingSubmissions = teamCardMeta ? Object.values(teamCardMeta).filter(submission => 
         submission && 
         submission.team === team && 
         submission.group === currentGroup
-      );
+      ) : [];
+      const hasCardMetaSubmission = matchingSubmissions.length > 0;
+      
+      console.log(`🎴 Team ${team} submission check (detailed):`, {
+        team,
+        currentGroup,
+        teamCardMetaKeys: teamCardMeta ? Object.keys(teamCardMeta) : [],
+        matchingSubmissions,
+        hasCardMetaSubmission
+      });
       
       // In multiplayer, ONLY check teamCardMeta for explicit submissions
       // Do NOT use human_planned flags because they sync via Firebase and can make
@@ -8784,9 +8913,7 @@ const checkCrash = () => {
         hasCardMetaSubmission: !!hasCardMetaSubmission,
         allHavePlanned,
         hasSubmitted,
-        matchingSubmissions: teamCardMeta ? Object.entries(teamCardMeta)
-          .filter(([, sub]) => sub && sub.team === team && sub.group === currentGroup)
-          .map(([key, sub]) => ({ key, ...sub })) : [],
+        matchingSubmissions: matchingSubmissions,
         riders: teamRiders.map(([n, r]) => ({ 
           name: n, 
           planned_card_id: r.planned_card_id, 
@@ -8837,7 +8964,7 @@ const checkCrash = () => {
     } else {
       console.log(`🎴 HOST: Still waiting for ${humanTeamsInGroup.length - humanTeamsWithSelections.length} team(s)`);
     }
-  }, [waitingForCardSelections, isHost, gameMode, currentGroup, teams, movePhase, multiplayerPlayers, cardUpdateTrigger]);
+  }, [waitingForCardSelections, isHost, gameMode, currentGroup, teams, movePhase, multiplayerPlayers, cardUpdateTrigger, teamCardMeta]);
 
   // Debug: Log when postMoveInfo changes
   useEffect(() => {
@@ -9025,12 +9152,18 @@ const checkCrash = () => {
     // Pre-select a valid card for leaders (must match the group's speed) or
     // fallback to first top-4 for non-leaders.
     // If rider already has a planned_card_id (from lead assignment), use that.
+    // For attackers, use their attack_card (already chosen in input phase).
     humanRiders.forEach(name => {
       const rider = cardsToUse[name] || { cards: [] };
       const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
       
+      // For attackers, use their attack_card (already chosen in input phase)
+      if (rider.attacking_status === 'attacker' && rider.attack_card) {
+        console.log(`🎴 Pre-selecting attack card for ${name}:`, rider.attack_card.id);
+        initial[name] = rider.attack_card.id;
+      }
       // If rider already has a planned card (from lead assignment), use it
-      if (rider.planned_card_id) {
+      else if (rider.planned_card_id) {
         console.log(`🎴 Using pre-assigned planned_card_id for ${name}:`, rider.planned_card_id);
         initial[name] = rider.planned_card_id;
       } else {
@@ -9076,6 +9209,13 @@ const checkCrash = () => {
     const updated = JSON.parse(JSON.stringify(cards || {}));
     for (const [riderName, cardId] of Object.entries(cardSelections || {})) {
       if (!updated[riderName]) continue;
+      
+      // Skip attackers - their card is already set from input phase
+      if (updated[riderName].attacking_status === 'attacker') {
+        console.log(`🎴 Skipping card update for attacker ${riderName} - using attack_card from input phase`);
+        updated[riderName].human_planned = true;
+        continue;
+      }
       
       // ALWAYS mark as human_planned to indicate submission occurred,
       // even if the user chose "no card" (null) or kept the pre-selected card.
@@ -11029,60 +11169,35 @@ const checkCrash = () => {
 
               {/* Card selection modal for human riders when moving a group */}
               {cardSelectionOpen && (() => {
-                // In multiplayer, compute groupSpeed from teamPaces if not set locally
-                // This ensures JOINER sees the correct speed calculated by HOST
+                // CRITICAL: Calculate the correct speed for THIS specific group from teamPaces
+                // We need to find the max pace submitted by any team in THIS group
                 let displaySpeed = 0;
                 let displaySV = slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0);
                 
-                // Debug: Log teamPaces state when opening dialog
-                console.log('🎴 Card selection opened - teamPaces:', JSON.stringify(teamPaces), 'currentGroup:', currentGroup, 'playerTeam:', getPlayerTeamName());
+                // Debug: Log state when opening dialog
+                console.log('🎴 Card selection opened - currentGroup:', currentGroup, 'teamPaces:', JSON.stringify(teamPaces));
                 
-                // For multiplayer (JOINER or HOST), ALWAYS try teamPaces FIRST to avoid stale refs
-                if (roomCodeRef.current) {
-                  // Try to get speed from teamPaces
-                  const paceKey = `${currentGroup}-${getPlayerTeamName()}`;
-                  const paceFromFirebase = teamPaces[paceKey];
-                  console.log('🎴 Checking own pace - key:', paceKey, 'value:', paceFromFirebase);
-                  
-                  if (paceFromFirebase !== undefined && paceFromFirebase > 0) {
-                    displaySpeed = paceFromFirebase;
-                    console.log('🎴 Using speed from Firebase teamPaces:', displaySpeed, 'key:', paceKey);
-                  } else {
-                    // If player's pace is 0, find the actual group speed from any non-zero pace
-                    const groupPaces = Object.entries(teamPaces)
-                      .filter(([key]) => key.startsWith(`${currentGroup}-`))
-                      .map(([, pace]) => pace)
-                      .filter(p => p > 0);
-                    console.log('🎴 Own pace is 0 or missing, checking group paces:', groupPaces);
-                    
-                    if (groupPaces.length > 0) {
-                      displaySpeed = Math.max(...groupPaces);
-                      console.log('🎴 Using max speed from group:', displaySpeed, 'groupPaces:', groupPaces);
-                    } else {
-                      // No pace submissions yet for this group - use postMoveInfo from previous group
-                      if (postMoveInfo && postMoveInfo.groupSpeed > 0) {
-                        displaySpeed = postMoveInfo.groupSpeed;
-                        console.log('🎴 No pace submissions yet, using speed from postMoveInfo:', displaySpeed);
-                      }
-                    }
-                  }
-                  
-                  // Recalculate SV if we got speed from Firebase
-                  if (displaySpeed > 0 && displaySV === 0) {
-                    const groupRiders = Object.entries(cards).filter(([, r]) => r.group === currentGroup && !r.finished);
-                    if (groupRiders.length > 0) {
-                      const groupPos = Math.min(...groupRiders.map(([, r]) => r.position));
-                      const track = getResolvedTrack();
-                      displaySV = getSlipstreamValue(groupPos, groupPos + displaySpeed, track);
-                      console.log('🎴 Recalculated SV:', displaySV, 'pos:', groupPos, 'speed:', displaySpeed);
-                    }
-                  }
-                }
+                // Get all pace submissions for THIS group from all teams
+                const groupPaces = Object.entries(teamPaces)
+                  .filter(([key]) => key.startsWith(`${currentGroup}-`))
+                  .map(([, pace]) => pace)
+                  .filter(p => p > 0);
                 
-                // Only fall back to local state/refs if NOT in multiplayer or teamPaces didn't have data
-                if (displaySpeed === 0) {
-                  displaySpeed = groupSpeed || groupSpeedRef.current || 0;
-                  console.log('🎴 Falling back to local groupSpeed/ref:', displaySpeed);
+                console.log('🎴 Group paces for group', currentGroup, ':', groupPaces);
+                
+                if (groupPaces.length > 0) {
+                  // The group speed is the max pace submitted by any team in the group
+                  displaySpeed = Math.max(...groupPaces);
+                  console.log('🎴 Calculated displaySpeed from teamPaces:', displaySpeed);
+                } else if (groupSpeedRef.current > 0) {
+                  // Fallback to ref if no pace data available yet
+                  displaySpeed = groupSpeedRef.current;
+                  console.log('🎴 Fallback to groupSpeedRef:', displaySpeed);
+                } else if (groupSpeed > 0) {
+                  displaySpeed = groupSpeed;
+                  console.log('🎴 Fallback to groupSpeed state:', displaySpeed);
+                } else {
+                  console.log('🎴 WARNING: No groupSpeed available, cards may not validate correctly');
                 }
                 
                 return (
@@ -11119,6 +11234,8 @@ const checkCrash = () => {
                         // Check if this rider is attacking (attack chosen in input phase)
                         const isAttacking = rider.attacking_status === 'attacker';
                         
+                        console.log(`🎴 Rider ${name}: isLeading=${isLeading}, takes_lead=${rider.takes_lead}, selected_value=${rider.selected_value}, teamSubmittedPace=${teamSubmittedPace}, displaySpeed=${displaySpeed}, isAttacking=${isAttacking}`);
+                        
                         return (
                           <div key={name} className="p-3 border rounded">
                             <div data-rider={name} onPointerDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onMouseDown={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onClick={(e) => { e.stopPropagation(); setRiderTooltip({ name, x: e.clientX, y: e.clientY }); }} onTouchEnd={(e) => { const t = e.changedTouches && e.changedTouches[0]; if (t) { e.stopPropagation(); setRiderTooltip({ name, x: t.clientX, y: t.clientY }); } }} className="font-semibold mb-2 cursor-pointer">
@@ -11140,51 +11257,55 @@ const checkCrash = () => {
                               </div>
                             )}
                           <div className="grid grid-cols-4 gap-2">
-                            {(rider.cards || []).slice(0, Math.min(4, rider.cards.length)).map((c) => {
-                              const isLeader = (rider.takes_lead || 0) === 1;
+                            {(() => {
+                              // For attackers, show the attack card (locked) + remaining cards
+                              // This ensures they see the same cards as during input phase
+                              if (isAttacking && rider.attack_card) {
+                                const attackCard = rider.attack_card;
+                                const remainingCards = (rider.cards || []).slice(0, Math.min(3, rider.cards.length));
+                                return [attackCard, ...remainingCards];
+                              }
+                              // For non-attackers, show top 4 cards as usual
+                              return (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
+                            })().map((c) => {
+                              // CRITICAL: Use isLeading (computed above for UI) instead of takes_lead flag
+                              // takes_lead might not be set correctly in multiplayer scenarios
+                              const isLeader = isLeading;
                               const isDownhill = track[rider.position] === '_';
-                              let disabled = false;
-                              let title = '';
-                              try {
-                                if (isLeader) {
-                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(displaySpeed), track);
-                                  const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
-                                  const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
-                                  if (isDownhill) cardVal = Math.max(cardVal, 5);
-                                  // Use rider's individual selected_value instead of displaySpeed for dobbeltføring
-                                  const targetVal = Math.round(rider.selected_value || displaySpeed);
-                                  if ((cardVal - localPenalty) < targetVal) {
-                                    disabled = true;
-                                    title = `Must be ≥ ${targetVal}`;
-                                  }
-                                }
-                              } catch (e) { disabled = false; }
                               // Determine state for this card: leader-disabled (grey), non-leader-danger (red), selected, or normal
                               const isSelected = cardSelections[name] === c.id;
                               let localDisabled = false;
                               let danger = false;
-                              let titleText = title || '';
+                              let titleText = '';
                               
-                              // If this rider is attacking, disable all cards except the attack card
+                              console.log(`🎴 Card ${c.id} for ${name}: isLeader=${isLeader}, isAttacking=${isAttacking}`);
+                              
+                              // If this rider is attacking, ALL cards are disabled (already chosen in input phase)
                               if (isAttacking) {
-                                const attackCardId = rider.attack_card?.id || rider.planned_card_id;
-                                if (c.id !== attackCardId) {
-                                  localDisabled = true;
-                                  titleText = 'Attack card already selected in input phase';
-                                }
+                                localDisabled = true;
+                                titleText = 'Attack card already selected in input phase';
                               }
                               
                               try {
                                 if (isLeader) {
-                                  const svForLead = getSlipstreamValue(rider.position, rider.position + Math.floor(displaySpeed), track);
+                                  // For leaders, use displaySV (current terrain SV) to determine which card value to use
                                   const top4 = (rider.cards || []).slice(0, Math.min(4, rider.cards.length));
                                   const localPenalty = top4.slice(0,4).filter(tc => tc && tc.id === 'TK-1: 99').length;
-                                  let cardVal = svForLead > 2 ? c.flat : c.uphill;
+                                  let cardVal = displaySV > 2 ? c.flat : c.uphill;
                                   if (isDownhill) cardVal = Math.max(cardVal, 5);
-                                  // Use rider's individual selected_value instead of displaySpeed for dobbeltføring
-                                  const targetVal = Math.round(rider.selected_value || displaySpeed);
-                                  if ((cardVal - localPenalty) < targetVal) {
+                                  // CRITICAL: Use displaySpeed (the actual calculated group speed) not rider.selected_value
+                                  // selected_value might be stale from a previous calculation
+                                  const targetVal = Math.round(displaySpeed);
+                                  const effectiveCardValue = cardVal - localPenalty;
+                                  
+                                  console.log(`🎴 🔍 LEADER VALIDATION for ${name}, card ${c.id}:`);
+                                  console.log(`   displaySV=${displaySV}, c.flat=${c.flat}, c.uphill=${c.uphill}`);
+                                  console.log(`   Using ${displaySV > 2 ? 'flat' : 'uphill'} value: cardVal=${cardVal}`);
+                                  console.log(`   localPenalty=${localPenalty}, effectiveCardValue=${effectiveCardValue}`);
+                                  console.log(`   targetVal=${targetVal} (displaySpeed=${displaySpeed}, ignoring stale selected_value=${rider.selected_value})`);
+                                  console.log(`   Result: ${effectiveCardValue} >= ${targetVal} ? ${effectiveCardValue >= targetVal ? 'ENABLED ✓' : 'DISABLED ✗'}`);
+                                  
+                                  if (effectiveCardValue < targetVal) {
                                     localDisabled = true; // leader cannot play this card for the required pace
                                     titleText = `Must be ≥ ${targetVal}`;
                                   }
@@ -11241,40 +11362,57 @@ const checkCrash = () => {
                     </div>
                     
                     <div className="flex justify-end gap-3">
-                      <button onClick={() => {
-                        // Cancel card selection - reset to input phase so player can choose pace again
-                        console.log('🎴 Card selection cancelled - resetting to input phase');
-                        setCardSelectionOpen(false);
-                        
-                        // Clear human_planned flags for this player's riders in this group
-                        const playerTeam = gameMode === 'multi' ? playerName : 'Me';
-                        setCards(prev => {
-                          const updated = { ...prev };
-                          for (const [name, rider] of Object.entries(updated)) {
-                            if (rider.group === currentGroup && rider.team === playerTeam && rider.human_planned) {
-                              updated[name] = { ...rider, human_planned: false, planned_card_id: undefined };
+                      {/* Hide Cancel button in multiplayer - players must submit cards */}
+                      {!roomCodeRef.current && (
+                        <button onClick={() => {
+                          // Cancel card selection - reset to input phase so player can choose pace again
+                          console.log('🎴 Card selection cancelled - resetting to input phase');
+                          setCardSelectionOpen(false);
+                          
+                          // Clear human_planned flags for this player's riders in this group
+                          const playerTeam = gameMode === 'multi' ? playerName : 'Me';
+                          setCards(prev => {
+                            const updated = { ...prev };
+                            for (const [name, rider] of Object.entries(updated)) {
+                              if (rider.group === currentGroup && rider.team === playerTeam && rider.human_planned) {
+                                updated[name] = { ...rider, human_planned: false, planned_card_id: undefined };
+                              }
                             }
+                            return updated;
+                          });
+                          
+                          // Reset to input phase
+                          setMovePhase('input');
+                          movePhaseRef.current = 'input';
+                          setWaitingForCardSelections(false);
+                          
+                          // Sync to Firebase if multiplayer
+                          if (roomCodeRef.current) {
+                            setTimeout(() => {
+                              syncMoveToFirebase().catch(err => console.error('Failed to sync cancel:', err));
+                            }, 50);
                           }
-                          return updated;
-                        });
-                        
-                        // Reset to input phase
-                        setMovePhase('input');
-                        movePhaseRef.current = 'input';
-                        setWaitingForCardSelections(false);
-                        
-                        // Sync to Firebase if multiplayer
-                        if (roomCodeRef.current) {
-                          setTimeout(() => {
-                            syncMoveToFirebase().catch(err => console.error('Failed to sync cancel:', err));
-                          }, 50);
-                        }
-                      }} className="px-3 py-2 border rounded">Cancel</button>
+                        }} className="px-3 py-2 border rounded">Cancel</button>
+                      )}
                       <button 
-                        disabled={
-                          Object.values(cardSelections).length === 0 || 
-                          Object.values(cardSelections).some(v => v === null)
-                        } 
+                        disabled={(() => {
+                          // Check if all non-attacker riders have selected a card
+                          // Attackers already have their card selected from input phase
+                          const playerTeam = getPlayerTeamName();
+                          const myRiders = Object.entries(cards).filter(([, r]) => 
+                            r.group === currentGroup && r.team === playerTeam && !r.finished
+                          );
+                          
+                          // For each rider, check if they need to select a card
+                          const allValid = myRiders.every(([name, rider]) => {
+                            // Attackers don't need to select - their card is already chosen
+                            if (rider.attacking_status === 'attacker') return true;
+                            // Non-attackers must have selected a card
+                            return cardSelections[name] !== null && cardSelections[name] !== undefined;
+                          });
+                          
+                          return !allValid;
+                        })()} 
                         onClick={submitCardSelections} 
                         className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
                       >
