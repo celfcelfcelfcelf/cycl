@@ -2540,6 +2540,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       console.log('🔄 Loading sprintGroupsPending from Firebase:', state.sprintGroupsPending);
       setSprintGroupsPending(state.sprintGroupsPending);
     }
+    
+    // Sync groupsMovedThisRound so JOINER knows which groups have moved
+    if (state.groupsMovedThisRound !== undefined) {
+      console.log('🔄 Loading groupsMovedThisRound from Firebase:', state.groupsMovedThisRound);
+      setGroupsMovedThisRound(state.groupsMovedThisRound);
+    }
   };
   
   // Sync game state to multiplayer
@@ -2699,6 +2705,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         sprintResults: sprintResults, // Sync sprint results
         latestPrelTime: latestPrelTime, // Sync winner baseline time
         sprintGroupsPending: sprintGroupsPending, // Sync pending sprint groups
+        groupsMovedThisRound: groupsMovedThisRound, // Sync which groups have moved this round
         // DO NOT sync groupSpeed/slipstream as global values - they are specific to the group that just moved
         // and should only exist in postMoveInfo. Syncing them globally causes the next group to see
         // stale values from the previous group.
@@ -7082,27 +7089,6 @@ const startNewRound = async () => {
   console.log('Max group:', maxGroup);
   console.log('New round:', newRound);
   
-  // ===== REASSIGN GROUPS BASED ON POSITION =====
-  // At the start of each new round, reassign all riders to groups based on their current position
-  // This ensures riders who fell back or moved at different speeds are properly separated
-  const allRiders = Object.entries(cards).filter(([, r]) => !r.finished);
-  const sortedByPosition = allRiders.sort((a, b) => b[1].position - a[1].position);
-  
-  let groupNum = 1;
-  let currentPos = sortedByPosition.length > 0 ? sortedByPosition[0][1].position : 0;
-  
-  const groupReassignments = {};
-  sortedByPosition.forEach(([name, rider]) => {
-    if (rider.position < currentPos) {
-      groupNum++;
-      currentPos = rider.position;
-    }
-    groupReassignments[name] = groupNum;
-  });
-  
-  addLog(`Groups reassigned for round ${newRound}: ${Object.entries(groupReassignments).map(([n, g]) => `${n}→g${g}`).join(', ')}`);
-  // ===== END GROUP REASSIGNMENT =====
-  
   // Update all rider statistics for new round
   const updatedCards = {...cards};
 
@@ -7111,7 +7097,6 @@ const startNewRound = async () => {
   for (const n of Object.keys(updatedCards)) {
     updatedCards[n] = {
       ...updatedCards[n],
-      group: groupReassignments[n] || updatedCards[n].group, // Apply new group assignment
       attacking_status: 'no',
       takes_lead: 0,
       selected_value: 0,

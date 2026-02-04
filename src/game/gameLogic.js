@@ -2078,7 +2078,8 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     }
 
     // For riders who CAN follow their group, also check if overlapping with already-moved groups
-    if (eligibleForSlip) {
+    // EXCEPTION: Lead riders should NOT use this catch-up logic - they pace the group at exactly groupSpeed
+    if (eligibleForSlip && !isLeadRider) {
       const potPosition = (rider.position || 0) + effectiveValue + slipstream;
       // Check both same-group and previous-group positions
       const allAvailablePositions = [...groupsNewPositions, ...previousGroupPositions];
