@@ -6978,6 +6978,15 @@ const transitionToNextRound = () => {
 // if none remain, starts the next round.
 const moveToNextGroup = () => {
   console.log('🚀 moveToNextGroup called with postMoveInfo:', postMoveInfo);
+  
+  // In multiplayer, only HOST should progress game state
+  // JOINER should wait for Firebase updates
+  if (roomCodeRef.current && !isHost) {
+    console.log('🚀 moveToNextGroup: Blocked - JOINER should not call this function');
+    console.log('🚀 JOINER should wait for HOST to progress the game via Firebase');
+    return;
+  }
+  
   if (!postMoveInfo) {
     console.log('🚀 moveToNextGroup: No postMoveInfo, returning');
     return;
@@ -7062,6 +7071,14 @@ const startNewRound = async () => {
   
   // RULE 2: CARD DRAW
   // - Riders draw cards at the start of the round (before any group moves).
+  
+  // In multiplayer, only HOST should start new rounds
+  // JOINER should wait for Firebase updates
+  if (roomCodeRef.current && !isHost) {
+    console.log('🚀 startNewRound: Blocked - JOINER should not call this function');
+    console.log('🚀 JOINER should wait for HOST to progress the game via Firebase');
+    return;
+  }
   
   // Prevent starting a new round while sprints are still pending.
   if (sprintGroupsPending && sprintGroupsPending.length > 0) {
@@ -11080,6 +11097,12 @@ const checkCrash = () => {
                         const groupPos = nonAttackers.length > 0 ? Math.max(...nonAttackers) : (members.length > 0 ? Math.max(...members.map(([, r]) => Number(r.position || 0))) : 0);
                         const attackers = members.filter(([, r]) => (r.attacking_status || '') === 'attacker');
                         if (!attackers || attackers.length === 0) {
+                          // In multiplayer, only HOST can progress the game
+                          if (roomCodeRef.current && !isHost) {
+                            return (
+                              <div className="px-4 py-2 text-sm text-gray-600 font-medium">Waiting for host to continue...</div>
+                            );
+                          }
                           return (
                             <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Continue</button>
                           );
@@ -11095,6 +11118,12 @@ const checkCrash = () => {
                           if (!canPull) {
                             const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
                             const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
+                            // In multiplayer, only HOST can progress
+                            if (roomCodeRef.current && !isHost) {
+                              return (
+                                <div className="px-3 py-2 text-sm text-gray-600 font-medium">Waiting for host...</div>
+                              );
+                            }
                             return (
                               <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
                             );
