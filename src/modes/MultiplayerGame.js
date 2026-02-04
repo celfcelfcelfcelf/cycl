@@ -6672,38 +6672,34 @@ const confirmMove = (cardsSnapshot) => {
             }
           }
 
+          // Log group reassignments for debugging
+          const reassignmentLog = Object.entries(updatedCards2)
+            .filter(([, r]) => !r.finished)
+            .map(([name, r]) => `${name}→G${r.group}@pos${r.position}`)
+            .join(', ');
+          console.log('🔄 Group reassignment complete:', reassignmentLog);
+          addLog(`Groups reassigned: ${reassignmentLog}`);
+          
+          // Update cardsRef immediately so Firebase sync gets the reassigned groups
+          cardsRef.current = updatedCards2;
+          
           return updatedCards2;
         });
-        
-        // Clear all selected_value, takes_lead, and planned_card_id at end of round
-        // ONLY clear if this is actually the last group (check remainingNotMoved is empty)
-        const remainingAfterMove = groupsNewPositions.map(gp => gp[2]).filter(g => g !== currentGroup);
-        const shouldClearForNewRound = remainingAfterMove.length === 0;
-        
-        if (shouldClearForNewRound) {
-          addLog('🧹 Clearing selected_value/takes_lead/planned_card_id for new round');
-          setCards(prevCards => {
-            const clearedCards = {};
-            for (const [name, rider] of Object.entries(prevCards)) {
-              if (!rider.finished) {
-                clearedCards[name] = {
-                  ...rider,
-                  selected_value: 0,
-                  takes_lead: 0,
-                  planned_card_id: null
-                };
-              } else {
-                clearedCards[name] = rider;
-              }
-            }
-            return clearedCards;
-          });
-        }
         
         setGroupsMovedThisRound([]); // Reset for new group assignments
         setMovePhase('roundComplete');
         movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
+        
+        // CRITICAL: Sync reassigned groups to Firebase so JOINER sees correct groups
+        // Use setTimeout to ensure state updates have completed
+        if (roomCodeRef.current && isHost) {
+          setTimeout(() => {
+            console.log('🔄 Syncing reassigned groups to Firebase');
+            syncMoveToFirebase().catch(err => console.error('Failed to sync group reassignment:', err));
+          }, 200);
+        }
+        
         addLog('All groups moved. Groups reassigned');
       }, 100);
     }
