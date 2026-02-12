@@ -359,11 +359,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       }
 
       let label = 'BJERG';
-  if (typeof selectedTrackStr === 'string' && /X$/.test(selectedTrackStr)) label = 'BROSTENS(BAKKE)';
-  else if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) label = '(BROSTENS)BAKKE';
-  else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Brostensbakke';
-  else if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) label = 'Brosten';
-      else if (puncheur_factor > 0.3) label = 'BAKKE';
+  if (typeof selectedTrackStr === 'string' && /X$/.test(selectedTrackStr)) label = 'COBBLE(HILL)';
+  else if (typeof selectedTrackStr === 'string' && /C$/.test(selectedTrackStr)) label = '(COBBLE)HILL';
+  else if (typeof selectedTrackStr === 'string' && /B$/.test(selectedTrackStr)) label = 'Cobble Hill';
+  else if (typeof selectedTrackStr === 'string' && /\*$/.test(selectedTrackStr)) label = 'Cobble';
+      else if (puncheur_factor > 0.3) label = 'HILL';
 
       return { modifiedBJERG, label, puncheur_factor };
     } catch (e) { 
@@ -2684,7 +2684,7 @@ return { pace, updatedCards, doubleLead };
     
     // If speed was forced by catch-up, clear selected_value/takes_lead for all riders
     if (speedResult.forcedByCatchUp) {
-      addLog(`⚡ Group ${groupNum} overtaget bagfra — ingen lead rider (ingen træthedskort)`);
+      addLog(`⚡ Group ${groupNum} caught from behind — no lead rider (no fatigue cards)`);
       
       // Clear dobbeltføring leaders since catch-up forcing overrides manual selection
       dobbeltføringLeadersRef.current = [];
@@ -3109,7 +3109,7 @@ const handleHumanChoices = (groupNum, choice) => {
       }
     });
     
-    addLog(`${choice.attacker} angriber med ${card.id} (værdi: ${cardValue})`);
+    addLog(`${choice.attacker} attacks with ${card.id} (value: ${cardValue})`);
     
   } else if (choice.type === 'pace') {
     // Assign the chosen rider as the leader for this pace; others follow
@@ -3126,7 +3126,7 @@ const handleHumanChoices = (groupNum, choice) => {
       }
     });
     
-    addLog(`Me: hastighed ${choice.value}`);
+    addLog(`Me: speed ${choice.value}`);
     
   } else if (choice.type === 'doublelead') {
     // Two riders lead together
@@ -3151,7 +3151,7 @@ const handleHumanChoices = (groupNum, choice) => {
       }
     });
     
-    addLog(`Me: dobbeltføring ${rider1}(${pace1}), ${rider2}(${pace2})`);
+    addLog(`Me: double lead ${rider1}(${pace1}), ${rider2}(${pace2})`);
     
   } else if (choice.type === 'follow') {
     // All riders follow
@@ -3161,7 +3161,7 @@ const handleHumanChoices = (groupNum, choice) => {
       updatedCards[name].attacking_status = 'no';
     });
     
-    addLog(`Me: følger (0)`);
+    addLog(`Me: follow (0)`);
   }
   
   setCards(updatedCards);
@@ -3512,7 +3512,7 @@ const confirmMove = (cardsSnapshot) => {
           if (isLead) ecTaken = 1;
         }
 
-        const plainLine = `${n} (${team}) spiller kort: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ${failed ? '✗' : '✓'}`;
+        const plainLine = `${n} (${team}) plays card: ${displayCard}${cardVals ? ` (${cardVals})` : ''} ${oldPositions[n]}→${newPos}${isLead ? ' (lead)' : ''} ${failed ? '✗' : '✓'}`;
         msgs.push({ name: n, team, displayCard, cardVals, oldPos: oldPositions[n], newPos, isLead, failed, plainLine, ecTaken, tkTaken, penaltyCount });
         // Also write the plain textual line to the global log so it appears in the Log panel
         addLog(plainLine);
@@ -3858,7 +3858,7 @@ if (potentialLeaders.length > 0) {
     }
   });
   
-  addLog(`${leadRiderName} (${updatedCards[leadRiderName].team}) tager føring`);
+  addLog(`${leadRiderName} (${updatedCards[leadRiderName].team}) takes the lead`);
 }
 // ===== SLUT FIND LEAD RIDER =====
   
@@ -4830,14 +4830,14 @@ const checkCrash = () => {
           <button
             onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
             disabled={!canAttack}
-            title={!canAttack ? 'Angreb kræver mindst 3 ryttere i gruppen' : ''}
+            title={!canAttack ? 'Attack requires at least 3 riders in the group' : ''}
             className={`px-3 py-2 text-sm rounded ${
               teamChoice === 'attack'
                 ? 'bg-red-600 text-white font-bold'
                 : (!canAttack ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-red-200 hover:bg-red-300')
             }`}
           >
-            Angreb
+            Attack
           </button>
           
           {(() => {
@@ -4850,9 +4850,9 @@ const checkCrash = () => {
                     ? 'bg-purple-600 text-white font-bold'
                     : 'bg-purple-200 hover:bg-purple-300'
                 }`}
-                title={`To ryttere tager føring sammen for +1 speed bonus (koster 2 TK). Max speed: ${maxDobbeltSpeed}`}
+                title={`Two riders take the lead together for +1 speed bonus (costs 2 FC). Max speed: ${maxDobbeltSpeed}`}
               >
-                Dobbeltføring
+                Double Lead
               </button>
             );
           })()}
@@ -4940,7 +4940,7 @@ const checkCrash = () => {
                 : 'bg-gray-300 hover:bg-gray-400'
             }`}
           >
-            0 (Følg)
+            0 (Follow)
           </button>
         </div>
       </div>
@@ -4948,7 +4948,7 @@ const checkCrash = () => {
       {/* Attack selection */}
       {teamChoice === 'attack' && (
         <div className="mb-4 p-3 bg-red-50 rounded border border-red-300">
-          <p className="text-sm font-semibold mb-2">Vælg rytter der angriber:</p>
+          <p className="text-sm font-semibold mb-2">Choose attacking rider:</p>
           <div className="space-y-2 mb-3">
             {riders.map(([name, rider]) => (
               <button
@@ -4967,7 +4967,7 @@ const checkCrash = () => {
 
           {attackingRider && (
             <div className="mt-3 p-2 bg-white rounded border">
-              <p className="text-sm font-semibold mb-2">Vælg kort for {attackingRider}:</p>
+              <p className="text-sm font-semibold mb-2">Choose card for {attackingRider}:</p>
               <div className="grid grid-cols-4 gap-2">
                 {riders.find(([n]) => n === attackingRider)[1].cards.slice(0, 4).map((card, i) => (
                   <button
@@ -4992,7 +4992,7 @@ const checkCrash = () => {
       {/* Pace leader selection */}
       {teamChoice === 'pace' && (
         <div className="mb-4 p-3 bg-green-50 rounded border border-green-300">
-          <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (pace):</p>
+          <p className="text-sm font-semibold mb-2">Choose rider to take the lead (pace):</p>
           <div className="space-y-2">
                 {riders.map(([name]) => (
               <button
@@ -5018,7 +5018,7 @@ const checkCrash = () => {
           <div className="mt-3 p-2 bg-white rounded border">
             {paceValue ? (
               <>
-                <p className="text-sm font-semibold mb-2">Ryttere der kan spille {paceValue}:</p>
+                <p className="text-sm font-semibold mb-2">Riders who can play {paceValue}:</p>
                 <div className="space-y-2">
                   {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).map(([n]) => (
                     <button key={n} onClick={() => setPaceLeader(n)} className={`w-full px-3 py-2 text-sm rounded text-left ${paceLeader === n ? 'bg-green-600 text-white font-bold' : 'bg-white hover:bg-green-100 border'}`}>
@@ -5026,13 +5026,13 @@ const checkCrash = () => {
                     </button>
                   ))}
                   {riders.filter(([n, r]) => canRiderPlayAtLeast(n, r, paceValue)).length === 0 && (
-                    <div className="text-xs text-gray-500">Ingen ryttere kan spille mindst {paceValue} med top-4 — vælg en anden værdi eller leader (fallback til 2 ved submit).</div>
+                    <div className="text-xs text-gray-500">No riders can play at least {paceValue} with top-4 — choose a different value or leader (falls back to 2 on submit).</div>
                   )}
                 </div>
               </>
             ) : (
               <>
-                <p className="text-sm font-semibold mb-2">Vælg rytter der tager føring (valgfrit - kan vælges senere):</p>
+                <p className="text-sm font-semibold mb-2">Choose rider to take the lead (optional - can be chosen later):</p>
                 <div className="space-y-2">
                   {riders.map(([name]) => (
                     <button
@@ -5063,9 +5063,9 @@ const checkCrash = () => {
       {/* Dobbeltføring selection */}
       {teamChoice === 'doublelead' && (
         <div className="mb-4 p-3 bg-purple-50 rounded border border-purple-300">
-          <p className="text-sm font-semibold mb-2 text-purple-800">Dobbeltføring (koster 2 TK)</p>
+          <p className="text-sm font-semibold mb-2 text-purple-800">Double Lead (costs 2 FC)</p>
           <p className="text-xs mb-3 text-purple-700">
-            Vælg to pace values (max 1 forskel) og to ryttere. Speed = max(pace1, pace2) + 1
+            Choose two pace values (max 1 difference) and two riders. Speed = max(pace1, pace2) + 1
           </p>
           
           {(() => {
@@ -5074,7 +5074,7 @@ const checkCrash = () => {
             return maxSpeed > 0 && (
               <div className="mb-3 p-2 bg-yellow-100 rounded border border-yellow-300">
                 <p className="text-xs text-yellow-800">
-                  ⚠️ Kun {flatFields} 3-felter frem til næste talfelt. Max pace: {maxSpeed}
+                  ⚠️ Only {flatFields} 3-fields ahead to next number field. Max pace: {maxSpeed}
                 </p>
               </div>
             );
@@ -5082,7 +5082,7 @@ const checkCrash = () => {
           
           {/* Pace 1 selection */}
           <div className="mb-3 p-2 bg-white rounded border">
-            <p className="text-sm font-semibold mb-2">Pace værdi 1:</p>
+            <p className="text-sm font-semibold mb-2">Pace value 1:</p>
             <div className="flex gap-1 flex-wrap">
               {[8,7,6,5,4,3,2].map(pace => {
                 const maxSpeed = getDobbeltføringMaxSpeed();
@@ -5109,7 +5109,7 @@ const checkCrash = () => {
 
           {/* Pace 2 selection */}
           <div className="mb-3 p-2 bg-white rounded border">
-            <p className="text-sm font-semibold mb-2">Pace værdi 2:</p>
+            <p className="text-sm font-semibold mb-2">Pace value 2:</p>
             <div className="flex gap-1 flex-wrap">
               {[8,7,6,5,4,3,2].map(pace => {
                 const maxSpeed = getDobbeltføringMaxSpeed();
@@ -5146,7 +5146,7 @@ const checkCrash = () => {
 
           {/* Rider 1 selection */}
           <div className="mb-3 p-2 bg-white rounded border">
-            <p className="text-sm font-semibold mb-2">Rytter 1 (tager føring med pace {doubleLeadPace1 || '?'}):</p>
+            <p className="text-sm font-semibold mb-2">Rider 1 (takes lead with pace {doubleLeadPace1 || '?'}):</p>
             <div className="space-y-2">
               {riders.map(([name, rider]) => {
                 const canPlay = !doubleLeadPace1 || canRiderPlayAtLeast(name, rider, doubleLeadPace1);
@@ -5163,7 +5163,7 @@ const checkCrash = () => {
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : 'bg-white hover:bg-purple-100 border'
                     }`}
-                    title={!canPlay && doubleLeadPace1 ? `Kan ikke spille ${doubleLeadPace1}` : ''}
+                    title={!canPlay && doubleLeadPace1 ? `Cannot play ${doubleLeadPace1}` : ''}
                   >
                     {name}
                   </button>
@@ -5174,7 +5174,7 @@ const checkCrash = () => {
 
           {/* Rider 2 selection */}
           <div className="mb-3 p-2 bg-white rounded border">
-            <p className="text-sm font-semibold mb-2">Rytter 2 (tager føring med pace {doubleLeadPace2 || '?'}):</p>
+            <p className="text-sm font-semibold mb-2">Rider 2 (takes lead with pace {doubleLeadPace2 || '?'}):</p>
             <div className="space-y-2">
               {riders.map(([name, rider]) => {
                 const canPlay = !doubleLeadPace2 || canRiderPlayAtLeast(name, rider, doubleLeadPace2);
@@ -5192,7 +5192,7 @@ const checkCrash = () => {
                         ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                         : 'bg-white hover:bg-purple-100 border'
                     }`}
-                    title={isRider1 ? 'Allerede valgt som rytter 1' : !canPlay && doubleLeadPace2 ? `Kan ikke spille ${doubleLeadPace2}` : ''}
+                    title={isRider1 ? 'Already selected as rider 1' : !canPlay && doubleLeadPace2 ? `Cannot play ${doubleLeadPace2}` : ''}
                   >
                     {name}
                   </button>
@@ -5202,14 +5202,14 @@ const checkCrash = () => {
           </div>
 
           <div className="p-2 bg-yellow-50 border border-yellow-300 rounded">
-            <p className="text-xs text-yellow-800 font-semibold">⚠️ Koster 2 TK i alt (1 TK per rytter)</p>
+            <p className="text-xs text-yellow-800 font-semibold">⚠️ Costs 2 FC in total (1 FC per rider)</p>
           </div>
         </div>
       )}
 
       {/* Display all riders with their cards */}
       <div className="mb-4">
-        <p className="text-sm font-semibold mb-2">Dine ryttere:</p>
+        <p className="text-sm font-semibold mb-2">Your riders:</p>
         {riders.map(([name, rider]) => {
           // Check if this rider is taking lead and with what value
           const isLeading = rider.takes_lead > 0;
@@ -5230,7 +5230,7 @@ const checkCrash = () => {
                   const num = card.id.match(/\d+/)?.[0] || '?';
                   return (
                   <div key={i} className="bg-gray-100 p-1 rounded text-center text-xs">
-                    <div className="font-semibold lowercase">kort {num}: {card.flat}|{card.uphill}</div>
+                    <div className="font-semibold lowercase">card {num}: {card.flat}|{card.uphill}</div>
                   </div>
                   );
                 })}
@@ -5409,7 +5409,7 @@ const checkCrash = () => {
               <>
                 <h1 className="text-3xl font-bold text-black">{trackName}</h1>
                 <div className="text-xs text-black mt-2">
-                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 hover:text-blue-800 underline">LINK TIL TESTVERSION</a>
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-600 hover:text-blue-800 underline">LINK TO TEST VERSION</a>
                 </div>
                 <div className="text-[11px] text-black mt-1">Level {level}</div>
               </>
@@ -5417,7 +5417,7 @@ const checkCrash = () => {
               <>
                 <h1 className="text-3xl font-bold text-black">CYCL 2.2</h1>
                 <div className="text-sm text-black mt-2">
-                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">LINK TIL TESTVERSION</a>
+                  <a href="https://cycl-git-tk-test-jxspxrs-projects.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 underline">LINK TO TEST VERSION</a>
                 </div>
               </>
             )}
@@ -5537,7 +5537,7 @@ const checkCrash = () => {
               </div>
 
               <div className="mt-4 p-3 bg-green-50 rounded border border-green-300">
-                <label className="block text-sm font-medium mb-2 text-green-800">Antal etaper: {numberOfStages}</label>
+                <label className="block text-sm font-medium mb-2 text-green-800">Number of stages: {numberOfStages}</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -5566,14 +5566,14 @@ const checkCrash = () => {
                         onChange={(e) => setGcTestMode(e.target.checked)}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm text-green-800">GC Test Mode (alle etaper = sprinttest)</span>
+                      <span className="text-sm text-green-800">GC Test Mode (all stages = sprint test)</span>
                     </label>
                   </div>
                 )}
               </div>
 
               <div className="mt-4 p-3 bg-white rounded border">
-                <label className="block text-sm font-medium mb-2">Udbrydere: {numAttackers}</label>
+                <label className="block text-sm font-medium mb-2">Breakaway riders: {numAttackers}</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -5594,7 +5594,7 @@ const checkCrash = () => {
               </div>
 
               <div className="mt-4 p-3 bg-white rounded border">
-                <label className="block text-sm font-medium mb-2">Felter foran: {attackerLeadFields}</label>
+                <label className="block text-sm font-medium mb-2">Fields ahead: {attackerLeadFields}</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -5614,7 +5614,7 @@ const checkCrash = () => {
               </div>
 
               <div className="mt-4 p-3 bg-yellow-50 rounded border border-yellow-300">
-                <label className="block text-sm font-medium mb-2 text-yellow-900">TK-16 pr. TK-1: {tkPerTk1}</label>
+                <label className="block text-sm font-medium mb-2 text-yellow-900">FC-16 per FC-1: {tkPerTk1}</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="range"
@@ -5633,7 +5633,7 @@ const checkCrash = () => {
                   <span>4</span>
                 </div>
                 <div className="mt-2 text-xs text-yellow-800">
-                  Hvor mange TK-16 der skal til for at få 1 TK-1 ved omblanding
+                  How many FC-16 needed to get 1 FC-1 when reshuffling
                 </div>
               </div>
 
@@ -5646,7 +5646,7 @@ const checkCrash = () => {
                     className="w-5 h-5 cursor-pointer"
                   />
                   <div>
-                    <div className="text-sm font-medium">Dobbeltføring</div>
+                    <div className="text-sm font-medium">Double Lead</div>
                   </div>
                 </label>
               </div>
@@ -5683,7 +5683,7 @@ const checkCrash = () => {
                 }} 
                 className="w-full bg-blue-600 text-white py-4 rounded-lg text-xl font-bold flex items-center justify-center gap-3"
               >
-                <Play size={20}/> {isStageRace && !gcTestMode ? 'Vælg baner' : 'Start Game'}
+                <Play size={20}/> {isStageRace && !gcTestMode ? 'Choose tracks' : 'Start Game'}
               </button>
             </div>
           </div>
@@ -5693,11 +5693,11 @@ const checkCrash = () => {
         {showStageSelector && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full p-6 max-h-[90vh] overflow-y-auto">
-              <h2 className="text-2xl font-bold mb-4">Vælg {numberOfStages} baner til etapeløbet</h2>
+              <h2 className="text-2xl font-bold mb-4">Choose {numberOfStages} tracks for the stage race</h2>
               
               {Array.from({ length: numberOfStages }).map((_, idx) => (
                 <div key={idx} className="mb-4 p-4 bg-gray-50 rounded border">
-                  <label className="block text-sm font-medium mb-2">Etape {idx + 1}</label>
+                  <label className="block text-sm font-medium mb-2">Stage {idx + 1}</label>
                   <select
                     value={manualStageSelection[idx] || ''}
                     onChange={(e) => {
@@ -5707,7 +5707,7 @@ const checkCrash = () => {
                     }}
                     className="w-full px-3 py-2 border rounded"
                   >
-                    <option value="">-- Vælg bane --</option>
+                    <option value="">-- Choose track --</option>
                     {Object.keys(tracks)
                       .filter(name => !name.toLowerCase().includes('test'))
                       .sort()
@@ -5723,7 +5723,7 @@ const checkCrash = () => {
                     return (
                       <div className="mt-3">
                         <div className="text-xs text-gray-600 mb-2">
-                          Længde: {fieldCount} felter
+                          Length: {fieldCount} fields
                         </div>
                         {/* Track preview with colored numbers matching draft screen */}
                         <div className="overflow-x-auto">
@@ -5747,7 +5747,7 @@ const checkCrash = () => {
                   }}
                   className="px-4 py-3 bg-gray-300 text-gray-800 rounded-lg font-semibold"
                 >
-                  Annuller
+                  Cancel
                 </button>
                 <button
                   onClick={() => {
@@ -5763,13 +5763,13 @@ const checkCrash = () => {
                   }}
                   className="px-4 py-3 bg-purple-600 text-white rounded-lg font-semibold"
                 >
-                  🎲 Tilfældige
+                  🎲 Random
                 </button>
                 <button
                   onClick={() => {
                     // Validate all stages are selected
                     if (manualStageSelection.length !== numberOfStages || manualStageSelection.some(s => !s)) {
-                      alert(`Vælg venligst alle ${numberOfStages} baner`);
+                      alert(`Please select all ${numberOfStages} tracks`);
                       return;
                     }
                     
@@ -5802,15 +5802,15 @@ const checkCrash = () => {
               {/* Show selected stages if multi-stage race */}
               {isStageRace && (
                 <div className="mb-4 p-4 bg-green-50 border border-green-300 rounded">
-                  <h3 className="text-lg font-bold text-green-800 mb-3">Etapeløb: {selectedStages.length} etaper</h3>
+                  <h3 className="text-lg font-bold text-green-800 mb-3">Stage race: {selectedStages.length} stages</h3>
                   <div className="space-y-3">
                     {selectedStages.map((stage, idx) => (
                       <div key={idx} className={`p-3 rounded border ${idx === currentStageIndex ? 'bg-green-200 border-green-400' : 'bg-white border-gray-200'}`}>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-green-700 font-semibold">Etape {idx + 1}:</span>
+                          <span className="text-green-700 font-semibold">Stage {idx + 1}:</span>
                           <span className="font-bold">{stage.name}</span>
                           {idx === currentStageIndex && (
-                            <span className="text-xs text-green-600 ml-auto">← Nuværende</span>
+                            <span className="text-xs text-green-600 ml-auto">← Current</span>
                           )}
                         </div>
                         <div className="text-sm overflow-x-auto p-2 bg-gray-50 rounded font-mono">
@@ -7742,11 +7742,11 @@ const checkCrash = () => {
                   <h3 className="font-bold"><FileText size={16} className="inline"/>Log</h3>
                   <button 
                     onClick={() => {
-                      const message = prompt('Skriv en kort beskrivelse af problemet:');
+                      const message = prompt('Write a short description of the problem:');
                       if (message === null) return; // User cancelled
                       
                       const logText = logs.slice().reverse().join('\n');
-                      const emailBody = `Beskrivelse:\n${message}\n\n--- LOG ---\n${logText}`;
+                      const emailBody = `Description:\n${message}\n\n--- LOG ---\n${logText}`;
                       
                       // Send email via mailto link
                       const mailtoLink = `mailto:andersenjespersteen@gmail.com?subject=Cycling Game Log&body=${encodeURIComponent(emailBody)}`;

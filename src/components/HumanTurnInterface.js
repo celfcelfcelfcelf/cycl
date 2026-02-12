@@ -94,7 +94,7 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
             <button
               type="button"
               aria-label="info: attack requires at least 3 riders"
-              title="Angreb kræver mindst 3 ryttere i gruppen"
+              title="Attack requires at least 3 riders in the group"
               className="text-xs text-gray-500 underline"
               onMouseEnter={() => setShowTooltip(true)}
               onMouseLeave={() => setShowTooltip(false)}
@@ -107,11 +107,11 @@ export default function HumanTurnInterface({ groupRiders = {}, riders = null, gr
               }}
               onClick={() => setShowTooltip(s => !s)}
             >
-              (angreb kræver mindst 3 ryttere i gruppen)
+              (attack requires at least 3 riders in the group)
             </button>
             {showTooltip && (
               <div className="absolute left-0 top-full mt-1 w-64 bg-gray-800 text-white text-xs p-2 rounded shadow-lg z-50">
-                Angrib kun når gruppen har mindst 3 ryttere — ellers ignoreres angrebet automatisk.
+                Only attack when the group has at least 3 riders — otherwise the attack is automatically ignored.
               </div>
             )}
           </span>

@@ -159,7 +159,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
         {/* Attacker settings */}
         <div className="flex flex-col md:flex-row md:gap-4 gap-3 mb-4">
           <div className="flex-1">
-            <label className="block font-semibold mb-2">Udbrydere: {numAttackers}</label>
+            <label className="block font-semibold mb-2">Breakaway riders: {numAttackers}</label>
             <input 
               type="range" 
               min="1" 
@@ -177,7 +177,7 @@ export default function StartScreen({ onStartGame, onQuickStart }) {
           </div>
 
           <div className="flex-1">
-            <label className="block font-semibold mb-2">Felter foran: {attackerLeadFields}</label>
+            <label className="block font-semibold mb-2">Fields ahead: {attackerLeadFields}</label>
             <input 
               type="range" 
               min="1" 

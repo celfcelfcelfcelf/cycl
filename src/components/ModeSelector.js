@@ -7,7 +7,7 @@ const ModeSelector = ({ onSelectMode }) => {
       <div className="max-w-4xl w-full">
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-800 mb-4">🚴 Cycling Game</h1>
-          <p className="text-xl text-gray-600">Vælg spiltype</p>
+          <p className="text-xl text-gray-600">Choose game mode</p>
         </div>
         
         <div className="grid md:grid-cols-3 gap-6">
@@ -22,12 +22,12 @@ const ModeSelector = ({ onSelectMode }) => {
               </div>
               <h2 className="text-2xl font-bold text-gray-800">Single Player</h2>
               <p className="text-gray-600">
-                Spil alene mod computer-styrede hold
+                Play solo against computer-controlled teams
               </p>
               <div className="mt-4 text-sm text-gray-500">
-                ✓ Klassisk spilmode<br/>
-                ✓ AI modstandere<br/>
-                ✓ Hurtig opstart
+                ✓ Classic game mode<br/>
+                ✓ AI opponents<br/>
+                ✓ Quick start
               </div>
             </div>
           </button>
@@ -43,12 +43,12 @@ const ModeSelector = ({ onSelectMode }) => {
               </div>
               <h2 className="text-2xl font-bold text-gray-800">2TK→MK Test</h2>
               <p className="text-gray-600">
-                Test nye trætkortregler
+                Test new fatigue card rules
               </p>
               <div className="mt-4 text-sm text-gray-500">
                 ✓ Single player mode<br/>
-                ✓ 2 TK → 1 MK konvertering<br/>
-                ✓ Trætkort-ekstra regler
+                ✓ 2 FC → 1 MC conversion<br/>
+                ✓ Fatigue card extra rules
               </div>
             </div>
           </button>
@@ -64,14 +64,14 @@ const ModeSelector = ({ onSelectMode }) => {
               </div>
               <h2 className="text-2xl font-bold text-gray-800">Multiplayer</h2>
               <p className="text-gray-600">
-                Spil online mod andre spillere
+                Play online against other players
               </p>
               <div className="mt-4 text-sm text-red-600 font-semibold">
-                ⚠️ Virker ikke endnu
+                ⚠️ Not working yet
               </div>
               <div className="mt-2 text-sm text-gray-500">
-                ✓ Online spil<br/>
-                ✓ Create eller Join<br/>
+                ✓ Online play<br/>
+                ✓ Create or Join<br/>
                 ✓ Real-time sync
               </div>
             </div>
