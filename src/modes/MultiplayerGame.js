@@ -289,6 +289,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const cardsRef = useRef({}); // Ref to avoid closure issues with cards state
   const postMoveInfoRef = useRef(null); // Ref to avoid closure issues with postMoveInfo state
   const roundRef = useRef(0); // Ref to avoid closure issues with round state
+  const groupsMovedThisRoundRef = useRef([]); // Ref so syncMoveToFirebase sends correct value (avoids stale closure)
   const isLoadingFromFirebaseRef = useRef(false); // Prevent syncing while loading from Firebase
   const [currentTeam, setCurrentTeam] = useState('Me');
   const [teamColors, setTeamColors] = useState({});
@@ -824,15 +825,15 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     teamPaceRoundRef.current = teamPaceRound;
   }, [teamPaceRound]);
   
-  // Sync cards to Firebase when movePhase becomes 'roundComplete' (after group reassignment)
+  // Sync cards to Firebase when movePhase becomes 'groupComplete' (after group reassignment)
   // This ensures both HOST and JOINER see updated positions in footer after all groups move
   useEffect(() => {
-    if (movePhase !== 'roundComplete') return;
+    if (movePhase !== 'groupComplete') return;
     if (!roomCodeRef.current || !isHost) return;
     
-    console.log('🚀 movePhase=roundComplete: Syncing group reassignment to Firebase');
+    console.log('🚀 movePhase=groupComplete: Syncing group reassignment to Firebase');
     const timer = setTimeout(() => {
-      syncMoveToFirebase().catch(err => console.error('Failed to sync roundComplete:', err));
+      syncMoveToFirebase().catch(err => console.error('Failed to sync groupComplete:', err));
     }, 150);
     
     return () => clearTimeout(timer);
@@ -2116,6 +2117,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       console.log('🔄 Round update - previous:', round, 'new:', state.round);
       setRound(state.round);
       roundRef.current = state.round; // Update ref for future comparisons
+      // CRITICAL: When round changes, clear groupsMovedThisRound so the JOINER
+      // doesn't retain stale "already moved" groups from a previous round.
+      // The HOST clears this in transitionToNextRound(), but the stale-closure
+      // syncMoveToFirebase can send old values to Firebase before the cleared
+      // state propagates, leaving the JOINER stuck with an outdated array.
+      console.log('🔄 Round changed — clearing groupsMovedThisRound');
+      setGroupsMovedThisRound([]);
+      groupsMovedThisRoundRef.current = [];
     }
     if (typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroup) setCurrentGroup(state.currentGroup);
     if (state.teams && JSON.stringify(state.teams) !== JSON.stringify(teams)) setTeams(state.teams);
@@ -2545,6 +2554,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (state.groupsMovedThisRound !== undefined) {
       console.log('🔄 Loading groupsMovedThisRound from Firebase:', state.groupsMovedThisRound);
       setGroupsMovedThisRound(state.groupsMovedThisRound);
+      groupsMovedThisRoundRef.current = state.groupsMovedThisRound || [];
     }
   };
   
@@ -2705,7 +2715,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         sprintResults: sprintResults, // Sync sprint results
         latestPrelTime: latestPrelTime, // Sync winner baseline time
         sprintGroupsPending: sprintGroupsPending, // Sync pending sprint groups
-        groupsMovedThisRound: groupsMovedThisRound, // Sync which groups have moved this round
+        groupsMovedThisRound: groupsMovedThisRoundRef.current, // Use ref to avoid stale closure
         // DO NOT sync groupSpeed/slipstream as global values - they are specific to the group that just moved
         // and should only exist in postMoveInfo. Syncing them globally causes the next group to see
         // stale values from the previous group.
@@ -6374,8 +6384,10 @@ const confirmMove = (cardsSnapshot) => {
     return cleared;
   });
   
-  // mark this group as moved this round
-  setGroupsMovedThisRound(prev => Array.from(new Set([...(prev || []), currentGroup])));
+  // mark this group as moved this round (update ref synchronously so sync/checks see latest value)
+  const updatedMoved = Array.from(new Set([...(groupsMovedThisRoundRef.current || []), currentGroup]));
+  groupsMovedThisRoundRef.current = updatedMoved;
+  setGroupsMovedThisRound(updatedMoved);
   // Apply choice-2 penalty: if a team's submission for THIS GROUP was in
   // round 2 and that team's rider ends up leading the group, give that
   // rider an extra penalty card 'kort: 16'. This happens only for choice-2
@@ -6418,7 +6430,7 @@ const confirmMove = (cardsSnapshot) => {
   try {
     const remainingGroupsAll = Object.values(updatedCards).filter(r => !r.finished).map(r => r.group);
     const remainingGroupsSet = Array.from(new Set(remainingGroupsAll));
-    const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRound || []), currentGroup]));
+    const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRoundRef.current || []), currentGroup]));
     const remainingNotMoved = remainingGroupsSet.filter(g => !groupsMovedLocal.includes(g));
 
     // Build per-rider message objects for the moved group
@@ -6534,13 +6546,12 @@ const confirmMove = (cardsSnapshot) => {
   try {
     const remainingGroupsAll = Object.values(updatedCards).filter(r => !r.finished).map(r => r.group);
     const remainingGroupsSet = Array.from(new Set(remainingGroupsAll));
-    // Build a local view of which groups have moved this round. Don't rely on
-    // the React state (setGroupsMovedThisRound) being updated synchronously.
-    const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRound || []), currentGroup]));
+    // Use the ref (updated synchronously above) to get accurate moved-groups list.
+    const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRoundRef.current || []), currentGroup]));
     const remainingNotMoved = remainingGroupsSet.filter(g => !groupsMovedLocal.includes(g));
     console.log('🔍 GROUP TRANSITION CHECK:', {
       remainingGroupsSet,
-      groupsMovedThisRound,
+      groupsMovedThisRoundRef: groupsMovedThisRoundRef.current,
       currentGroup,
       groupsMovedLocal,
       remainingNotMoved
@@ -6548,11 +6559,11 @@ const confirmMove = (cardsSnapshot) => {
     addLog(`Debug groups: all=${remainingGroupsSet.join(',') || 'none'} movedLocal=${groupsMovedLocal.join(',') || 'none'} remainingNotMoved=${remainingNotMoved.join(',') || 'none'}`);
 
     if (remainingNotMoved.length > 0) {
-      // More groups remaining - set movePhase to roundComplete to show yellow box
+      // More groups remaining - set movePhase to groupComplete to show yellow box
       // Yellow box "Continue" button will call moveToNextGroup() which transitions to input
-      console.log('🔍 More groups remaining - setting movePhase to roundComplete');
-      setMovePhase('roundComplete');
-      movePhaseRef.current = 'roundComplete';
+      console.log('🔍 More groups remaining - setting movePhase to groupComplete');
+      setMovePhase('groupComplete');
+      movePhaseRef.current = 'groupComplete';
       setWaitingForCardSelections(false);
       
       // Don't call transitionToNextGroup here - let user click Continue first
@@ -6687,8 +6698,9 @@ const confirmMove = (cardsSnapshot) => {
         });
         
         setGroupsMovedThisRound([]); // Reset for new group assignments
-        setMovePhase('roundComplete');
-        movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
+        groupsMovedThisRoundRef.current = [];
+        setMovePhase('groupComplete');
+        movePhaseRef.current = 'groupComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         
         // CRITICAL: Sync reassigned groups to Firebase so JOINER sees correct groups
@@ -6737,8 +6749,9 @@ const confirmMove = (cardsSnapshot) => {
         });
         
         setGroupsMovedThisRound([]); // Reset for new group assignments
-        setMovePhase('roundComplete');
-        movePhaseRef.current = 'roundComplete'; // CRITICAL: Update ref immediately
+        groupsMovedThisRoundRef.current = [];
+        setMovePhase('groupComplete');
+        movePhaseRef.current = 'groupComplete'; // CRITICAL: Update ref immediately
         setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
         addLog('All groups moved. Groups reassigned');
       }, 100);
@@ -6764,20 +6777,19 @@ const transitionToNextGroup = (fromGroup) => {
   addLog(`Group ${fromGroup} completed. Moving to next group...`);
   addLog(`────────────────────────────────`);
   
-  // Mark the group as moved FIRST before finding next group
-  setGroupsMovedThisRound(prev => {
-    const updated = Array.from(new Set([...(prev || []), fromGroup]));
-    console.log('🔄 Updated groupsMovedThisRound:', updated);
-    return updated;
-  });
+  // Mark the group as moved FIRST before finding next group (update ref synchronously)
+  const updatedMovedTNG = Array.from(new Set([...(groupsMovedThisRoundRef.current || []), fromGroup]));
+  groupsMovedThisRoundRef.current = updatedMovedTNG;
+  setGroupsMovedThisRound(updatedMovedTNG);
+  console.log('🔄 Updated groupsMovedThisRound:', updatedMovedTNG);
   
   // Find remaining unfinished groups
   const allGroups = Object.values(cardsRef.current)
     .filter(r => !r.finished)
     .map(r => r.group);
   const uniqueGroups = [...new Set(allGroups)];
-  // Build local view including the group we just moved
-  const groupsMovedLocal = Array.from(new Set([...(groupsMovedThisRound || []), fromGroup]));
+  // Build local view including the group we just moved (ref is already updated above)
+  const groupsMovedLocal = groupsMovedThisRoundRef.current;
   const remainingNotMoved = uniqueGroups.filter(g => !groupsMovedLocal.includes(g));
   
   console.log('🔄 Groups remaining:', remainingNotMoved);
@@ -6894,6 +6906,7 @@ const transitionToNextRound = () => {
   setTeamPaceRound({});
   setGroupSpeed(0);
   setGroupsMovedThisRound([]);
+  groupsMovedThisRoundRef.current = [];
   
   // Clear refs immediately
   teamPacesRef.current = {};
@@ -7103,7 +7116,10 @@ const startNewRound = async () => {
   console.log('New round:', newRound);
   
   // Update all rider statistics for new round
-  const updatedCards = {...cards};
+  // CRITICAL: Use cardsRef.current (not closure 'cards') because transitionToNextRound()
+  // just called setCards which updated cardsRef synchronously but hasn't re-rendered yet.
+  // Using stale 'cards' would overwrite the group reassignment from confirmMove.
+  const updatedCards = {...cardsRef.current};
 
   // Clear transient per-round fields so previous attackers or planned values
   // do not carry over into the new round.
@@ -7564,6 +7580,7 @@ const startNextStage = () => {
   setLatestPrelTime(0);
   setFinalStandings([]);
   setGroupsMovedThisRound([]);
+  groupsMovedThisRoundRef.current = [];
   setTeamPaces({});
   setTeamPaceMeta({});
   teamPacesRef.current = {};
@@ -8831,7 +8848,7 @@ const checkCrash = () => {
   // OR if a player is the only team in the group, they can finalize themselves
   useEffect(() => {
     // Only monitor during cardSelection phase
-    // Don't monitor during: input (paces being submitted), moving (group being moved), roundComplete (groups being reassigned)
+    // Don't monitor during: input (paces being submitted), moving (group being moved), groupComplete (groups being reassigned)
     if (movePhase !== 'cardSelection') {
       console.log('🎴 Monitoring: Skipping - not in cardSelection phase (current:', movePhase, ')');
       return;
@@ -8878,19 +8895,23 @@ const checkCrash = () => {
     
     // 🔧 Use teamCardMeta instead of human_planned flags to check submissions
     // This is more reliable because it's synced to Firebase
+    const currentRound = roundRef.current !== undefined ? roundRef.current : round;
     const humanTeamsWithSelections = humanTeamsInGroupForCheck.filter(team => {
-      // Check teamCardMeta for ANY submission that matches this team and current group
-      // Don't rely on key format - check submission object instead
+      // Check teamCardMeta for ANY submission that matches this team, current group, AND current round
+      // The round check prevents stale submissions from a previous round (whose Firebase sync
+      // was rate-limited) from being mistaken for current-round submissions.
       const matchingSubmissions = teamCardMeta ? Object.values(teamCardMeta).filter(submission => 
         submission && 
         submission.team === team && 
-        submission.group === currentGroup
+        submission.group === currentGroup &&
+        submission.round === currentRound
       ) : [];
       const hasCardMetaSubmission = matchingSubmissions.length > 0;
       
       console.log(`🎴 Team ${team} submission check (detailed):`, {
         team,
         currentGroup,
+        currentRound,
         teamCardMetaKeys: teamCardMeta ? Object.keys(teamCardMeta) : [],
         matchingSubmissions,
         hasCardMetaSubmission
@@ -10282,7 +10303,7 @@ const checkCrash = () => {
                       })()}
                     </div>
                   </div>
-                  <div className="text-sm text-gray-500">Phase: {movePhase}</div>
+                  <div className="text-sm text-gray-500">Phase: {movePhase} | R{round} G{currentGroup} | Team: {currentTeam} | Moved: [{groupsMovedThisRound.join(',')}] | {isHost ? 'HOST' : 'JOINER'}</div>
                 </div>
 
                 {/* If there is an active sprint animation, show it here and hide the usual status */}
@@ -10466,7 +10487,11 @@ const checkCrash = () => {
                                     return (
                                       <div className="flex flex-col items-end">
                                         <div className="mb-1">
-                                                <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                                {roomCodeRef.current && !isHost ? (
+                                                  <div className="px-4 py-2 text-sm text-gray-600 font-medium">Waiting for host to continue...</div>
+                                                ) : (
+                                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                                )}
                                               </div>
                                         <div className="text-xs text-gray-600">
                                           {(() => {
@@ -10643,7 +10668,9 @@ const checkCrash = () => {
                                               if (!canPull) {
                                                 const didNotGetFree = attackers.some(([, r]) => Number(r.position || 0) <= groupPos);
                                                 const label = didNotGetFree ? 'attacker did not get free' : 'Attack is too far away to pull back';
-                                                return (
+                                                return roomCodeRef.current && !isHost ? (
+                                                  <div className="px-3 py-2 text-sm text-gray-600 font-medium">Waiting for host...</div>
+                                                ) : (
                                                   <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">{label}</button>
                                                 );
                                               }
@@ -10905,7 +10932,7 @@ const checkCrash = () => {
                       </div>
                     );
                   })()}
-                  {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
+                  {movePhase === 'groupComplete' && sprintGroupsPending.length === 0 && (!postMoveInfo || !postMoveInfo.remainingNotMoved || postMoveInfo.remainingNotMoved.length === 0) && (
                     <div className="mt-3 flex justify-end">
                       {(() => {
                         const isBrosten = typeof track === 'string' && /\*$/.test(track);
@@ -11056,7 +11083,11 @@ const checkCrash = () => {
                             )}
                             <div className="mt-1 font-medium">{outcome.anyInvested ? 'attack is pulled back' : 'attack is not pulled back'}</div>
                             <div className="mt-2 flex justify-end">
-                              <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
+                              {roomCodeRef.current && !isHost ? (
+                                <div className="px-4 py-2 text-sm text-gray-600 font-medium">Waiting for host to continue...</div>
+                              ) : (
+                                <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-green-600 text-white rounded font-semibold">Next group</button>
+                              )}
                             </div>
                           </div>
                         ) : null
@@ -11836,10 +11867,14 @@ const checkCrash = () => {
                               {' • '}
                               Round <span className="font-semibold">{round}</span>
                               {' • '}
+                              Group <span className="font-semibold">{currentGroup}</span>
+                              {' • '}
                               <span className="font-semibold">{phaseDisplay}</span>
                               {movePhase === 'input' && currentTeam && (
                                 <span className="text-xs ml-1">({currentTeam}'s turn)</span>
                               )}
+                              {' • '}
+                              Moved: [{groupsMovedThisRound.join(',')}]
                             </div>
                           )}
                         </div>
@@ -12011,7 +12046,7 @@ const checkCrash = () => {
                     })()}
                   </div>
                 </div>
-                {((movePhase === 'roundComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
+                {((movePhase === 'groupComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
                   const isBrosten = typeof track === 'string' && /\*$/.test(track);
                   if (isBrosten && !diceEvent) {
                     return (

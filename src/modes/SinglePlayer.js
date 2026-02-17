@@ -3683,7 +3683,7 @@ const confirmMove = (cardsSnapshot) => {
 
           return updatedCards2;
         });
-        setMovePhase('roundComplete');
+        setMovePhase('groupComplete');
         addLog('All groups moved. Groups reassigned');
       }, 100);
     }
@@ -3702,7 +3702,7 @@ const confirmMove = (cardsSnapshot) => {
     } else {
       setTimeout(() => {
         setCards(prev => prev);
-        setMovePhase('roundComplete');
+        setMovePhase('groupComplete');
         addLog('All groups moved. Groups reassigned');
       }, 100);
     }
@@ -6666,7 +6666,7 @@ const checkCrash = () => {
                       </div>
                     </div>
                   )}
-                  {movePhase === 'roundComplete' && sprintGroupsPending.length === 0 && (
+                  {movePhase === 'groupComplete' && sprintGroupsPending.length === 0 && (
                     <div className="mt-3 flex justify-end">
                       {(() => {
                         const isBrosten = typeof track === 'string' && /\*$/.test(track);
@@ -7538,7 +7538,7 @@ const checkCrash = () => {
                     })()}
                   </div>
                 </div>
-                {((movePhase === 'roundComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
+                {((movePhase === 'groupComplete' || diceEvent) && sprintGroupsPending.length === 0) && (() => {
                   const isBrosten = typeof track === 'string' && /\*$/.test(track);
                   if (isBrosten && !diceEvent) {
                     return (
