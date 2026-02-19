@@ -2113,18 +2113,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         cardsRef.current = mergedCards;
       }
     }
-    if (typeof state.round !== 'undefined' && state.round !== round) {
-      console.log('🔄 Round update - previous:', round, 'new:', state.round);
+    if (typeof state.round !== 'undefined' && state.round !== roundRef.current) {
+      console.log('🔄 Round update - previous:', roundRef.current, 'new:', state.round);
+      const previousRound = roundRef.current;
       setRound(state.round);
       roundRef.current = state.round; // Update ref for future comparisons
-      // CRITICAL: When round changes, clear groupsMovedThisRound so the JOINER
-      // doesn't retain stale "already moved" groups from a previous round.
-      // The HOST clears this in transitionToNextRound(), but the stale-closure
-      // syncMoveToFirebase can send old values to Firebase before the cleared
-      // state propagates, leaving the JOINER stuck with an outdated array.
-      console.log('🔄 Round changed — clearing groupsMovedThisRound');
-      setGroupsMovedThisRound([]);
-      groupsMovedThisRoundRef.current = [];
+      // CRITICAL: Only clear groupsMovedThisRound when round INCREASES (not just differs).
+      // Firebase echoes can arrive with the same round number, causing spurious clears.
+      // The HOST clears this in transitionToNextRound(), so we only need to clear for
+      // JOINER when actually transitioning to a NEW round (state.round > previousRound).
+      if (state.round > previousRound) {
+        console.log('🔄 Round increased — clearing groupsMovedThisRound');
+        setGroupsMovedThisRound([]);
+        groupsMovedThisRoundRef.current = [];
+      } else {
+        console.log('🔄 Round sync (not increased) — keeping groupsMovedThisRound:', groupsMovedThisRoundRef.current);
+      }
     }
     if (typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroup) setCurrentGroup(state.currentGroup);
     if (state.teams && JSON.stringify(state.teams) !== JSON.stringify(teams)) setTeams(state.teams);
@@ -6887,9 +6891,9 @@ const transitionToNextGroup = (fromGroup) => {
  * Called when all groups have finished moving
  */
 const transitionToNextRound = () => {
-  console.log('🔄 transitionToNextRound: from round', round);
+  console.log('🔄 transitionToNextRound: from round', roundRef.current);
   
-  const newRound = round + 1;
+  const newRound = roundRef.current + 1;
   addLog(``);
   addLog(`════════════════════════════════════════`);
   addLog(`           ROUND ${newRound}           `);
