@@ -2130,7 +2130,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         console.log('🔄 Round sync (not increased) — keeping groupsMovedThisRound:', groupsMovedThisRoundRef.current);
       }
     }
-    if (typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroup) setCurrentGroup(state.currentGroup);
+    if (typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroupRef.current) {
+      console.log('🔄 Loading currentGroup from Firebase:', state.currentGroup, '(was:', currentGroupRef.current, ')');
+      setCurrentGroup(state.currentGroup);
+    }
     if (state.teams && JSON.stringify(state.teams) !== JSON.stringify(teams)) setTeams(state.teams);
     if (state.currentTeam) {
       // Only update currentTeam if:
@@ -2499,8 +2502,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
     
       // Sync move phase and speed info
-    if (state.movePhase) {
-      console.log('🔄 Loading movePhase from Firebase:', state.movePhase, '(current postMoveInfo:', postMoveInfo ? `Group ${postMoveInfo.groupMoved}` : 'null', ')');
+    if (state.movePhase && state.movePhase !== movePhaseRef.current) {
+      console.log('🔄 Loading movePhase from Firebase:', state.movePhase, '(was:', movePhaseRef.current, ')');
       setMovePhase(state.movePhase);
       movePhaseRef.current = state.movePhase; // Update ref immediately
     }
@@ -5858,8 +5861,9 @@ return { pace, updatedCards, doubleLead };
     addLog(`Group ${groupNum}: speed=${speed}, SV=${sv}`);
     
     // In multiplayer, set currentTeam to first team to signal finalization complete
-    // Check roomCodeRef instead of gameMode since gameMode may have stale closure value
-    if (roomCodeRef.current && isHost) {
+    // Use amHost pattern since isHost state might not be recovered yet
+    const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+    if (roomCodeRef.current && amHost) {
       const firstTeam = teams[0];
       console.log('🚀 Finalization complete, setting currentTeam to:', firstTeam);
       setCurrentTeam(firstTeam);
