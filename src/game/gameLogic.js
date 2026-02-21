@@ -2156,18 +2156,13 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
     
     const exhaustionCards = [];
     for (let i = 0; i < ecs; i++) exhaustionCards.push({ id: 'kort: 16', flat: 2, uphill: 2 });
-    const totalEx = exhaustionCards.length + (hasTK1 ? 1 : 0);
-    if (totalEx === 1) {
-      if (!hasTK1 && exhaustionCards.length === 1) updatedHandCards.unshift(exhaustionCards[0]);
-    } else if (totalEx >= 2) {
-      if (hasTK1) {
-        updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
-        logs.push(`${name}: ${exhaustionCards.length} exhaustion card(s) moved to discard`);
-      } else {
-        const frontCard = exhaustionCards.shift();
-        if (frontCard) updatedHandCards.unshift(frontCard);
-        if (exhaustionCards.length > 0) updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
-      }
+    // kort: 16 (exhaustion) cards ALWAYS go to discarded pile, never to hand.
+    // In this design, kort:16 stays in discarded until startNewRound converts
+    // them to TK-1 cards (TK-16→TK-1 conversion). Putting them in the hand was
+    // a leftover from the bak2 design where kort:16 acted as a hand penalty card.
+    if (exhaustionCards.length > 0) {
+      updatedDiscarded = [...updatedDiscarded, ...exhaustionCards];
+      logs.push(`${name}: ${exhaustionCards.length} exhaustion card(s) to discard`);
     }
 
     // compute fatigue
