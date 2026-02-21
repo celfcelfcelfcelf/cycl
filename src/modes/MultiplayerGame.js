@@ -6740,7 +6740,8 @@ const confirmMove = (cardsSnapshot) => {
         
         // CRITICAL: Sync reassigned groups to Firebase so JOINER sees correct groups
         // Use setTimeout to ensure state updates have completed
-        if (roomCodeRef.current && isHost) {
+        const amHostForSync = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+        if (roomCodeRef.current && amHostForSync) {
           setTimeout(() => {
             console.log('🔄 Syncing reassigned groups to Firebase');
             syncMoveToFirebase().catch(err => console.error('Failed to sync group reassignment:', err));
@@ -7025,7 +7026,9 @@ const moveToNextGroup = () => {
   
   // In multiplayer, only HOST should progress game state
   // JOINER should wait for Firebase updates
-  if (roomCodeRef.current && !isHost) {
+  // Use amHost pattern to handle isHost state recovery
+  const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+  if (roomCodeRef.current && !amHost) {
     console.log('🚀 moveToNextGroup: Blocked - JOINER should not call this function');
     console.log('🚀 JOINER should wait for HOST to progress the game via Firebase');
     return;
@@ -7092,7 +7095,7 @@ const moveToNextGroup = () => {
     // Sync state to Firebase so JOINER knows to move to next group
     // IMPORTANT: Clear postMoveInfo in Firebase by passing clearPostMoveInfo=true
     // AND sync the cleared cards so human_planned flags are properly reset
-    if (roomCodeRef.current && isHost) {
+    if (roomCodeRef.current && amHost) {
       console.log('🚀 moveToNextGroup: Syncing to Firebase with cleared cards and clearing postMoveInfo');
       setTimeout(() => {
         syncMoveToFirebase(null, true, cleared ? clearedCards : null).catch(err => console.error('Failed to sync moveToNextGroup:', err));
@@ -7118,7 +7121,9 @@ const startNewRound = async () => {
   
   // In multiplayer, only HOST should start new rounds
   // JOINER should wait for Firebase updates
-  if (roomCodeRef.current && !isHost) {
+  // Use amHost pattern to handle isHost state recovery
+  const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+  if (roomCodeRef.current && !amHost) {
     console.log('🚀 startNewRound: Blocked - JOINER should not call this function');
     console.log('🚀 JOINER should wait for HOST to progress the game via Firebase');
     return;
@@ -7414,7 +7419,7 @@ if (potentialLeaders.length > 0) {
   
   // Sync updated positions to Firebase immediately and WAIT for it (multiplayer)
   // This prevents race conditions where JOINER starts before HOST syncs
-  if (roomCodeRef.current && isHost) {
+  if (roomCodeRef.current && amHost) {
     console.log('🚀 startNewRound: Syncing updated cards/positions to Firebase and waiting...');
     try {
       await syncMoveToFirebase();
