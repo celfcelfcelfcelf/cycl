@@ -2544,9 +2544,27 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (hostOwnsFlowState) {
       console.log('🔄 HOST: Skipping postMoveInfo from Firebase (HOST owns this value - local:', postMoveInfoRef.current ? 'set' : 'null', 'firebase:', state.postMoveInfo ? 'set' : 'null', ')');
     } else if (state.postMoveInfo) {
-      console.log('🔄 Loading postMoveInfo from Firebase:', state.postMoveInfo);
-      setPostMoveInfo(state.postMoveInfo);
-      postMoveInfoRef.current = state.postMoveInfo; // Update ref immediately
+      // Guard against stale postMoveInfo echoes arriving AFTER the HOST has already advanced
+      // to a new group/round. E.g. Group 1's postMoveInfo echo arrives when currentGroup=3.
+      // We detect staleness by comparing postMoveInfo.groupMoved to the incoming currentGroup.
+      // If phase is cardSelection/input and the groups don't match, the postMoveInfo is stale.
+      const incomingGroup = (typeof state.currentGroup !== 'undefined') ? state.currentGroup : currentGroupRef.current;
+      const incomingPhase = state.movePhase || movePhaseRef.current;
+      const pmiGroup = state.postMoveInfo.groupMoved;
+      const isStale = (
+        (incomingPhase === 'cardSelection' || incomingPhase === 'input') &&
+        typeof pmiGroup !== 'undefined' &&
+        pmiGroup !== incomingGroup
+      );
+      if (isStale) {
+        console.log('🔄 JOINER: Discarding stale postMoveInfo (groupMoved:', pmiGroup, '!= currentGroup:', incomingGroup, ', phase:', incomingPhase, ') — clearing locally');
+        setPostMoveInfo(null);
+        postMoveInfoRef.current = null;
+      } else {
+        console.log('🔄 Loading postMoveInfo from Firebase:', state.postMoveInfo);
+        setPostMoveInfo(state.postMoveInfo);
+        postMoveInfoRef.current = state.postMoveInfo; // Update ref immediately
+      }
     } else if (state.postMoveInfo === null) {
       console.log('🔄 Clearing postMoveInfo (received null from Firebase)');
       setPostMoveInfo(null);
@@ -8762,10 +8780,15 @@ const checkCrash = () => {
       return;
     }
     
-    // Don't auto-open if the group has already moved (postMoveInfo exists)
-    if (postMoveInfo) {
-      console.log('🎴 Group has already moved (postMoveInfo exists) - skipping auto-open');
+    // Don't auto-open if the CURRENT group has already moved (postMoveInfo exists for this group)
+    // Only block if postMoveInfo.groupMoved === currentGroup — stale postMoveInfo from a previous
+    // group (e.g. old round echo) must not prevent card selection for the new current group.
+    if (postMoveInfo && postMoveInfo.groupMoved === currentGroup) {
+      console.log('🎴 Group', currentGroup, 'has already moved (postMoveInfo.groupMoved matches) - skipping auto-open');
       return;
+    }
+    if (postMoveInfo && postMoveInfo.groupMoved !== currentGroup) {
+      console.log('🎴 Stale postMoveInfo (groupMoved:', postMoveInfo.groupMoved, '!= currentGroup:', currentGroup, ') - ignoring for auto-open guard');
     }
     
     // Don't auto-open if pull-invest modal is active
