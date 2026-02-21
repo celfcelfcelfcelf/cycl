@@ -6955,8 +6955,13 @@ const transitionToNextRound = () => {
   
   // Clear planned_card_id and human_planned for ALL riders at round start
   // This ensures card selection dialog opens for human players in new round
-  setCards(prev => {
-    const updated = { ...prev };
+  // 🔧 CRITICAL: Use cardsRef.current (not prev) as the base to preserve group reassignment
+  // that was done by confirmMove's setTimeout before this function was called.
+  // React may not have committed the previous setCards (from reassignment) yet,
+  // so 'prev' could be stale pre-reassignment state, losing the reassigned groups.
+  setCards(() => {
+    const base = cardsRef.current; // Use ref — has latest reassigned groups
+    const updated = { ...base };
     for (const [name, rider] of Object.entries(updated)) {
       if (rider.planned_card_id || rider.human_planned) {
         updated[name] = { 
@@ -6966,7 +6971,7 @@ const transitionToNextRound = () => {
         };
       }
     }
-    // 🔧 Update cardsRef synchronously so maxGroup calculation uses cleared flags
+    // Update cardsRef synchronously so maxGroup calculation uses cleared flags
     cardsRef.current = updated;
     return updated;
   });
