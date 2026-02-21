@@ -1986,6 +1986,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // Capture the current round BEFORE updating it - we need this to detect round changes
     const previousRound = roundRef.current;
     
+    // Determine early whether this client is the HOST so we can gate HOST-owned fields.
+    // HOST is the source of truth for game-flow state (round, currentGroup, movePhase,
+    // postMoveInfo, groupsMovedThisRound).  Firebase echoes of these fields must be
+    // ignored by HOST to prevent stale echoes from overwriting locally-advanced state.
+    // JOINER must always receive these fields since it has no local source of truth.
+    const _playersForHostGate = players || multiplayerPlayers;
+    const _nameForHostGate = playerNameParam || playerName;
+    const isLikelyHostEarly = isHost || (
+      _nameForHostGate &&
+      _playersForHostGate &&
+      _playersForHostGate.length > 0 &&
+      _playersForHostGate.some(p => p.isHost && p.name === _nameForHostGate)
+    );
+    // Skip the field from Firebase for HOST (it drives these itself).
+    const hostOwnsFlowState = !!isLikelyHostEarly;
+    
     // Firebase serverTimestamp() returns a Timestamp object with seconds and nanoseconds
     // Convert it to milliseconds for comparison
     const lastSyncTime = loadMultiplayerGameState.lastSync || 0;
@@ -2113,26 +2129,30 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         cardsRef.current = mergedCards;
       }
     }
-    if (typeof state.round !== 'undefined' && state.round !== roundRef.current) {
+    if (!hostOwnsFlowState && typeof state.round !== 'undefined' && state.round !== roundRef.current) {
       console.log('🔄 Round update - previous:', roundRef.current, 'new:', state.round);
-      const previousRound = roundRef.current;
+      const _prevRound = roundRef.current;
       setRound(state.round);
       roundRef.current = state.round; // Update ref for future comparisons
       // CRITICAL: Only clear groupsMovedThisRound when round INCREASES (not just differs).
       // Firebase echoes can arrive with the same round number, causing spurious clears.
       // The HOST clears this in transitionToNextRound(), so we only need to clear for
       // JOINER when actually transitioning to a NEW round (state.round > previousRound).
-      if (state.round > previousRound) {
+      if (state.round > _prevRound) {
         console.log('🔄 Round increased — clearing groupsMovedThisRound');
         setGroupsMovedThisRound([]);
         groupsMovedThisRoundRef.current = [];
       } else {
         console.log('🔄 Round sync (not increased) — keeping groupsMovedThisRound:', groupsMovedThisRoundRef.current);
       }
+    } else if (hostOwnsFlowState && typeof state.round !== 'undefined' && state.round !== roundRef.current) {
+      console.log('🔄 HOST: Skipping round update from Firebase (HOST owns this - local:', roundRef.current, 'firebase:', state.round, ')');
     }
-    if (typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroupRef.current) {
+    if (!hostOwnsFlowState && typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroupRef.current) {
       console.log('🔄 Loading currentGroup from Firebase:', state.currentGroup, '(was:', currentGroupRef.current, ')');
       setCurrentGroup(state.currentGroup);
+    } else if (hostOwnsFlowState && typeof state.currentGroup !== 'undefined' && state.currentGroup !== currentGroupRef.current) {
+      console.log('🔄 HOST: Skipping currentGroup from Firebase (HOST owns this - local:', currentGroupRef.current, 'firebase:', state.currentGroup, ')');
     }
     if (state.teams && JSON.stringify(state.teams) !== JSON.stringify(teams)) setTeams(state.teams);
     if (state.currentTeam) {
@@ -2501,24 +2521,29 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       });
     }
     
-      // Sync move phase and speed info
-    if (state.movePhase && state.movePhase !== movePhaseRef.current) {
+    // Sync move phase - JOINER only; HOST drives phase transitions locally
+    if (!hostOwnsFlowState && state.movePhase && state.movePhase !== movePhaseRef.current) {
       console.log('🔄 Loading movePhase from Firebase:', state.movePhase, '(was:', movePhaseRef.current, ')');
       setMovePhase(state.movePhase);
       movePhaseRef.current = state.movePhase; // Update ref immediately
+    } else if (hostOwnsFlowState && state.movePhase && state.movePhase !== movePhaseRef.current) {
+      console.log('🔄 HOST: Skipping movePhase from Firebase (HOST owns this - local:', movePhaseRef.current, 'firebase:', state.movePhase, ')');
     }
     // DO NOT load groupSpeed/slipstream from Firebase root level - they should only come from postMoveInfo
     // Loading them from root causes stale values from previous groups to be used
     
-    // Sync postMoveInfo (yellow box) so JOINER sees the same results as HOST
+    // Sync postMoveInfo (yellow box) - JOINER only; HOST computes it in confirmMove
     console.log('🔄 Checking postMoveInfo in state:', { 
       hasPostMoveInfo: !!state.postMoveInfo, 
       postMoveInfoValue: state.postMoveInfo,
       postMoveInfoType: typeof state.postMoveInfo,
+      hostOwnsFlowState,
       stateKeys: Object.keys(state)
     });
     
-    if (state.postMoveInfo) {
+    if (hostOwnsFlowState) {
+      console.log('🔄 HOST: Skipping postMoveInfo from Firebase (HOST owns this value - local:', postMoveInfoRef.current ? 'set' : 'null', 'firebase:', state.postMoveInfo ? 'set' : 'null', ')');
+    } else if (state.postMoveInfo) {
       console.log('🔄 Loading postMoveInfo from Firebase:', state.postMoveInfo);
       setPostMoveInfo(state.postMoveInfo);
       postMoveInfoRef.current = state.postMoveInfo; // Update ref immediately
@@ -2557,11 +2582,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setSprintGroupsPending(state.sprintGroupsPending);
     }
     
-    // Sync groupsMovedThisRound so JOINER knows which groups have moved
-    if (state.groupsMovedThisRound !== undefined) {
+    // Sync groupsMovedThisRound - JOINER only; HOST maintains this via local addToGroupsMoved calls
+    if (!hostOwnsFlowState && state.groupsMovedThisRound !== undefined) {
       console.log('🔄 Loading groupsMovedThisRound from Firebase:', state.groupsMovedThisRound);
       setGroupsMovedThisRound(state.groupsMovedThisRound);
       groupsMovedThisRoundRef.current = state.groupsMovedThisRound || [];
+    } else if (hostOwnsFlowState && state.groupsMovedThisRound !== undefined) {
+      console.log('🔄 HOST: Skipping groupsMovedThisRound from Firebase (HOST owns this - local:', groupsMovedThisRoundRef.current, ')');
     }
   };
   
