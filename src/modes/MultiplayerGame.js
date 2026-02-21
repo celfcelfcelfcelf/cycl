@@ -11305,7 +11305,13 @@ const checkCrash = () => {
                           r.team === rider.team && r.group === currentGroup && !r.finished
                         );
                         const maxSelectedValue = Math.max(...teamRidersInGroup.map(([, r]) => r.selected_value || 0));
-                        const thisRiderIsLeader = teamIsLeading && (rider.selected_value === maxSelectedValue && maxSelectedValue > 0);
+                        // PRIMARY: use takes_lead flag (set by handlePaceSubmit before card selection opens)
+                        // takes_lead is reliable and confirmed by debug log — it's the source of truth for who leads
+                        // FALLBACK: use selected_value comparison in case takes_lead is missing (old multiplayer sync edge case)
+                        const thisRiderIsLeader = teamIsLeading && (
+                          rider.takes_lead > 0 ||
+                          (rider.selected_value === maxSelectedValue && maxSelectedValue > 0)
+                        );
                         
                         const isLeading = thisRiderIsLeader;
                         const leadValue = isLeading ? displaySpeed : null;
