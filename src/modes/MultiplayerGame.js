@@ -10528,7 +10528,7 @@ const checkCrash = () => {
                                                 {roomCodeRef.current && !isHost ? (
                                                   <div className="px-4 py-2 text-sm text-gray-600 font-medium">Waiting for host to continue...</div>
                                                 ) : (
-                                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                                                  <button onClick={() => moveToNextGroup()} className="px-4 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
                                                 )}
                                               </div>
                                         <div className="text-xs text-gray-600">
@@ -10709,7 +10709,7 @@ const checkCrash = () => {
                                                 return roomCodeRef.current && !isHost ? (
                                                   <div className="px-3 py-2 text-sm text-gray-600 font-medium">Waiting for host...</div>
                                                 ) : (
-                                                  <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">{label}</button>
+                                                  <button onClick={() => moveToNextGroup()} className="px-3 py-2 bg-gray-300 text-gray-700 rounded">{label}</button>
                                                 );
                                               }
                                               if (pullConfirmGroup === g) {
@@ -10970,7 +10970,7 @@ const checkCrash = () => {
                       </div>
                     );
                   })()}
-                  {movePhase === 'groupComplete' && sprintGroupsPending.length === 0 && (!postMoveInfo || !postMoveInfo.remainingNotMoved || postMoveInfo.remainingNotMoved.length === 0) && (
+                  {movePhase === 'groupComplete' && sprintGroupsPending.length === 0 && (postMoveInfo && (!postMoveInfo.remainingNotMoved || postMoveInfo.remainingNotMoved.length === 0)) && (
                     <div className="mt-3 flex justify-end">
                       {(() => {
                         const isBrosten = typeof track === 'string' && /\*$/.test(track);
@@ -11190,7 +11190,7 @@ const checkCrash = () => {
                               );
                             }
                             return (
-                              <button onClick={() => { setPostMoveInfo(null); setTimeout(() => moveToNextGroup(), 40); }} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
+                              <button onClick={() => moveToNextGroup()} className="px-3 py-2 bg-gray-300 text-gray-700 rounded font-semibold">{label}</button>
                             );
                           }
 
