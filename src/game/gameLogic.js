@@ -2141,12 +2141,17 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
       logs.push(`${name} (${rider.team}): +TK-1 added to top of hand`);
     }
     
-    // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
+    // NEW: If less than 4 cards in hand, shuffle discarded and append to hand.
+    // kort: 16 (exhaustion/TK) cards are NEVER moved to hand — they stay in discarded.
     if (updatedHandCards.length < 4 && updatedDiscarded.length > 0) {
-      shuffle(updatedDiscarded, rng);
-      updatedHandCards.push(...updatedDiscarded);
-      updatedDiscarded = [];
-      logs.push(`${name}: kort blandet (< 4 kort)`);
+      const tk16InDiscard = updatedDiscarded.filter(c => c.id === 'kort: 16');
+      const regularInDiscard = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      if (regularInDiscard.length > 0) {
+        shuffle(regularInDiscard, rng);
+        updatedHandCards.push(...regularInDiscard);
+        logs.push(`${name}: kort blandet (< 4 kort), ${tk16InDiscard.length} kort:16 beholdt i discard`);
+      }
+      updatedDiscarded = tk16InDiscard; // keep only kort:16 in discard
     }
     
     const exhaustionCards = [];
@@ -2856,12 +2861,17 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
     updatedDiscarded = [...updatedDiscarded, { id: 'TK-1: 99', flat: -1, uphill: -1 }];
     logs.push(`${name} (attacker): +TK-1 added to top of hand and TK-1 to discard (attack)`);
 
-    // NEW: If less than 4 cards in hand, shuffle discarded and append to hand
+    // NEW: If less than 4 cards in hand, shuffle discarded and append to hand.
+    // kort: 16 (exhaustion/TK) cards are NEVER moved to hand — they stay in discarded.
     if (updatedHandCards.length < 4 && updatedDiscarded.length > 0) {
-      shuffle(updatedDiscarded, rng);
-      updatedHandCards.push(...updatedDiscarded);
-      updatedDiscarded = [];
-      logs.push(`${name} (attacker): kort blandet (< 4 kort)`);
+      const tk16InDiscard = updatedDiscarded.filter(c => c.id === 'kort: 16');
+      const regularInDiscard = updatedDiscarded.filter(c => c.id !== 'kort: 16');
+      if (regularInDiscard.length > 0) {
+        shuffle(regularInDiscard, rng);
+        updatedHandCards.push(...regularInDiscard);
+        logs.push(`${name} (attacker): kort blandet (< 4 kort), ${tk16InDiscard.length} kort:16 beholdt i discard`);
+      }
+      updatedDiscarded = tk16InDiscard; // keep only kort:16 in discard
     }
 
     try {
