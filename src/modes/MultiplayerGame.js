@@ -6604,152 +6604,21 @@ const confirmMove = (cardsSnapshot) => {
       // Don't call transitionToNextGroup here - let user click Continue first
       // This gives them a chance to see the yellow box with move results
     } else {
-      // No remaining non-finished groups: reassign groups and detect sprints
-      // Clear the confirmMove guard so the new group 1 can be processed after reassignment
+      // No remaining non-finished groups: all groups have moved this round.
+      // Group reassignment and sprint detection are now handled in startNewRound()
+      // (called via moveToNextGroup when user clicks Continue on the yellow box).
+      // This avoids a race condition where confirmMove's setTimeout reassignment could
+      // be overwritten by transitionToNextRound's setCards(prev=>) using stale React state.
       confirmMoveCalledForGroupRef.current = null;
-      console.log('🔄 Cleared confirmMoveCalledForGroupRef before reassignment');
+      console.log('🔄 All groups moved — showing yellow box. Reassignment will happen in startNewRound()');
       
-      setTimeout(() => {
-        setCards(prevCards => {
-          // Only reassign groups for non-finished riders
-          const notFinished = Object.entries(prevCards).filter(([, r]) => !r.finished);
-          const sorted = notFinished.sort((a, b) => b[1].position - a[1].position);
-          let gNum = 1;
-          let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
-          const updatedCards2 = { ...prevCards };
-
-          sorted.forEach(([n, r]) => {
-            if (r.position < curPos) {
-              gNum++;
-              curPos = r.position;
-            }
-            // Reset selected_value and takes_lead when reassigning groups to prevent
-            // values from previous groups affecting speed calculations in new groups
-            updatedCards2[n] = { 
-              ...updatedCards2[n], 
-              group: gNum,
-              selected_value: 0,
-              takes_lead: 0
-            };
-          });
-
-          // Detect sprint groups now that groups have been reassigned
-          try {
-            const detected = detectSprintGroups(updatedCards2, track);
-            if (detected && detected.length > 0) {
-              setSprintGroupsPending(detected);
-              addLog(`Detected sprint groups after reassignment: ${detected.join(', ')}`);
-            } else {
-              setSprintGroupsPending([]);
-            }
-          } catch (e) {
-            // ignore detection errors
-          }
-
-          // Mountain points calculation - only runs in stage races after ALL groups have moved
-          if (isStageRace) {
-            try {
-              let mountainCrossed = false;
-              let mountainLength = 0;
-              
-              // First pass: collect ALL riders who crossed any mountain
-              const allRidersData = [];
-              for (const [name, rider] of Object.entries(updatedCards2)) {
-                const oldPos = rider.old_position || 0;
-                const newPos = rider.position || 0;
-                const crossing = detectMountainCrossing(oldPos, newPos, track);
-                
-                if (crossing.crossedMountain) {
-                  const randomTiebreaker = Math.random();
-                  allRidersData.push({
-                    name,
-                    groupNum: rider.group || 999,
-                    uphillValue: rider.last_uphill_value || 0,
-                    flatValue: rider.last_flat_value || 0,
-                    cardPlayed: rider.played_card || '?',
-                    randomTiebreaker,
-                    mountainLength: crossing.mountainLength,
-                    oldPos,
-                    newPos
-                  });
-                  
-                  if (crossing.mountainLength > mountainLength) {
-                    mountainCrossed = true;
-                    mountainLength = crossing.mountainLength;
-                  }
-                }
-              }
-              
-              // Second pass: debug log for all riders who moved
-              for (const [name, rider] of Object.entries(updatedCards2)) {
-                const oldPos = rider.old_position || 0;
-                const newPos = rider.position || 0;
-                
-                if (oldPos !== newPos) {
-                  const groupNum = rider.group || '?';
-                  const cardPlayed = rider.played_card || '?';
-                  const valuePlayed = rider.played_effective || '?';
-                const crossing = detectMountainCrossing(oldPos, newPos, track);
-              }
-            }              // If we crossed a mountain, award points
-              if (mountainCrossed && mountainLength > 0) {
-                addLog(`⛰️  Mountain crossed! Length: ${mountainLength} fields`);
-                
-                // Filter to only riders who crossed the LONGEST mountain
-                const ridersWhoCompete = allRidersData.filter(r => r.mountainLength === mountainLength);
-                
-                // Calculate and award points to all riders who crossed this mountain
-                const pointsAwarded = calculateMountainPoints(ridersWhoCompete, mountainLength);
-                
-                // Apply points to the riders
-                for (const award of pointsAwarded) {
-                  if (updatedCards2[award.name]) {
-                    const currentKOM = updatedCards2[award.name].kom_points || 0;
-                    updatedCards2[award.name] = {
-                      ...updatedCards2[award.name],
-                      kom_points: currentKOM + award.points
-                    };
-                    addLog(`🏔️ ${award.name} (Group ${award.groupNum}): +${award.points} KOM points (uphill=${award.uphillValue}, flat=${award.flatValue}) → Total: ${currentKOM + award.points}`);
-                  }
-                }
-              }
-            } catch (e) {
-              addLog(`Mountain points error: ${e.message}`);
-            }
-          }
-
-          // Log group reassignments for debugging
-          const reassignmentLog = Object.entries(updatedCards2)
-            .filter(([, r]) => !r.finished)
-            .map(([name, r]) => `${name}→G${r.group}@pos${r.position}`)
-            .join(', ');
-          console.log('🔄 Group reassignment complete:', reassignmentLog);
-          addLog(`Groups reassigned: ${reassignmentLog}`);
-          
-          // Update cardsRef immediately so Firebase sync gets the reassigned groups
-          cardsRef.current = updatedCards2;
-          
-          return updatedCards2;
-        });
-        
-        setGroupsMovedThisRound([]); // Reset for new group assignments
-        groupsMovedThisRoundRef.current = [];
-        setMovePhase('groupComplete');
-        movePhaseRef.current = 'groupComplete'; // CRITICAL: Update ref immediately so Firebase sync uses correct value
-        setWaitingForCardSelections(false); // Clear monitoring flag when round is complete
-        
-        // CRITICAL: Sync reassigned groups to Firebase so JOINER sees correct groups
-        // Use setTimeout to ensure state updates have completed
-        const amHostForSync = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
-        if (roomCodeRef.current && amHostForSync) {
-          setTimeout(() => {
-            console.log('🔄 Syncing reassigned groups to Firebase');
-            syncMoveToFirebase().catch(err => console.error('Failed to sync group reassignment:', err));
-          }, 200);
-        }
-        
-        addLog('All groups moved. Groups reassigned');
-      }, 100);
+      // Reset groupsMovedThisRound so startNewRound knows it is a fresh round
+      setGroupsMovedThisRound([]);
+      groupsMovedThisRoundRef.current = [];
+      setMovePhase('groupComplete');
+      movePhaseRef.current = 'groupComplete';
+      setWaitingForCardSelections(false);
+      addLog('All groups moved. Click Continue to start next round.');
     }
   } catch (e) {
     // On any error fallback to the previous sequential behavior
@@ -7151,6 +7020,107 @@ const startNewRound = async () => {
   try { setSprintAnimMsgs([]); } catch (e) {}
   console.log('Current cards:', cards);
   
+  // ===== GROUP REASSIGNMENT =====
+  // Do group reassignment HERE (synchronously, before transitionToNextRound) using
+  // cardsRef.current which has the latest end-of-round positions.
+  // This avoids the old race condition where confirmMove's setTimeout reassignment
+  // could be overwritten by transitionToNextRound's setCards(prev=>) using stale state.
+  {
+    const preReassignCards = cardsRef.current;
+    const notFinished = Object.entries(preReassignCards).filter(([, r]) => !r.finished);
+    const sorted = notFinished.sort((a, b) => b[1].position - a[1].position);
+    let gNum = 1;
+    let curPos = sorted.length > 0 ? sorted[0][1].position : 0;
+    const reassignedCards = { ...preReassignCards };
+
+    sorted.forEach(([n, r]) => {
+      if (r.position < curPos) {
+        gNum++;
+        curPos = r.position;
+      }
+      reassignedCards[n] = {
+        ...reassignedCards[n],
+        group: gNum,
+        selected_value: 0,
+        takes_lead: 0
+      };
+    });
+
+    // Detect sprint groups after reassignment
+    try {
+      const detected = detectSprintGroups(reassignedCards, track);
+      if (detected && detected.length > 0) {
+        setSprintGroupsPending(detected);
+        addLog(`Detected sprint groups after reassignment: ${detected.join(', ')}`);
+      } else {
+        setSprintGroupsPending([]);
+      }
+    } catch (e) {
+      // ignore detection errors
+    }
+
+    // Mountain points calculation - only in stage races, after ALL groups have moved
+    if (isStageRace) {
+      try {
+        let mountainCrossed = false;
+        let mountainLength = 0;
+        const allRidersData = [];
+        for (const [name, rider] of Object.entries(reassignedCards)) {
+          const oldPos = rider.old_position || 0;
+          const newPos = rider.position || 0;
+          const crossing = detectMountainCrossing(oldPos, newPos, track);
+          if (crossing.crossedMountain) {
+            allRidersData.push({
+              name,
+              groupNum: rider.group || 999,
+              uphillValue: rider.last_uphill_value || 0,
+              flatValue: rider.last_flat_value || 0,
+              cardPlayed: rider.played_card || '?',
+              randomTiebreaker: Math.random(),
+              mountainLength: crossing.mountainLength,
+              oldPos,
+              newPos
+            });
+            if (crossing.mountainLength > mountainLength) {
+              mountainCrossed = true;
+              mountainLength = crossing.mountainLength;
+            }
+          }
+        }
+        if (mountainCrossed && mountainLength > 0) {
+          addLog(`⛰️  Mountain crossed! Length: ${mountainLength} fields`);
+          const ridersWhoCompete = allRidersData.filter(r => r.mountainLength === mountainLength);
+          const pointsAwarded = calculateMountainPoints(ridersWhoCompete, mountainLength);
+          for (const award of pointsAwarded) {
+            if (reassignedCards[award.name]) {
+              const currentKOM = reassignedCards[award.name].kom_points || 0;
+              reassignedCards[award.name] = {
+                ...reassignedCards[award.name],
+                kom_points: currentKOM + award.points
+              };
+              addLog(`🏔️ ${award.name} (Group ${award.groupNum}): +${award.points} KOM points → Total: ${currentKOM + award.points}`);
+            }
+          }
+        }
+      } catch (e) {
+        addLog(`Mountain points error: ${e.message}`);
+      }
+    }
+
+    const reassignmentLog = Object.entries(reassignedCards)
+      .filter(([, r]) => !r.finished)
+      .map(([name, r]) => `${name}→G${r.group}@pos${r.position}`)
+      .join(', ');
+    console.log('🔄 Group reassignment complete:', reassignmentLog);
+    addLog(`Groups reassigned: ${reassignmentLog}`);
+
+    // Update cardsRef immediately so transitionToNextRound uses the reassigned groups
+    cardsRef.current = reassignedCards;
+    // Also update React state so the render shows reassigned groups
+    setCards(reassignedCards);
+  }
+  // ===== END GROUP REASSIGNMENT =====
+
   // Use centralized transition function for state clearing and round increment
   transitionToNextRound();
   
@@ -7163,7 +7133,7 @@ const startNewRound = async () => {
   // Update all rider statistics for new round
   // CRITICAL: Use cardsRef.current (not closure 'cards') because transitionToNextRound()
   // just called setCards which updated cardsRef synchronously but hasn't re-rendered yet.
-  // Using stale 'cards' would overwrite the group reassignment from confirmMove.
+  // cardsRef.current has the reassigned groups from the block above.
   const updatedCards = {...cardsRef.current};
 
   // Clear transient per-round fields so previous attackers or planned values
