@@ -10074,10 +10074,11 @@ const checkCrash = () => {
                 {draftPool.map((r, i) => {
                   // Authoritative next team for current pick (may consult draftPickSequence)
                   const currentPickingTeam = getNextDraftTeam(draftSelections, draftTeamsOrder);
-                  const playerTeam = getPlayerTeamName();
+                  // Use roomCode to detect multiplayer (more reliable than gameMode state which can have timing issues)
+                  const playerTeam = !!roomCode ? playerName : 'Me';
                   
                   // Check if it's the current player's turn
-                  // In single player: check if currentPickingTeam === playerTeam
+                  // In single player: check if currentPickingTeam === 'Me'
                   // In multiplayer: check if currentPickingTeam matches the player's name
                   const isMyDraftTurn = currentPickingTeam === playerTeam;
                   
