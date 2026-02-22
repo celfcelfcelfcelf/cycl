@@ -1978,6 +1978,16 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       playerNameParam: playerNameParam
     });
     
+    // CRITICAL: Ensure gameMode stays 'multi' when loading multiplayer updates
+    // This was getting reset to null causing turn checks to fail
+    setGameMode(current => {
+      if (current !== 'multi') {
+        console.warn('⚠️ gameMode was', current, '- forcing to multi during state load');
+        return 'multi';
+      }
+      return current;
+    });
+    
     if (!state) {
       console.log('🔄 Skipping: no state');
       return;
@@ -2222,9 +2232,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const shouldReplace = firebaseKeys.length === 0 || roundChanged;
         
         // When round changes, drop all old data. Otherwise merge normally.
-        const merged = shouldReplace ? state.teamPaces : { ...prev, ...state.teamPaces };
+        // CRITICAL: Preserve null values for attacks (don't convert null to NaN)
+        const merged = shouldReplace ? {...state.teamPaces} : { ...prev, ...state.teamPaces };
         
         console.log('🔄 teamPaces:', shouldReplace ? 'REPLACING' : 'MERGING', 'prev keys:', Object.keys(prev).length, 'firebase keys:', firebaseKeys.length, 'roundChanged:', roundChanged, '(prev:', previousRound, 'new:', state.round, ') result keys:', Object.keys(merged).length);
+        console.log('🔄 teamPaces merged values:', merged);
         // Also update ref to keep it in sync
         teamPacesRef.current = merged;
         return merged;
@@ -10456,10 +10468,12 @@ const checkCrash = () => {
                   {movePhase === 'input' && (
                     (() => {
                       // If it's the human's turn and human has riders in this group, show human interface
-                      const currentPlayerTeam = gameMode === 'multi' ? playerName : 'Me';
+                      // Use roomCode instead of gameMode to detect multiplayer (gameMode can be null due to async state)
+                      const isMultiplayer = !!roomCode;
+                      const currentPlayerTeam = isMultiplayer ? playerName : 'Me';
                       
                       // In multiplayer, find this player's actual team from multiplayerPlayers
-                      const myTeam = gameMode === 'multi' && multiplayerPlayers.length > 0
+                      const myTeam = isMultiplayer && multiplayerPlayers.length > 0
                         ? multiplayerPlayers.find(p => p.name === playerName)?.team || playerName
                         : currentPlayerTeam;
                       
@@ -10467,6 +10481,8 @@ const checkCrash = () => {
                       
                       console.log('🎮 Turn check:', {
                         gameMode,
+                        isMultiplayer,
+                        roomCode: !!roomCode,
                         currentTeam,
                         playerName,
                         myTeam,
@@ -10478,7 +10494,7 @@ const checkCrash = () => {
                       });
                       
                       // In multiplayer mode, check if it's actually this player's turn
-                      if (gameMode === 'multi' && currentTeam !== myTeam) {
+                      if (isMultiplayer && currentTeam !== myTeam) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
                             Waiting for {getTeamDisplayName(currentTeam)} to make their move...
