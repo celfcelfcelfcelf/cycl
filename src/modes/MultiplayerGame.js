@@ -1788,6 +1788,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   // Use teamsOrder and pickSequence from Firebase draftData, not from state
                   setTimeout(() => {
                     console.log('🔄 JOINER: Calling processNextPick after sync');
+                    const totalForSync = (gameData.draftData.numberOfTeams || numberOfTeams) * (gameData.draftData.ridersPerTeam || ridersPerTeam);
                     processNextPick(
                       newRemaining, 
                       gameData.draftData.teamsOrder, 
@@ -1796,7 +1797,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                       'multi', 
                       name, 
                       gameData.players,
-                      gameData.draftData.pool.length,
+                      totalForSync,
                       false
                     );
                   }, 150);
@@ -2943,7 +2944,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 hostPlayerName,
                 players: gameData.players?.length
               });
-              processNextPick(newRemaining, hostTeamsOrder, syncedSelections, hostPickSequence, 'multi', hostPlayerName, gameData.players, gameData.draftData.pool.length, true);
+              const totalForHostSync = (gameData.draftData.numberOfTeams || numberOfTeams) * (gameData.draftData.ridersPerTeam || ridersPerTeam);
+              processNextPick(newRemaining, hostTeamsOrder, syncedSelections, hostPickSequence, 'multi', hostPlayerName, gameData.players, totalForHostSync, true);
             }, 150);
           }
         }
