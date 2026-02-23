@@ -2687,12 +2687,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   // clearPostMoveInfo: explicitly set postMoveInfo to null in Firebase (for HOST when moving to next group)
   // Add rate limiting to prevent Firebase quota exhaustion
   let lastSyncTime = 0;
-  const syncMoveToFirebase = async (currentTeamOverride = null, clearPostMoveInfo = false, cardsOverride = null) => {
+  const syncMoveToFirebase = async (currentTeamOverride = null, clearPostMoveInfo = false, cardsOverride = null, force = false) => {
     const currentRoomCode = roomCodeRef.current;
     
     // Rate limit: max 1 sync per 200ms to prevent quota exhaustion
+    // force=true bypasses this for critical phase transitions (e.g. cardSelection)
     const now = Date.now();
-    if (now - lastSyncTime < 200) {
+    if (!force && now - lastSyncTime < 200) {
       console.log('📤 syncMoveToFirebase: Rate limited, skipping (called too soon after previous sync)');
       return;
     }
@@ -5973,9 +5974,9 @@ return { pace, updatedCards, doubleLead };
     // Check roomCode ref instead of gameMode/roomCode state since they may have stale closure values
     // Add small delay to ensure React state updates (cards, movePhase, etc.) complete before syncing
     if (roomCodeRef.current) {
-      console.log('🚀 handlePaceSubmit: Scheduling syncMoveToFirebase');
+      console.log('🚀 handlePaceSubmit: Scheduling syncMoveToFirebase (forced - phase transition)');
       setTimeout(() => {
-        syncMoveToFirebase().catch(err => console.error('Failed to sync move:', err));
+        syncMoveToFirebase(null, false, null, true).catch(err => console.error('Failed to sync move:', err));
       }, 100);
     } else {
       console.log('🚀 handlePaceSubmit: NOT calling syncMoveToFirebase (no roomCode)');
