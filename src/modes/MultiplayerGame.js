@@ -1764,48 +1764,44 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           setGameState(current => {
             console.log('🔵 JOINER: setGameState callback, current:', current, 'status:', gameData.status);
             if (current === 'draft' || current === 'playing') {
-              // Already in draft - just sync selections if they changed
+              // Already in draft - sync selections from Firebase and update UI state directly.
+              // JOINER does NOT call processNextPick here - that causes stale-closure bugs
+              // with ridersPerTeam/draftPickSequence. Instead, just update state and let the
+              // UI derive whose turn it is from the updated draftSelections.
               if (gameData.draftData.selections && Array.isArray(gameData.draftData.selections)) {
-                console.log('🔄 JOINER: Syncing selections from Firebase:', gameData.draftData.selections.length, 'current:', draftSelections.length);
-                
                 const syncedSelections = gameData.draftData.selections.map(s => {
                   const rider = ridersData.find(r => r.NAVN === s.riderName);
                   return { team: s.team, rider: rider || { NAVN: s.riderName } };
                 });
-                
-                // Only update if selections count changed
-                // NOTE: draftSelections in this closure is always stale (captured at join time = [])
-                // so we always process incoming selections and let processNextPick guard against duplicates
-                const currentSelectionsLength = syncedSelections.length;
-                const totalForCheck = (gameData.draftData.numberOfTeams || 5) * (gameData.draftData.ridersPerTeam || 3);
-                if (currentSelectionsLength > 0 && currentSelectionsLength < totalForCheck) {
-                  console.log('🔄 JOINER: Updating selections to', syncedSelections.length);
-                  setDraftSelections(syncedSelections);
-                  setIsDrafting(true); // Ensure draft remains active while picks are incoming
-                  
-                  // Recalculate remaining riders using full pool from Firebase
-                  const pickedNames = syncedSelections.map(s => s.rider.NAVN);
-                  const fullPool = gameData.draftData.pool.map(r => ridersData.find(rd => rd.NAVN === r.NAVN)).filter(Boolean);
-                  const newRemaining = fullPool.filter(r => !pickedNames.includes(r.NAVN));
-                  setDraftRemaining(newRemaining);
-                  
-                  // Continue processing with updated data
-                  // Use teamsOrder and pickSequence from Firebase draftData, not from state
-                  setTimeout(() => {
-                    console.log('🔄 JOINER: Calling processNextPick after sync');
-                    const totalForSync = (gameData.draftData.numberOfTeams || numberOfTeams) * (gameData.draftData.ridersPerTeam || ridersPerTeam);
-                    processNextPick(
-                      newRemaining, 
-                      gameData.draftData.teamsOrder, 
-                      syncedSelections, 
-                      gameData.draftData.pickSequence, 
-                      'multi', 
-                      name, 
-                      gameData.players,
-                      totalForSync,
-                      false
-                    );
-                  }, 150);
+
+                const draftNTeams = gameData.draftData.numberOfTeams || 5;
+                const draftRPT = gameData.draftData.ridersPerTeam || 3;
+                const totalPicks = draftNTeams * draftRPT;
+                const nSynced = syncedSelections.length;
+
+                console.log('🔄 JOINER: Syncing', nSynced, '/', totalPicks, 'selections');
+
+                // Recalculate remaining from full Firebase pool
+                const pickedNames = syncedSelections.map(s => s.rider.NAVN);
+                const fullPool = gameData.draftData.pool.map(r => ridersData.find(rd => rd.NAVN === r.NAVN)).filter(Boolean);
+                const newRemaining = fullPool.filter(r => !pickedNames.includes(r.NAVN));
+
+                setDraftSelections(syncedSelections);
+                setDraftRemaining(newRemaining);
+
+                if (nSynced >= totalPicks) {
+                  // Draft complete - HOST will transition status to 'playing'
+                  console.log('🔄 JOINER: Draft complete, waiting for HOST to start game');
+                  setIsDrafting(false);
+                } else {
+                  // Determine whose pick it is using the explicit sequence from Firebase
+                  const seq = gameData.draftData.pickSequence;
+                  const nextTeam = (seq && nSynced < seq.length) ? seq[nSynced] : null;
+                  console.log('🔄 JOINER: Next pick is:', nextTeam, '(my name:', name, ')');
+
+                  setIsDrafting(true);
+                  setDraftCurrentPickIdx(nSynced);
+                  setDraftRoundNum(Math.floor(nSynced / (gameData.draftData.teamsOrder?.length || draftNTeams)) + 1);
                 }
               }
               return current;
@@ -2905,6 +2901,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const hostPlayerName = playerName; // Capture current playerName for closure
       const hostTeamsOrder = teamsOrder; // Capture teamsOrder for closure
       const hostPickSequence = pickSequence; // Capture pickSequence for closure
+      let lastHostSyncedCount = 0; // Track last processed selection count (avoids stale draftSelections closure)
       const unsubscribe = subscribeToGame(roomCode, (gameData) => {
         console.log('📥 HOST: Subscriber called, status:', gameData?.status);
         console.log('📥 HOST: My name:', hostPlayerName, 'Players:', gameData?.players?.map(p => p.name + ':' + p.team));
@@ -2926,8 +2923,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             return { team: s.team, rider: rider || { NAVN: s.riderName } };
           });
           
-          // Only update if selections count changed
-          if (syncedSelections.length > draftSelections.length) {
+          // Only update if selections count changed (use local var, not stale draftSelections closure)
+          if (syncedSelections.length > lastHostSyncedCount) {
+            lastHostSyncedCount = syncedSelections.length;
             console.log('🔄 HOST: Updating selections to', syncedSelections.length);
             setDraftSelections(syncedSelections);
             
