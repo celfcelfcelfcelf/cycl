@@ -1781,12 +1781,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
 
                 console.log('🔄 JOINER: Syncing', nSynced, '/', totalPicks, 'selections');
 
+                // Always keep draft metadata in sync from Firebase (avoids stale state in UI)
+                if (gameData.draftData.teamsOrder) setDraftTeamsOrder(gameData.draftData.teamsOrder);
+                if (gameData.draftData.pickSequence) setDraftPickSequence(gameData.draftData.pickSequence);
+                setNumberOfTeams(draftNTeams);
+                setRidersPerTeam(draftRPT);
+                setDraftTotalPicks(totalPicks);
+
                 // Recalculate remaining from full Firebase pool
                 const pickedNames = syncedSelections.map(s => s.rider.NAVN);
                 const fullPool = gameData.draftData.pool.map(r => ridersData.find(rd => rd.NAVN === r.NAVN)).filter(Boolean);
                 const newRemaining = fullPool.filter(r => !pickedNames.includes(r.NAVN));
 
                 setDraftSelections(syncedSelections);
+                setDraftPool(fullPool);       // Keep pool visible in UI
                 setDraftRemaining(newRemaining);
 
                 if (nSynced >= totalPicks) {
