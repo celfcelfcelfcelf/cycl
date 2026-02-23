@@ -1795,7 +1795,9 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                       gameData.draftData.pickSequence, 
                       'multi', 
                       name, 
-                      gameData.players
+                      gameData.players,
+                      gameData.draftData.pool.length,
+                      false
                     );
                   }, 150);
                 }
@@ -1841,20 +1843,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
               setDraftTotalPicks(fullPool.length);
               setIsDrafting(true);
               
-              // Wait longer to ensure state is set before calling processNextPick
-              // IMPORTANT: Pass gameMode='multi' and players directly to avoid React state timing issues
-              // Use 'name' parameter from handleJoinGame closure instead of playerName state
-              setTimeout(() => {
-                processNextPick(
-                  fullPool, 
-                  draftTeamsOrder, 
-                  [], 
-                  draftPickSequence,
-                  'multi', // gameMode override
-                  name, // playerName from handleJoinGame parameter (not React state!)
-                  gameData.players // multiplayerPlayers override
-                );
-              }, 300);
+              // JOINER does not call processNextPick initially
+              // HOST will run all AI picks and sync to Firebase
+              // JOINER will receive picks via Firebase subscriber and update UI accordingly
+              console.log('🔵 JOINER: Draft state set, waiting for HOST to run AI picks via Firebase');
             }
             console.log('🔵 JOINER: setGameState returning: draft');
             return 'draft';
@@ -2951,7 +2943,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 hostPlayerName,
                 players: gameData.players?.length
               });
-              processNextPick(newRemaining, hostTeamsOrder, syncedSelections, hostPickSequence, 'multi', hostPlayerName, gameData.players);
+              processNextPick(newRemaining, hostTeamsOrder, syncedSelections, hostPickSequence, 'multi', hostPlayerName, gameData.players, gameData.draftData.pool.length, true);
             }, 150);
           }
         }
@@ -2974,7 +2966,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       // Start processing picks after state is set
       // IMPORTANT: Pass gameMode='multi', playerName, and multiplayerPlayers for host
       setTimeout(() => {
-        processNextPick(draftPoolToShare, teamsOrder, [], pickSequence, 'multi', playerName, multiplayerPlayers);
+        processNextPick(draftPoolToShare, teamsOrder, [], pickSequence, 'multi', playerName, multiplayerPlayers, total, true);
       }, 150);
       
     } catch (error) {
@@ -4384,7 +4376,9 @@ return { pace, updatedCards, doubleLead };
     pickSequenceParam = null,
     gameModeOverride = null,
     playerNameOverride = null,
-    multiplayerPlayersOverride = null
+    multiplayerPlayersOverride = null,
+    totalPicksOverride = null,
+    isHostOverride = null
   ) => {
     const remaining = remainingArg || draftRemaining;
     const teamsOrder = teamsArg || draftTeamsOrder;
@@ -4392,6 +4386,7 @@ return { pace, updatedCards, doubleLead };
     const effectiveGameMode = gameModeOverride || gameMode;
     const effectivePlayerName = playerNameOverride || playerName;
     const effectivePlayers = multiplayerPlayersOverride || multiplayerPlayers;
+    const effectiveIsHost = isHostOverride !== null ? isHostOverride : isHost;
 
     // Basic guards
     if (!remaining || remaining.length === 0 || !teamsOrder || teamsOrder.length === 0) {
@@ -4404,7 +4399,7 @@ return { pace, updatedCards, doubleLead };
       return;
     }
 
-  const totalPicksNeeded = draftTotalPicks || (numberOfTeams * ridersPerTeam);
+  const totalPicksNeeded = totalPicksOverride || draftTotalPicks || (numberOfTeams * ridersPerTeam);
   if (selections.length >= totalPicksNeeded) { setIsDrafting(false); return; }
 
     // Build counts per team from provided selections
@@ -4440,6 +4435,13 @@ return { pace, updatedCards, doubleLead };
       return; // Wait for human to pick (whether it's me or another player)
     }
 
+    // If it's AI turn and we're JOINER in multiplayer, don't run AI picks locally
+    // Wait for HOST to run them and sync via Firebase
+    if (effectiveGameMode === 'multi' && !effectiveIsHost) {
+      console.log('🔵 JOINER: AI turn, waiting for HOST to run pick via Firebase');
+      return;
+    }
+
     // Computer picks: rank remaining by computed win_chance and choose best
     let bestIdx = 0;
     let bestScore = -Infinity;
@@ -4465,10 +4467,23 @@ return { pace, updatedCards, doubleLead };
     setDraftRemaining(newRemaining);
     setDraftPool(newRemaining);
 
+    // In multiplayer, HOST syncs AI picks to Firebase so JOINER can see them
+    if (effectiveGameMode === 'multi' && effectiveIsHost && roomCode) {
+      console.log('📤 HOST: Syncing AI pick to Firebase:', teamPicking, chosen.NAVN);
+      const gameRef = doc(db, 'games', roomCode);
+      updateDoc(gameRef, {
+        'draftData.selections': newSelections.map(s => ({
+          team: s.team,
+          riderName: s.rider.NAVN
+        })),
+        lastUpdate: serverTimestamp()
+      }).catch(err => console.error('Failed to sync AI draft pick:', err));
+    }
+
     // Continue to next pick automatically (pass newSelections so state-sync not required)
     // IMPORTANT: Pass through effective parameters to maintain multiplayer context
     if (newSelections.length < totalPicksNeeded) {
-      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections, pickSequenceParam, effectiveGameMode, effectivePlayerName, effectivePlayers), 150);
+      setTimeout(() => processNextPick(newRemaining, teamsOrder, newSelections, pickSequenceParam, effectiveGameMode, effectivePlayerName, effectivePlayers, totalPicksNeeded, effectiveIsHost), 150);
     } else {
       setIsDrafting(false);
     }
@@ -4521,7 +4536,14 @@ return { pace, updatedCards, doubleLead };
     // Continue automatic picks after human selection — pass the explicit
     // pick sequence to avoid races between setState and the pick loop.
     // IMPORTANT: Pass gameMode, playerName, multiplayerPlayers for multiplayer context
-    setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections, seqLocal, gameMode, playerName, multiplayerPlayers), 120);
+    // In multiplayer, only HOST continues the AI picks to avoid race conditions
+    // JOINER will receive AI picks via Firebase sync
+    const shouldContinueAIPicks = gameMode !== 'multi' || isHost;
+    if (shouldContinueAIPicks) {
+      setTimeout(() => processNextPick(newRemaining, draftTeamsOrder, newSelections, seqLocal, gameMode, playerName, multiplayerPlayers, draftTotalPicks, isHost), 120);
+    } else {
+      console.log('🔵 JOINER: Waiting for HOST to process AI picks via Firebase');
+    }
   };
 
   const confirmDraftAndStart = async () => {
