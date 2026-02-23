@@ -1774,9 +1774,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                 });
                 
                 // Only update if selections count changed
-                if (syncedSelections.length > draftSelections.length) {
+                // NOTE: draftSelections in this closure is always stale (captured at join time = [])
+                // so we always process incoming selections and let processNextPick guard against duplicates
+                const currentSelectionsLength = syncedSelections.length;
+                const totalForCheck = (gameData.draftData.numberOfTeams || 5) * (gameData.draftData.ridersPerTeam || 3);
+                if (currentSelectionsLength > 0 && currentSelectionsLength < totalForCheck) {
                   console.log('🔄 JOINER: Updating selections to', syncedSelections.length);
                   setDraftSelections(syncedSelections);
+                  setIsDrafting(true); // Ensure draft remains active while picks are incoming
                   
                   // Recalculate remaining riders using full pool from Firebase
                   const pickedNames = syncedSelections.map(s => s.rider.NAVN);
@@ -4434,6 +4439,7 @@ return { pace, updatedCards, doubleLead };
       const pickIndex = selections.length;
       setDraftCurrentPickIdx(pickIndex);
       setDraftRoundNum(Math.floor(pickIndex / teamsOrder.length) + 1);
+      setIsDrafting(true); // Ensure draft is active when waiting for human pick
       return; // Wait for human to pick (whether it's me or another player)
     }
 
@@ -4441,6 +4447,7 @@ return { pace, updatedCards, doubleLead };
     // Wait for HOST to run them and sync via Firebase
     if (effectiveGameMode === 'multi' && !effectiveIsHost) {
       console.log('🔵 JOINER: AI turn, waiting for HOST to run pick via Firebase');
+      setIsDrafting(true); // Ensure draft stays active while waiting
       return;
     }
 
