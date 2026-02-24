@@ -8967,8 +8967,9 @@ const checkCrash = () => {
     
     // Allow finalization if:
     // 1. Host in multiplayer, OR
-    // 2. Only team in the group (can finalize independently)
-    if (!waitingForCardSelections || !isMultiplayer) return;
+    // 2. Only team in the group (can finalize independently, no need to wait for waitingForCardSelections)
+    if (!isMultiplayer) return;
+    if (!waitingForCardSelections && !isOnlyTeamInGroup) return;
     if (!amHost && !isOnlyTeamInGroup) return;
     
     console.log('🎴 Monitoring useEffect triggered - can finalize:', amHost ? 'HOST' : 'ONLY_TEAM');
