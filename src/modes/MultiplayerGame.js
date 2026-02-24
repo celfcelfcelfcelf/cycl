@@ -7053,6 +7053,24 @@ const moveToNextGroup = () => {
   }
 };
 
+// Emergency escape hatch: force the game past the current stuck group.
+// HOST only. Resets stuck state, calls confirmMove if needed, then advances.
+const forceNextGroup = () => {
+  const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+  if (roomCodeRef.current && !amHost) return;
+  console.log('🆘 forceNextGroup called. movePhase:', movePhaseRef.current, 'postMoveInfo:', !!postMoveInfoRef.current);
+  if (postMoveInfoRef.current) {
+    // Already have postMoveInfo - just advance to next group
+    moveToNextGroup();
+  } else {
+    // Stuck in cardSelection or similar - force confirmMove then auto-advance
+    confirmMoveCalledForGroupRef.current = null; // Reset guard so confirmMove runs
+    setWaitingForCardSelections(false);
+    forceAdvanceRef.current = true;
+    confirmMove(cardsRef.current);
+  }
+};
+
 const startNewRound = async () => {
   // RULE 1: ROUND DEFINITION
   // - A round consists of all groups moving in order: Group 4 -> 3 -> 2 -> 1.
@@ -9082,6 +9100,15 @@ const checkCrash = () => {
       '| roomCode:', !!roomCode);
   }, [postMoveInfo, movePhase, isHost, roomCode]);
 
+  // Force-advance: when forceNextGroup triggered confirmMove, auto-call moveToNextGroup once postMoveInfo is set
+  useEffect(() => {
+    if (!forceAdvanceRef.current) return;
+    if (!postMoveInfo) return;
+    console.log('🆘 forceAdvanceRef: postMoveInfo now set, calling moveToNextGroup');
+    forceAdvanceRef.current = false;
+    moveToNextGroup();
+  }, [postMoveInfo]);
+
   // Auto-advance in multiplayer: DISABLED for now to fix card selection issue
   // TODO: Re-enable with proper guards after fixing card selection flow
   /*
@@ -9127,6 +9154,8 @@ const checkCrash = () => {
   const confirmMoveCalledForGroupRef = useRef(null);
   // Track which teams have submitted for each group: { groupNum: Set<teamName> }
   const teamSubmissionsForGroupRef = useRef({});
+  // Set to true when forceNextGroup is pressed so the postMoveInfo useEffect auto-advances
+  const forceAdvanceRef = useRef(false);
   
   useEffect(() => {
     if (movePhase === 'cardSelection' && roomCodeRef.current) {
@@ -12918,6 +12947,23 @@ const checkCrash = () => {
         </div>
       </div>
     )}
+
+    {/* Force Next Group - HOST-only emergency escape hatch */}
+    {gameState === 'playing' && roomCode && (() => {
+      const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
+      if (!amHost) return null;
+      return (
+        <div className="fixed bottom-4 right-4 z-50">
+          <button
+            onClick={forceNextGroup}
+            className="px-3 py-2 bg-red-800 text-white text-xs rounded shadow-lg opacity-50 hover:opacity-100 transition-opacity"
+            title="Emergency: force advance past current group"
+          >
+            Force Next Group
+          </button>
+        </div>
+      );
+    })()}
 
     {/* Prize Money Modal */}
     {showPrizeMoney && (
