@@ -1341,7 +1341,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
             const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
             const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
-            const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
+            // Use ref so we always see the latest choice round even if state update is pending
+            const currentRound = (teamPaceRoundRef.current && teamPaceRoundRef.current[currentGroup]) ? teamPaceRoundRef.current[currentGroup] : 1;
             
             // Guard: If team already submitted for this choice round, skip
             const existingPaceRound = (existingMeta && existingMeta.paceRound) ? existingMeta.paceRound : 1;
@@ -1463,7 +1464,8 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const prevPaceFromMeta = (existingMeta && typeof existingMeta.prevPace !== 'undefined') ? existingMeta.prevPace : undefined;
         const prevPaceFromStore = (teamPaces && typeof teamPaces[paceKey] !== 'undefined') ? teamPaces[paceKey] : undefined;
         const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
-        const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
+        // Use ref so we always see the latest choice round even if state update is pending
+        const currentRound = (teamPaceRoundRef.current && teamPaceRoundRef.current[currentGroup]) ? teamPaceRoundRef.current[currentGroup] : 1;
         
         // Guard: If AI has already submitted for this choice round, do not re-submit
         // IMPORTANT: For choice-2, we MUST allow re-submission if the previous submission was for choice-1.
@@ -4774,7 +4776,9 @@ return { pace, updatedCards, doubleLead };
     // paceRound is the choice round (1 = choice-1, 2 = choice-2), distinct from the
     // game round stored in meta.round which is roundRef.current (0, 1, 2, …).
     const existingRound = existingMeta && existingMeta.paceRound ? existingMeta.paceRound : 1;
-    const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+    // CRITICAL: Use ref (not state) so submissions from runChoice2AI (which fires
+    // 600ms after setTeamPaceRound) read the up-to-date choice round immediately.
+    const currentRound = (teamPaceRoundRef.current && teamPaceRoundRef.current[groupNum]) ? teamPaceRoundRef.current[groupNum] : 1;
     
     console.log('🚀 Check 3: existingMeta=', !!existingMeta, 'existingMeta.pace=', existingMeta?.pace, 'existingRound=', existingRound, 'currentRound=', currentRound, 'forceFinalize=', forceFinalize, 'pace=', pace);
     
