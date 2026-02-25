@@ -1171,13 +1171,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) || 1;
     const inChoice2 = currentRound === 2;
     
-    // If in choice-2, check that all submissions are for round 2
+    // If in choice-2, check that all submissions are for round 2 (paceRound=2)
     let allSubmittedForRound2 = true;
     if (inChoice2) {
       for (const team of teamsWithRidersInGroup) {
         const paceKey = `${currentGroup}-${team}`;
         const meta = teamPaceMeta[paceKey];
-        if (!meta || meta.round !== 2) {
+        // paceRound=2 means this team has submitted their choice-2 revision
+        if (!meta || (meta.paceRound || 1) !== 2) {
           allSubmittedForRound2 = false;
           break;
         }
@@ -1333,10 +1334,11 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
             const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
             
-            // Guard: If team already submitted for this round, skip
-            if (existingMeta && existingMeta.round >= currentRound) {
-              console.log(`🤖 Team ${team} already submitted for group ${currentGroup} round ${currentRound} - skipping`);
-              addLog(`⚠️ DEBUG: ${team} skipped in batch autoplay (already submitted round ${existingMeta.round})`);
+            // Guard: If team already submitted for this choice round, skip
+            const existingPaceRound = (existingMeta && existingMeta.paceRound) ? existingMeta.paceRound : 1;
+            if (existingMeta && existingPaceRound >= currentRound) {
+              console.log(`🤖 Team ${team} already submitted for group ${currentGroup} paceRound ${currentRound} - skipping`);
+              addLog(`⚠️ DEBUG: ${team} skipped in batch autoplay (already submitted paceRound ${existingPaceRound})`);
               continue;
             }
             
@@ -1454,15 +1456,13 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         const prevPace = (typeof prevPaceFromMeta !== 'undefined') ? prevPaceFromMeta : prevPaceFromStore;
         const currentRound = (teamPaceRound && teamPaceRound[currentGroup]) ? teamPaceRound[currentGroup] : 1;
         
-        // Guard: If AI has already submitted for this round, do not re-submit
-        // IMPORTANT: For round 2, we MUST allow re-submission if the previous submission was for round 1
-        // The check existingMeta.round >= currentRound handles this correctly:
-        // - If currentRound is 1 and existing is 1: 1 >= 1 (true) -> skip
-        // - If currentRound is 2 and existing is 1: 1 >= 2 (false) -> proceed
-        // - If currentRound is 2 and existing is 2: 2 >= 2 (true) -> skip
-        if (existingMeta && existingMeta.round >= currentRound) {
-          console.log(`🤖 AI ${currentTeam} already submitted for group ${currentGroup} round ${currentRound} - SKIPPING autoPlayTeam (existingMeta.round=${existingMeta.round})`);
-          addLog(`⚠️ DEBUG: ${currentTeam} skipped autoPlayTeam (already submitted round ${existingMeta.round})`);
+        // Guard: If AI has already submitted for this choice round, do not re-submit
+        // IMPORTANT: For choice-2, we MUST allow re-submission if the previous submission was for choice-1.
+        // Prefer the new paceRound field; fall back to 1 for old meta that predates this field.
+        const existingChoiceRound = (existingMeta && existingMeta.paceRound) ? existingMeta.paceRound : 1;
+        if (existingMeta && existingChoiceRound >= currentRound) {
+          console.log(`🤖 AI ${currentTeam} already submitted for group ${currentGroup} paceRound ${currentRound} - SKIPPING autoPlayTeam (paceRound=${existingChoiceRound})`);
+          addLog(`⚠️ DEBUG: ${currentTeam} skipped autoPlayTeam (already submitted paceRound ${existingChoiceRound})`);
           return;
         }
 
@@ -3907,16 +3907,20 @@ return { pace, updatedCards, doubleLead };
   const runChoice2AI = async (groupNum) => {
     try {
       // If round changed or was cleared, abort.
-      const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+      const currentRound = (teamPaceRoundRef.current && teamPaceRoundRef.current[groupNum]) ? teamPaceRoundRef.current[groupNum] : 1;
       if (currentRound !== 2) return;
   
-      const groupRidersAll = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+      const groupRidersAll = Object.entries(cardsRef.current || cards).filter(([, r]) => r.group === groupNum && !r.finished);
       const teamsWithRiders = teams.filter(t => groupRidersAll.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
   
+      // Skip teams that are real human players (from multiplayerPlayers) — they choose via the UI.
+      const humanTeamNames = (multiplayerPlayers || []).map(p => p.team).filter(Boolean);
+  
       for (const t of teamsWithRiders) {
-        if (t === 'Me') continue; // human decides manually
+        if (t === 'Me') continue; // singleplayer human
+        if (humanTeamNames.includes(t)) continue; // multiplayer human — they use the UI
         // abort if round changed while looping
-        const roundNow = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
+        const roundNow = (teamPaceRoundRef.current && teamPaceRoundRef.current[groupNum]) ? teamPaceRoundRef.current[groupNum] : 1;
         if (roundNow !== 2) return;
   
         // Get previous pace from choice-1 so AI doesn't choose lower
@@ -4758,7 +4762,9 @@ return { pace, updatedCards, doubleLead };
     // If the group is in round 2 we allow replacing a round-1 submission.
     // CRITICAL: Use ref instead of state to avoid async state update issues
     const existingMeta = teamPaceMetaRef.current[paceKey];
-    const existingRound = existingMeta && existingMeta.round ? existingMeta.round : 1;
+    // paceRound is the choice round (1 = choice-1, 2 = choice-2), distinct from the
+    // game round stored in meta.round which is roundRef.current (0, 1, 2, …).
+    const existingRound = existingMeta && existingMeta.paceRound ? existingMeta.paceRound : 1;
     const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
     
     console.log('🚀 Check 3: existingMeta=', !!existingMeta, 'existingMeta.pace=', existingMeta?.pace, 'existingRound=', existingRound, 'currentRound=', currentRound, 'forceFinalize=', forceFinalize, 'pace=', pace);
@@ -5024,7 +5030,7 @@ return { pace, updatedCards, doubleLead };
   } else {
     // If this is a round-2 resubmission and the team previously declared an
     // attack in round-1, enforce that the attacker remains attacker.
-    if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+    if (currentRound === 2 && existingMeta && existingMeta.isAttack && (existingMeta.paceRound || 1) === 1) {
       if (!effectiveIsAttack) {
         // Force attacker to remain attacker on revise
         effectiveIsAttack = true;
@@ -5035,7 +5041,7 @@ return { pace, updatedCards, doubleLead };
     // In choice-2 (round 2) NEW attacks are not allowed. If this team did
     // not declare an attack in round-1, block any attempt to start an attack
     // now and log the action for visibility.
-    if (currentRound === 2 && !(existingMeta && existingMeta.isAttack && existingMeta.round === 1)) {
+    if (currentRound === 2 && !(existingMeta && existingMeta.isAttack && (existingMeta.paceRound || 1) === 1)) {
       if (effectiveIsAttack) {
         addLog(`${submittingTeam} attempted a new attack in choice-2 — blocked`);
         effectiveIsAttack = false;
@@ -5071,7 +5077,8 @@ return { pace, updatedCards, doubleLead };
     pace: finalPace, // Include the pace value so all players can see it
     isAttack: effectiveIsAttack, 
     attacker: effectiveAttacker, 
-    round: roundRef.current || round, // Use ref for immediate updates from Firebase
+    round: roundRef.current !== undefined ? roundRef.current : round, // game round (0,1,2,…)
+    paceRound: currentRound, // choice round: 1 = choice-1, 2 = choice-2
     doubleLead: isDoubleLead ? doubleLead : null,
     timestamp: Date.now() // Add timestamp to track submission order
   };
@@ -5086,7 +5093,7 @@ return { pace, updatedCards, doubleLead };
   
   // If we're enforcing attacker persistence on revise, also ensure the
   // rider's card state marks them as attacker so movement helpers use it.
-  if (currentRound === 2 && existingMeta && existingMeta.isAttack && existingMeta.round === 1) {
+  if (currentRound === 2 && existingMeta && existingMeta.isAttack && (existingMeta.paceRound || 1) === 1) {
     const attackerToEnforce = existingMeta.attacker || effectiveAttacker;
     if (attackerToEnforce) {
       setCards(prev => {
@@ -5173,20 +5180,11 @@ return { pace, updatedCards, doubleLead };
     // actually have non-attacker riders in the group.
     const submittedPaces = {};
     
-    // Determine the actual round: prefer roundRef/round, but if they're 0/undefined,
-    // extract the round from existing metadata for this group
-    let actualRound = roundRef.current || round;
-    if (!actualRound) {
-      // Try to infer round from existing metadata for this group
-      const groupMetaEntries = Object.entries(newMeta).filter(([k]) => k.startsWith(`${groupNum}-`));
-      if (groupMetaEntries.length > 0) {
-        const inferredRound = Math.max(...groupMetaEntries.map(([, meta]) => meta && meta.round ? meta.round : 1));
-        actualRound = inferredRound;
-        console.log('🚀 Inferred actualRound from metadata:', actualRound);
-      } else {
-        actualRound = 1; // Default to round 1
-      }
-    }
+    // Use the choice round (1 or 2) to gate which submissions count for THIS pass.
+    // paceRound in each meta entry is set to currentRound at submission time and
+    // reliably distinguishes choice-1 vs choice-2 resubmissions regardless of the
+    // game round number (which can be 0 making the old `round` field falsy).
+    const currentChoiceRound = currentRound; // already computed above as teamPaceRound[groupNum] || 1
     
     addLog(`🔍 newTeamPaces keys: ${JSON.stringify(Object.keys(newTeamPaces).filter(k => k.startsWith(`${groupNum}-`)))}`);
     Object.entries(newTeamPaces).forEach(([k, v]) => {
@@ -5194,8 +5192,9 @@ return { pace, updatedCards, doubleLead };
       const t = k.split('-')[1];
       if (!teamsWithRiders.includes(t)) return; // ignore teams without non-attacker riders
       const meta = newMeta[k] || {};
-      const metaRound = meta && meta.round ? meta.round : 1;
-      if (metaRound === actualRound) submittedPaces[t] = Math.max(submittedPaces[t] || 0, parseInt(v));
+      // Prefer explicit paceRound. Fall back to 1 for old submissions that predate this field.
+      const metaPaceRound = meta.paceRound || 1;
+      if (metaPaceRound === currentChoiceRound) submittedPaces[t] = Math.max(submittedPaces[t] || 0, parseInt(v));
     });
     
     // Get player team name and check multiplayer status before using them
@@ -5308,6 +5307,23 @@ return { pace, updatedCards, doubleLead };
       // Sync to Firebase so all players know we're in round 2
       if (roomCodeRef.current && isHost) {
         syncMoveToFirebase().catch(err => console.error('Failed to sync choice-2 opening:', err));
+      }
+
+      // Reset currentTeam to the first non-attacker team so the choice-2
+      // submission cycle starts fresh. AI teams auto-play via runChoice2AI;
+      // human players (HOST + JOINERs) will see the choice-2 UI.
+      if (isHost) {
+        const groupRidersForReset = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
+        const nonAttackerTeams = teams.filter(t => groupRidersForReset.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
+        const firstTeam = nonAttackerTeams.length > 0 ? nonAttackerTeams[0] : null;
+        if (firstTeam) {
+          setCurrentTeam(firstTeam);
+          currentTeamRef.current = firstTeam;
+          // Sync the reset currentTeam to Firebase
+          syncMoveToFirebase(firstTeam).catch(err => console.error('Failed to sync choice-2 team reset:', err));
+        }
+        // Trigger AI resubmissions for choice-2 after a short delay
+        setTimeout(() => { runChoice2AI(groupNum); }, 600);
       }
       return;
     }
@@ -6505,13 +6521,14 @@ const confirmMove = (cardsSnapshot) => {
         if (!isLeadNow) continue;
         const teamKey = `${currentGroup}-${r.team}`;
   const meta = (teamPaceMeta && teamPaceMeta[teamKey]) ? teamPaceMeta[teamKey] : null;
-  // Only apply the choice-2 lead penalty when the team's round-2
+  // Only apply the choice-2 lead penalty when the team's choice-2
   // submission actually changed the announced speed compared to
-  // the stored previous round-1 pace (meta.prevPace). If prevPace
+  // the stored previous choice-1 pace (meta.prevPace). If prevPace
   // is undefined we conservatively do not apply the extra EC.
+  // Use paceRound (choice round 1/2) not the game round.
   const newPace = (teamPaces && typeof teamPaces[teamKey] !== 'undefined') ? teamPaces[teamKey] : undefined;
   const paceChangedInChoice2 = meta && typeof meta.prevPace !== 'undefined' && typeof newPace !== 'undefined' && meta.prevPace !== newPace;
-  if (meta && meta.round === 2 && paceChangedInChoice2) {
+  if (meta && (meta.paceRound || 1) === 2 && paceChangedInChoice2) {
           // Add the penalty card to discarded so existing post-move diff
           // logic picks it up (confirmMove compares pre/post discarded/cards)
           if (!Array.isArray(updatedCards[n].discarded)) updatedCards[n].discarded = [];
@@ -8160,13 +8177,12 @@ const checkCrash = () => {
   useEffect(() => {
     try {
       const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
-      const paceKey = `${groupNum}-Me`;
+      const paceKey = `${groupNum}-${getPlayerTeamName()}`;
       const meta = teamPaceMeta && teamPaceMeta[paceKey];
       // Use the recorded teamPaces entry (round-1 submission) to decide
-      // whether we should default to 'nochange' when choice-2 opens. The
-      // `meta.prevPace` is only populated later when a round-2 submission
-      // happens, so checking teamPaces is the reliable indicator here.
-      if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
+      // whether we should default to 'nochange' when choice-2 opens.
+      // paceRound===1 means the existing submission was for choice-1.
+      if (currentRound === 2 && meta && (meta.paceRound || 1) === 1 && typeof teamPaces[paceKey] !== 'undefined') {
         setTeamChoice(prev => prev === null ? 'nochange' : prev);
         // Reset pace states so buttons calculate correctly
         setPaceValue(null);
@@ -8365,13 +8381,13 @@ const checkCrash = () => {
         try {
           const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
           if (currentRound === 2) {
-            const paceKey = `${groupNum}-Me`;
+            const paceKey = `${groupNum}-${getPlayerTeamName()}`;
             const meta = teamPaceMeta && teamPaceMeta[paceKey];
             return (
               <div className="mb-3 p-2 rounded bg-yellow-100 border border-yellow-300">
                 <div className="font-medium text-yellow-800">Choice-2 open for this group</div>
                 <div className="text-xs text-yellow-700">An attack was declared — all teams may revise their choice. Your previous choice will be replaced when you submit.</div>
-                {meta && meta.round === 1 && (
+                {meta && (meta.paceRound || 1) === 1 && (
                   <div className="text-xs text-gray-700 mt-1">You previously submitted in round 1: {teamPaces[paceKey] || 0} {meta.isAttack ? "(attack)" : ''}</div>
                 )}
               </div>
@@ -8388,9 +8404,9 @@ const checkCrash = () => {
           {(() => {
             try {
               const currentRound = (teamPaceRound && teamPaceRound[groupNum]) ? teamPaceRound[groupNum] : 1;
-              const paceKey = `${groupNum}-Me`;
+              const paceKey = `${groupNum}-${getPlayerTeamName()}`;
               const meta = teamPaceMeta && teamPaceMeta[paceKey];
-              if (currentRound === 2 && meta && meta.round === 1 && typeof teamPaces[paceKey] !== 'undefined') {
+              if (currentRound === 2 && meta && (meta.paceRound || 1) === 1 && typeof teamPaces[paceKey] !== 'undefined') {
                 return (
                   <button
                     onClick={() => handleTeamChoice('nochange')}
