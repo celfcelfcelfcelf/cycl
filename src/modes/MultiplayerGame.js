@@ -8129,12 +8129,15 @@ const checkCrash = () => {
     }
   };
 
-  const HumanTurnInterface = ({ groupNum, riders, onSubmit }) => {
+  const HumanTurnInterface = ({ groupNum, riders, onSubmit, disableAttackUnlessChoice1 = false, forcedAttacker = null, totalGroupCount: totalGroupCountProp = null }) => {
   // Count how many riders are in the whole group (not only the human's riders)
   // Attack is allowed as long as there are at least 3 riders in the group.
   const ridersCount = Array.isArray(riders) ? riders.length : 0;
-  const totalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
-  const canAttack = totalGroupCount >= 3;
+  const computedTotalGroupCount = Object.values(cards).filter(r => r.group === groupNum && !r.finished).length;
+  const totalGroupCount = (typeof totalGroupCountProp === 'number') ? totalGroupCountProp : computedTotalGroupCount;
+  // Attack is allowed when group >= 3. In choice-2 (disableAttackUnlessChoice1=true),
+  // only allow attack if the team attacked in choice-1 (forcedAttacker provided).
+  const canAttack = totalGroupCount >= 3 && (!disableAttackUnlessChoice1 || !!forcedAttacker);
   const [teamChoice, setTeamChoice] = useState(null); // 'attack', 'pace', 'follow', 'doublelead'
   const [paceValue, setPaceValue] = useState(null); // 2-8
   const [attackingRider, setAttackingRider] = useState(null); // rider name
@@ -8145,6 +8148,14 @@ const checkCrash = () => {
   const [doubleLeadPace2, setDoubleLeadPace2] = useState(null);
   const [doubleLeadRider1, setDoubleLeadRider1] = useState(null);
   const [doubleLeadRider2, setDoubleLeadRider2] = useState(null);
+  // If forcedAttacker is provided (team attacked in choice-1), lock into attack mode.
+  useEffect(() => {
+    if (forcedAttacker) {
+      setTeamChoice('attack');
+      setAttackingRider(forcedAttacker);
+    }
+  }, [forcedAttacker]);
+
   // Default to 'nochange' in choice-2 when a previous round-1 submission exists
   useEffect(() => {
     try {
@@ -8393,9 +8404,9 @@ const checkCrash = () => {
             return null;
           })()}
           <button
-            onClick={() => { if (canAttack) handleTeamChoice('attack'); }}
+            onClick={() => { if (canAttack && !forcedAttacker) handleTeamChoice('attack'); }}
             disabled={!canAttack}
-            title={!canAttack ? 'Angreb kræver mindst 3 ryttere i gruppen' : ''}
+            title={!canAttack ? (!disableAttackUnlessChoice1 || !!forcedAttacker ? 'Angreb kræver mindst 3 ryttere i gruppen' : 'Angreb ikke tilladt i Choice-2 (du angreb ikke i Choice-1)') : ''}
             className={`px-3 py-2 text-sm rounded ${
               teamChoice === 'attack'
                 ? 'bg-red-600 text-white font-bold'
@@ -8404,6 +8415,9 @@ const checkCrash = () => {
           >
             Angreb
           </button>
+          {disableAttackUnlessChoice1 && !forcedAttacker && (
+            <span className="text-xs text-gray-500 self-center">(angreb spærret i Choice-2)</span>
+          )}
           
           {(() => {
             const maxDobbeltSpeed = getDobbeltføringMaxSpeed();
