@@ -2308,13 +2308,20 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
           // Check if the current team (from Firebase) has already submitted
           // Use merged state (prev + Firebase) to check submissions
           const groupNum = state.currentGroup || currentGroup;
+          // Determine the current choice round (1 = normal, 2 = choice-2 after attack)
+          // Must be computed before any hasSubmitted checks so every check honours paceRound
+          const currentChoiceRound = (state.teamPaceRound && state.teamPaceRound[groupNum]) ||
+            (teamPaceRoundRef.current && teamPaceRoundRef.current[groupNum]) || 1;
           const currentTeamKey = `${groupNum}-${currentTeamFromFirebase}`;
-          const currentTeamHasSubmitted = !!merged[currentTeamKey];
+          const currentTeamMeta = merged[currentTeamKey];
+          const currentTeamHasSubmitted = !!currentTeamMeta && ((currentTeamMeta.paceRound || 1) === currentChoiceRound);
           
           console.log('🔄 Current team submission check:', {
             currentTeamFromFirebase,
             currentTeamKey,
             hasSubmitted: currentTeamHasSubmitted,
+            currentChoiceRound,
+            paceRoundInEntry: currentTeamMeta?.paceRound,
             mergedKeys: Object.keys(merged)
           });
           
@@ -2345,7 +2352,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             console.log('🔄 All merged entries:', Object.entries(merged).map(([k, v]) => `${k}=${JSON.stringify(v).substring(0, 50)}`));
             
             const cardsToCheck = state.cards || cards;
-            const groupNum = state.currentGroup || currentGroup;
+            // (groupNum and currentChoiceRound are defined above, outside this block)
             const teamsWithRidersInGroup = [...new Set(
               Object.values(cardsToCheck)
                 .filter(r => r.group === groupNum && !r.finished)
@@ -2356,11 +2363,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             
             const allSubmitted = teamsWithRidersInGroup.every(t => {
               const key = `${groupNum}-${t}`;
-              const hasSubmitted = !!merged[key];
-              console.log(`🔄 Team ${t} key ${key}: ${hasSubmitted ? 'submitted' : 'not submitted'}, value:`, merged[key]);
-              return hasSubmitted;
+              const meta = merged[key];
+              const hasEntry = !!meta;
+              // Must also have submitted for the CURRENT choice round (paceRound must match)
+              const correctRound = hasEntry && ((meta.paceRound || 1) === currentChoiceRound);
+              console.log(`🔄 Team ${t} key ${key}: hasEntry=${hasEntry} paceRound=${meta?.paceRound} currentChoiceRound=${currentChoiceRound} correctRound=${correctRound}`);
+              return correctRound;
             });
-            console.log('🔄 All submitted check result:', allSubmitted);
+            console.log('🔄 All submitted check result:', allSubmitted, 'currentChoiceRound:', currentChoiceRound);
             
             if (allSubmitted) {
               // Check current phase to determine what action to take
@@ -2463,9 +2473,10 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
                   r.attacking_status !== 'attacker'
                 );
                 
-                // Check if this team has already submitted for this group
+                // Check if this team has already submitted for this group (and for the current choice round)
                 const paceKey = `${groupToCheck}-${t}`;
-                const hasSubmitted = !!merged[paceKey];
+                const paceEntry = merged[paceKey];
+                const hasSubmitted = !!paceEntry && ((paceEntry.paceRound || 1) === currentChoiceRound);
                 
                 console.log(`🔄 Checking team ${t}: hasRiders=${hasRiders}, hasSubmitted=${hasSubmitted}`);
                 
