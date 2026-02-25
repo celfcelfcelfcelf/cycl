@@ -206,6 +206,7 @@ const CyclingGame = ({ onBackToMenu }) => {
   const [roomCode, setRoomCode] = useState(null);
   const [playerName, setPlayerName] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const isHostRef = useRef(false); // sync ref — stays current inside all closures
   const [multiplayerPlayers, setMultiplayerPlayers] = useState([]);
   const [multiplayerConfig, setMultiplayerConfig] = useState({
     numberOfTeams: 3,
@@ -1562,6 +1563,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const code = await createGame(hostName, config);
       setRoomCode(code);
       setIsHost(true);
+      isHostRef.current = true;
       setInLobby(true);
       setGameMode('multi');
       
@@ -1709,6 +1711,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       const team = await joinGame(code, name);
       setRoomCode(code);
       setIsHost(false);
+      isHostRef.current = false;
       setInLobby(true);
       
       // Subscribe to game updates
@@ -1968,6 +1971,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setRoomCode(null);
       setPlayerName('');
       setIsHost(false);
+      isHostRef.current = false;
       setMultiplayerPlayers([]);
       setGameMode(null);
       setMultiplayerMode(null);
@@ -5318,14 +5322,14 @@ return { pace, updatedCards, doubleLead };
       console.log('❌ RETURN: Opening choice-2 for attack');
       
       // Sync to Firebase so all players know we're in round 2
-      if (roomCodeRef.current && isHost) {
+      if (roomCodeRef.current && isHostRef.current) {
         syncMoveToFirebase().catch(err => console.error('Failed to sync choice-2 opening:', err));
       }
 
       // Reset currentTeam to the first non-attacker team so the choice-2
       // submission cycle starts fresh. AI teams auto-play via runChoice2AI;
       // human players (HOST + JOINERs) will see the choice-2 UI.
-      if (isHost) {
+      if (isHostRef.current) {
         const groupRidersForReset = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
         const nonAttackerTeams = teams.filter(t => groupRidersForReset.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
         const firstTeam = nonAttackerTeams.length > 0 ? nonAttackerTeams[0] : null;
