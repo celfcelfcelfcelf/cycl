@@ -231,7 +231,16 @@ const CyclingGame = ({ onBackToMenu }) => {
   const [isDrafting, setIsDrafting] = useState(false);
   const [draftTotalPicks, setDraftTotalPicks] = useState(null);
 const [draftDebugMsg, setDraftDebugMsg] = useState(null);
-  const [trackName, setTrackName] = useState('Hautacam'); // Default, will be overridden by host selection or Firebase data
+  const [trackName, setTrackName] = useState(() => {
+    // Pick a random named track as the initial selection
+    try {
+      const names = Object.keys(tracks).filter(k => k !== 'random');
+      if (names.length === 0) return 'Hautacam';
+      return names[Math.floor(Math.random() * names.length)];
+    } catch (e) {
+      return 'Hautacam';
+    }
+  }); // Default, will be overridden by host selection or Firebase data
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
   const [ridersPerTeam, setRidersPerTeam] = useState(2);
@@ -241,7 +250,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   const isStageRace = numberOfStages > 1; // boolean: true if stage race, false if single stage
   const [level, setLevel] = useState(50); // user-requested level slider 1-100 default 50
   const [numAttackers, setNumAttackers] = useState(1); // number of attackers (1-4)
-  const [attackerLeadFields, setAttackerLeadFields] = useState(5); // fields ahead for attackers (1-10)
+  const [attackerLeadFields, setAttackerLeadFields] = useState(8); // fields ahead for attackers (1-10)
   const [tkPerTk1, setTkPerTk1] = useState(2); // TK-16 per TK-1 conversion rate (1-4)
   const [dobbeltføring, setDobbeltføring] = useState(true); // enable double-leading mechanic
   const [secondsPerRound, setSecondsPerRound] = useState(60); // seconds per round for time calculations (default 60)
