@@ -8191,11 +8191,13 @@ const checkCrash = () => {
   const [doubleLeadPace2, setDoubleLeadPace2] = useState(null);
   const [doubleLeadRider1, setDoubleLeadRider1] = useState(null);
   const [doubleLeadRider2, setDoubleLeadRider2] = useState(null);
-  // If forcedAttacker is provided (team attacked in choice-1), lock into attack mode.
+  // If forcedAttacker is provided (team attacked in choice-1), default into attack mode.
+  // Use functional setState so this only applies the initial default (when choice is still null)
+  // and does NOT override a selection the user has already made.
   useEffect(() => {
     if (forcedAttacker) {
-      setTeamChoice('attack');
-      setAttackingRider(forcedAttacker);
+      setTeamChoice(prev => prev === null ? 'attack' : prev);
+      setAttackingRider(prev => prev === null ? forcedAttacker : prev);
     }
   }, [forcedAttacker]);
 
