@@ -6594,7 +6594,7 @@ const confirmMove = (cardsSnapshot) => {
         let tkTaken = 0;
         let penaltyCount = 0;
         try {
-          const pre = cards[n] || { cards: [], discarded: [] };
+          const pre = preCards[n] || { cards: [], discarded: [] };
           const post = updatedCards[n] || { cards: [], discarded: [] };
           const preAll = [...(pre.cards || []), ...(pre.discarded || [])];
           const postAll = [...(post.cards || []), ...(post.discarded || [])];
@@ -6604,11 +6604,18 @@ const confirmMove = (cardsSnapshot) => {
           const postEC = postAll.filter(c => c && String(c.id) === 'kort: 16').length;
           tkTaken = Math.max(0, postTK - preTK);
           ecTaken = Math.max(0, postEC - preEC);
-          
+
+          // Fallback: if the played card is 1 or 2 (always triggers TK-1), ensure tkTaken >= 1
+          const playedCardId = updatedCards[n] && updatedCards[n].played_card;
+          if (playedCardId) {
+            const cn = parseInt(String(playedCardId).match(/\d+/)?.[0] || '99');
+            if (cn >= 1 && cn <= 2) tkTaken = Math.max(tkTaken, 1);
+          }
+
           // Count penalty cards (TK-1 in top 4) BEFORE the move
-          const preCards = (pre.cards || []).slice(0, 4);
-          for (let i = 0; i < preCards.length; i++) {
-            if (preCards[i] && preCards[i].id === 'TK-1: 99') penaltyCount++;
+          const preFourCards = (pre.cards || []).slice(0, 4);
+          for (let i = 0; i < preFourCards.length; i++) {
+            if (preFourCards[i] && preFourCards[i].id === 'TK-1: 99') penaltyCount++;
           }
         } catch (e) {
           // fallback: legacy leader heuristic
@@ -10475,7 +10482,7 @@ const checkCrash = () => {
                           const isDoubleLead = meta && meta.doubleLead;
                           const displayValue = isDoubleLead 
                             ? `${meta.doubleLead.pace1},${meta.doubleLead.pace2}`
-                            : String(value);
+                            : (value === 0 || value === '0' ? 'Follow' : String(value));
                           
                           // If a team declared an attack, try to include the attacker's chosen card
                           const attackText = (() => {
@@ -11174,7 +11181,7 @@ const checkCrash = () => {
                           <div className="text-xs text-gray-700 ml-3">
                             {(() => {
                               const parts = [];
-                              if (m.tkTaken) parts.push(`${m.tkTaken} Tk-1`);
+                              if (m.tkTaken) parts.push(`${m.tkTaken} TK-1`);
                               if (m.ecTaken) parts.push(`${m.ecTaken} EC`);
                               return `.... takes ${parts.join(' and ')}`;
                             })()}
