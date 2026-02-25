@@ -6552,7 +6552,11 @@ const confirmMove = (cardsSnapshot) => {
   // the stored previous choice-1 pace (meta.prevPace). If prevPace
   // is undefined we conservatively do not apply the extra EC.
   // Use paceRound (choice round 1/2) not the game round.
-  const newPace = (teamPaces && typeof teamPaces[teamKey] !== 'undefined') ? teamPaces[teamKey] : undefined;
+  // Use teamPacesRef.current first — confirmMove runs synchronously after setTeamPaces(),
+  // so React state may still hold the stale choice-1 value at this point.
+  const newPace = (teamPacesRef.current && typeof teamPacesRef.current[teamKey] !== 'undefined')
+    ? teamPacesRef.current[teamKey]
+    : (teamPaces && typeof teamPaces[teamKey] !== 'undefined') ? teamPaces[teamKey] : undefined;
   const paceChangedInChoice2 = meta && typeof meta.prevPace !== 'undefined' && typeof newPace !== 'undefined' && meta.prevPace !== newPace;
   if (meta && (meta.paceRound || 1) === 2 && paceChangedInChoice2) {
           // Add the penalty card to discarded so existing post-move diff
