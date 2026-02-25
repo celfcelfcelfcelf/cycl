@@ -5331,15 +5331,9 @@ return { pace, updatedCards, doubleLead };
       teamPaceRoundRef.current = { ...(teamPaceRoundRef.current || {}), [groupNum]: 2 }; // Update ref immediately
       addLog(`Choice-2 opened for group ${groupNum} due to attack — teams may revise their choices`);
       console.log('❌ RETURN: Opening choice-2 for attack');
-      
-      // Sync to Firebase so all players know we're in round 2
-      if (roomCodeRef.current && isHostRef.current) {
-        syncMoveToFirebase().catch(err => console.error('Failed to sync choice-2 opening:', err));
-      }
 
-      // Reset currentTeam to the first non-attacker team so the choice-2
-      // submission cycle starts fresh. AI teams auto-play via runChoice2AI;
-      // human players (HOST + JOINERs) will see the choice-2 UI.
+      // Reset currentTeam to the first non-attacker team and force-sync everything
+      // to Firebase in a SINGLE call so the rate-limiter doesn't swallow it.
       if (isHostRef.current) {
         const groupRidersForReset = Object.entries(cards).filter(([, r]) => r.group === groupNum && !r.finished);
         const nonAttackerTeams = teams.filter(t => groupRidersForReset.some(([, r]) => r.team === t && r.attacking_status !== 'attacker'));
@@ -5347,8 +5341,12 @@ return { pace, updatedCards, doubleLead };
         if (firstTeam) {
           setCurrentTeam(firstTeam);
           currentTeamRef.current = firstTeam;
-          // Sync the reset currentTeam to Firebase
-          syncMoveToFirebase(firstTeam).catch(err => console.error('Failed to sync choice-2 team reset:', err));
+        }
+        if (roomCodeRef.current) {
+          // force=true bypasses the 200ms rate-limit — this sync is critical
+          // (it carries teamPaceRound:{groupNum:2} so all players know choice-2 is open)
+          syncMoveToFirebase(firstTeam, false, null, true)
+            .catch(err => console.error('Failed to sync choice-2 opening:', err));
         }
         // Trigger AI resubmissions for choice-2 after a short delay
         setTimeout(() => { runChoice2AI(groupNum); }, 600);
@@ -10640,9 +10638,9 @@ const checkCrash = () => {
                         // the team previously attacked in round 1. If so, force
                         // attack mode in the UI and prevent cancelling the attack.
                         const isChoice2 = teamPaceRound && teamPaceRound[currentGroup] === 2;
-                        const paceKeyPlayer = `${currentGroup}-${currentPlayerTeam}`;
+                        const paceKeyPlayer = `${currentGroup}-${myTeam}`;
                         const metaPlayer = (teamPaceMeta && teamPaceMeta[paceKeyPlayer]) ? teamPaceMeta[paceKeyPlayer] : null;
-                        const attackedInChoice1 = !!(metaPlayer && metaPlayer.isAttack && metaPlayer.round === 1);
+                        const attackedInChoice1 = !!(metaPlayer && metaPlayer.isAttack && (metaPlayer.paceRound || 1) === 1);
                         const forcedAttacker = attackedInChoice1 ? (metaPlayer && metaPlayer.attacker) : null;
 
                         return (
