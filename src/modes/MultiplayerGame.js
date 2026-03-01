@@ -2587,9 +2587,21 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     
     // Sync move phase - JOINER only; HOST drives phase transitions locally
     if (!hostOwnsFlowState && state.movePhase && state.movePhase !== movePhaseRef.current) {
+      // Guard: reject 'cardSelection' or 'moving' from Firebase if teamPaceMeta is empty.
+      // When teamPaceMeta is empty, cardSelection/moving is always stale state from a
+      // previous game that Firebase hasn't been overwritten yet. Accepting it causes
+      // card selection to open with wrong (stale) speed at the start of a new game.
+      const incomingPaceMeta = state.teamPaceMeta || {};
+      const isInconsistentPhase =
+        (state.movePhase === 'cardSelection' || state.movePhase === 'moving') &&
+        Object.keys(incomingPaceMeta).length === 0;
+      if (isInconsistentPhase) {
+        console.log('🔄 Rejecting stale movePhase from Firebase:', state.movePhase, '(teamPaceMeta empty — inconsistent state from previous game)');
+      } else {
       console.log('🔄 Loading movePhase from Firebase:', state.movePhase, '(was:', movePhaseRef.current, ')');
       setMovePhase(state.movePhase);
       movePhaseRef.current = state.movePhase; // Update ref immediately
+      }
     } else if (hostOwnsFlowState && state.movePhase && state.movePhase !== movePhaseRef.current) {
       console.log('🔄 HOST: Skipping movePhase from Firebase (HOST owns this - local:', movePhaseRef.current, 'firebase:', state.movePhase, ')');
     }
@@ -3782,6 +3794,20 @@ return { pace, updatedCards, doubleLead };
   setLogs([`Game started! Length: ${getLength(selectedTrack)} km`]);
   // include chosen level in the log for visibility
   setLogs(prev => [...prev, `Level: ${level}`]);
+
+  // Immediately overwrite Firebase with the fresh game state so that stale
+  // movePhase/teamPaceMeta/cards from the previous game don't get echoed back.
+  // React state is async, so we update refs synchronously here and fire the
+  // sync after a short delay to let the cards/teams state settle.
+  movePhaseRef.current = 'input';
+  currentGroupRef.current = 2;
+  if (roomCodeRef.current) {
+    setTimeout(() => {
+      syncMoveToFirebase(null, false, null, true /* force */).catch(err =>
+        console.warn('startGame: initial Firebase overwrite failed:', err)
+      );
+    }, 200);
+  }
 };
 
   const startDraft = (preselectedStages = null) => {
