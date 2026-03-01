@@ -11504,17 +11504,20 @@ const checkCrash = () => {
                 
                 console.log('🎴 Group paces for group', currentGroup, ':', groupPaces);
                 
-                if (groupPaces.length > 0) {
-                  // The group speed is the max pace submitted by any team in the group
-                  displaySpeed = Math.max(...groupPaces);
-                  console.log('🎴 Calculated displaySpeed from teamPaces:', displaySpeed);
-                } else if (groupSpeedRef.current > 0) {
-                  // Fallback to ref if no pace data available yet
+                if (groupSpeedRef.current > 0) {
+                  // groupSpeedRef is set by handlePaceSubmit via calculateGroupSpeed, which
+                  // already applies dobbeltføring (+1 when two teams are within 1 of each other).
+                  // Always prefer it over recomputing from raw teamPaces, which would miss
+                  // the bonus and show the wrong speed in the dialog.
                   displaySpeed = groupSpeedRef.current;
-                  console.log('🎴 Fallback to groupSpeedRef:', displaySpeed);
+                  console.log('🎴 displaySpeed from groupSpeedRef (dobbeltføring-adjusted):', displaySpeed);
                 } else if (groupSpeed > 0) {
                   displaySpeed = groupSpeed;
-                  console.log('🎴 Fallback to groupSpeed state:', displaySpeed);
+                  console.log('🎴 displaySpeed from groupSpeed state:', displaySpeed);
+                } else if (groupPaces.length > 0) {
+                  // Last resort: recompute from raw paces (dobbeltføring not applied here)
+                  displaySpeed = Math.max(...groupPaces);
+                  console.log('🎴 displaySpeed from raw teamPaces (no dobbeltføring):', displaySpeed);
                 } else {
                   console.log('🎴 WARNING: No groupSpeed available, cards may not validate correctly');
                 }
