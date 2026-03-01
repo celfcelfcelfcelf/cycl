@@ -2315,7 +2315,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
             (teamPaceRoundRef.current && teamPaceRoundRef.current[groupNum]) || 1;
           const currentTeamKey = `${groupNum}-${currentTeamFromFirebase}`;
           const currentTeamMeta = merged[currentTeamKey];
-          const currentTeamHasSubmitted = !!currentTeamMeta && ((currentTeamMeta.paceRound || 1) === currentChoiceRound);
+          const cardsToCheckForRiders = state.cards || cards;
+          const currentTeamHasRiders = Object.values(cardsToCheckForRiders).some(r =>
+            r.group === groupNum && r.team === currentTeamFromFirebase && !r.finished && r.attacking_status !== 'attacker'
+          );
+          // If the current team has no riders in this group, treat them as submitted
+          // so the HOST advances the turn. Without this, the Firebase sync keeps setting
+          // currentTeam back to them and the auto-skip useEffect can never win the race.
+          const currentTeamHasSubmitted = (!currentTeamHasRiders) || (!!currentTeamMeta && ((currentTeamMeta.paceRound || 1) === currentChoiceRound));
           
           console.log('🔄 Current team submission check:', {
             currentTeamFromFirebase,
@@ -3581,7 +3588,7 @@ return { pace, updatedCards, doubleLead };
     cardsObj[rider.NAVN] = {
       position: isBreakaway ? attackerLeadFields : 0,
       cards: regularCards,
-      discarded: tk16Cards,
+      discarded: isBreakaway ? [] : tk16Cards,
       group: isBreakaway ? 1 : 2,
       prel_time: 10000,
       time_after_winner: 10000,
@@ -6546,6 +6553,8 @@ const confirmMove = (cardsSnapshot) => {
         // leader detection post-move (takes_lead === 1)
         const isLeadNow = Number(r.takes_lead) === 1;
         if (!isLeadNow) continue;
+        // Breakaway riders never receive the choice-2 lead penalty
+        if (r.attacking_status === 'attacker') continue;
         const teamKey = `${currentGroup}-${r.team}`;
   const meta = (teamPaceMeta && teamPaceMeta[teamKey]) ? teamPaceMeta[teamKey] : null;
   // Only apply the choice-2 lead penalty when the team's choice-2
@@ -7829,17 +7838,26 @@ const confirmIntermediateSprint = () => {
   // Add 2|2 cards to each rider based on sprint_effort
   Object.entries(sprintEfforts).forEach(([name, effort]) => {
     if (updatedCards[name] && effort > 0) {
-      // Add 'effort' number of TK kort: 16 to discarded pile (not hand)
+      // If rider already has kort: 16 in discarded, consume those first;
+      // only add new ones for effort beyond the existing count.
       const existingDiscarded = updatedCards[name].discarded || [];
-      const newTKCards = Array(effort).fill(null).map(() => ({
+      const existingCount = existingDiscarded.filter(c => c && c.id === 'kort: 16').length;
+      const removals = Math.min(effort, existingCount);
+      const additions = effort - removals;
+      let remaining = [...existingDiscarded];
+      let removed = 0;
+      remaining = remaining.filter(c => {
+        if (removed < removals && c && c.id === 'kort: 16') { removed++; return false; }
+        return true;
+      });
+      const newTKCards = Array(additions).fill(null).map(() => ({
         id: 'kort: 16',
         flat: 2,
         uphill: 2
       }));
-      
       updatedCards[name] = {
         ...updatedCards[name],
-        discarded: [...existingDiscarded, ...newTKCards]
+        discarded: [...remaining, ...newTKCards]
       };
     }
   });
@@ -8962,10 +8980,13 @@ const checkCrash = () => {
         waitingForCardSelections
       });
       
-      // IMPORTANT: If we're already waiting for card selections (monitoring is active),
-      // don't reopen the dialog - let the monitoring useEffect handle finalization
-      if (waitingForCardSelections) {
-        console.log('🎴 Monitoring is active (waitingForCardSelections=true) - skipping auto-open');
+      // IMPORTANT: If we're already waiting for card selections (monitoring is active)
+      // AND this player has already submitted, skip to avoid reopening the dialog.
+      // But if the player has NOT submitted yet, we MUST open the dialog even when
+      // waitingForCardSelections=true — otherwise we deadlock: monitoring waits for a
+      // teamCardMeta entry that can only come from the dialog, and the dialog never opens.
+      if (waitingForCardSelections && alreadySubmitted) {
+        console.log('🎴 Monitoring is active and player already submitted - skipping auto-open');
         return;
       }
       
@@ -10632,7 +10653,12 @@ const checkCrash = () => {
                       });
                       
                       // In multiplayer mode, check if it's actually this player's turn
-                      if (isMultiplayer && currentTeam !== myTeam) {
+                      // Also skip the "waiting" message if the current team has no riders
+                      // in this group — the HOST auto-advance will move past them shortly.
+                      const currentTeamHasRidersInGroup = Object.values(cards).some(r =>
+                        r.group === currentGroup && r.team === currentTeam && !r.finished
+                      );
+                      if (isMultiplayer && currentTeam !== myTeam && currentTeamHasRidersInGroup) {
                         return (
                           <div className="text-center text-gray-600 italic p-4">
                             Waiting for {getTeamDisplayName(currentTeam)} to make their move...
@@ -11975,7 +12001,7 @@ const checkCrash = () => {
                                           {/* Attackers (if any) — render above group labels */}
                                           {attackersHere.length > 0 && attackersHere.map((n, i) => (
                                             <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
-                                              <span>{firstNameShort(n)}</span>
+                                              <span>{firstNameShort(n)}{(() => { const k = ((cards[n] && cards[n].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return k > 0 ? <sup style={{ fontSize: '14px', color: '#ef4444', marginLeft: 1 }}>{'z'.repeat(k)}</sup> : null; })()}</span>
                                               <button
                                                 type="button"
                                                 className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
@@ -12018,7 +12044,7 @@ const checkCrash = () => {
                                           {/* Fallen riders (if any) — render below groups/attackers when present */}
                                           {fallenHere.length > 0 && fallenHere.map((n, i) => (
                                             <div key={`f${n}${i}`} style={{ marginTop: 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
-                                              <span>{firstNameShort(n)}</span>
+                                              <span>{firstNameShort(n)}{(() => { const k = ((cards[n] && cards[n].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return k > 0 ? <sup style={{ fontSize: '14px', color: '#ef4444', marginLeft: 1 }}>{'z'.repeat(k)}</sup> : null; })()}</span>
                                               <button
                                                 type="button"
                                                 className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
@@ -12171,6 +12197,7 @@ const checkCrash = () => {
                                                 </>
                                               ) : displayName}
                                             </span>
+                                            {(() => { const k = ((cards[name] && cards[name].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return k > 0 ? <sup style={{ fontSize: '14px', color: '#ef4444' }}>{'z'.repeat(k)}</sup> : null; })()}
                                             <button
                                               type="button"
                                               className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100 border-0 bg-transparent p-0 m-0"

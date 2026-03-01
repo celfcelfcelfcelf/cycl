@@ -1385,7 +1385,7 @@ return { pace, updatedCards, doubleLead };
     cardsObj[rider.NAVN] = {
       position: isBreakaway ? attackerLeadFields : 0,
       cards: regularCards,
-      discarded: tk16Cards,
+      discarded: isBreakaway ? [] : tk16Cards,
       group: isBreakaway ? 1 : 2,
       prel_time: 10000,
       time_after_winner: 10000,
@@ -7381,7 +7381,7 @@ const checkCrash = () => {
                                           {/* Attackers (if any) — render above group labels */}
                                           {attackersHere.length > 0 && attackersHere.map((n, i) => (
                                             <div key={n + i} style={{ marginBottom: i < attackersHere.length - 1 ? 2 : 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
-                                              <span>{firstNameShort(n)}</span>
+                                              <span>{firstNameShort(n)}{(() => { const k = ((cards[n] && cards[n].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return k > 0 ? <sup style={{ fontSize: '7px', color: '#f97316', marginLeft: 1 }}>{'💤'.repeat(k)}</sup> : null; })()}</span>
                                               <button
                                                 type="button"
                                                 className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
@@ -7424,7 +7424,7 @@ const checkCrash = () => {
                                           {/* Fallen riders (if any) — render below groups/attackers when present */}
                                           {fallenHere.length > 0 && fallenHere.map((n, i) => (
                                             <div key={`f${n}${i}`} style={{ marginTop: 4, color: styleColors.text, display: 'flex', alignItems: 'center', gap: 2, textAlign: 'left' }} className="w-full px-1 py-0.5 rounded text-[10px] font-light">
-                                              <span>{firstNameShort(n)}</span>
+                                              <span>{firstNameShort(n)}{(() => { const k = ((cards[n] && cards[n].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return k > 0 ? <sup style={{ fontSize: '7px', color: '#f97316', marginLeft: 1 }}>{'💤'.repeat(k)}</sup> : null; })()}</span>
                                               <button
                                                 type="button"
                                                 className="cursor-pointer flex-shrink-0 border-0 bg-transparent p-0 m-0"
@@ -7552,6 +7552,7 @@ const checkCrash = () => {
                                                 </>
                                               ) : displayName}
                                             </span>
+                                            {(() => { const k = ((cards[name] && cards[name].discarded) || []).filter(c => c && c.id === 'kort: 16').length; return <sup style={{ fontSize: '7px', color: '#f97316' }}>[{k}]</sup>; })()}
                                             <button
                                               type="button"
                                               className="cursor-pointer flex-shrink-0 opacity-70 hover:opacity-100 border-0 bg-transparent p-0 m-0"
