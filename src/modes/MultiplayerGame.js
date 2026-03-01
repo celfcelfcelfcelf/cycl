@@ -3718,6 +3718,8 @@ return { pace, updatedCards, doubleLead };
   setMovePhase('input');
   setGroupSpeed(0);
   setSlipstream(0);
+  groupSpeedRef.current = 0;  // Reset ref so stale Infinity from previous game doesn't bleed in
+  slipstreamRef.current = 0;
   setLogs([]);
   setAiMessage('');
   // Use synced team order in multiplayer, or generate random order in single player
@@ -5442,8 +5444,9 @@ return { pace, updatedCards, doubleLead };
 
     const allPaces = Object.values(teamPacesForGroup);
 
-    // Determine group's current position
-  const groupPos = Math.max(...Object.values(cardsToUse).filter(r => r.group === groupNum && !r.finished).map(r => r.position));
+    // Determine group's current position (guard against empty array → -Infinity → Infinity speed)
+    const groupPositions = Object.values(cardsToUse).filter(r => r.group === groupNum && !r.finished).map(r => r.position);
+  const groupPos = groupPositions.length > 0 ? Math.max(...groupPositions) : 0;
 
     // Determine the maximum chosen pace among teams (0 if none)
     const maxChosen = allPaces.length > 0 ? Math.max(...allPaces.filter(p => p > 0)) : 0;
