@@ -1161,7 +1161,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     // Check host status - use both isHost state and multiplayer context
     const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
     if (!amHost) return; // Only host triggers cardSelection
-    
+
+    // Guard: if multiplayer players are known, ensure at least one human team's riders
+    // are present in `cards` before proceeding. This prevents premature firing when
+    // the AI auto-submits before Firebase has synced the opponent's riders, which
+    // would make teamsWithRidersInGroup appear to contain only AI teams and trigger
+    // card selection with a wrong (AI-computed) speed.
+    if (multiplayerPlayers && multiplayerPlayers.length > 0) {
+      const humanPlayerTeams = multiplayerPlayers.map(p => p.team).filter(Boolean);
+      if (humanPlayerTeams.length > 0) {
+        const humanRidersLoaded = Object.values(cards).some(r => humanPlayerTeams.includes(r.team));
+        if (!humanRidersLoaded) {
+          console.log('🚀 Human riders not yet loaded from Firebase - deferring auto-start');
+          return;
+        }
+      }
+    }
+
     // Check if all teams with riders in current group have submitted their paces
     const teamsWithRidersInGroup = teams.filter(t => {
       return Object.values(cards).some(r => r.team === t && r.group === currentGroup && !r.finished);
@@ -1233,7 +1249,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }, 500);
     
     return () => clearTimeout(timer);
-  }, [gameState, movePhase, gameMode, isHost, roomCode, teamPaceMeta, currentGroup]);
+  }, [gameState, movePhase, gameMode, isHost, roomCode, teamPaceMeta, currentGroup, multiplayerPlayers, cards]);
 
   // CRITICAL: Clear human_planned flags when entering cardSelection phase
   // This prevents stale human_planned=true from previous card selection cycles
@@ -6851,12 +6867,15 @@ const transitionToNextGroup = (fromGroup) => {
   setTeamPaceRound({});
   setTeamCardMeta({}); // Clear card submissions when moving to new group
   setGroupSpeed(0);
+  setSlipstream(0);
   
   // Clear refs immediately
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
   teamPaceRoundRef.current = {};
   teamCardMetaRef.current = {}; // Clear card meta ref when moving to new group
+  groupSpeedRef.current = 0; // Prevent stale speed from bleeding into next group
+  slipstreamRef.current = 0;
   cardSelectionOpenedForGroupRef.current = null;
   confirmMoveCalledForGroupRef.current = null; // Reset so new group can call confirmMove
   
@@ -6945,8 +6964,11 @@ const transitionToNextRound = () => {
   setTeamPaceMeta({});
   setTeamPaceRound({});
   setGroupSpeed(0);
+  setSlipstream(0);
   setGroupsMovedThisRound([]);
   groupsMovedThisRoundRef.current = [];
+  groupSpeedRef.current = 0; // Prevent stale speed from bleeding into new round
+  slipstreamRef.current = 0;
   
   // Clear refs immediately
   teamPacesRef.current = {};
@@ -7062,6 +7084,9 @@ const moveToNextGroup = () => {
   setTeamCardMeta({});
   teamCardMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new group
+  setSlipstream(0);
+  groupSpeedRef.current = 0; // Prevent stale speed from bleeding into next group
+  slipstreamRef.current = 0;
     const shuffled = [...teams].sort(() => Math.random() - 0.5);
     setTeams(shuffled);
     // Prefer a team that actually has riders in the next group so we don't
@@ -7626,6 +7651,9 @@ const forceProgressGame = () => {
     teamPacesRef.current = {};
     teamPaceMetaRef.current = {};
     setGroupSpeed(0);
+    setSlipstream(0);
+    groupSpeedRef.current = 0;
+    slipstreamRef.current = 0;
     setPostMoveInfo(null);
     setSprintGroupsPending([]);
     
@@ -7754,6 +7782,9 @@ const startNextStage = () => {
   teamPacesRef.current = {};
   teamPaceMetaRef.current = {};
   setGroupSpeed(0);  // Reset groupSpeed for the new stage
+  setSlipstream(0);
+  groupSpeedRef.current = 0; // Prevent stale speed from bleeding into new stage
+  slipstreamRef.current = 0;
   setPullInvestOutcome({});
   setPostMoveInfo(null);
   setSprintAnimMsgs([]);
