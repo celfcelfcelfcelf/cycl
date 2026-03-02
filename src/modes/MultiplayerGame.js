@@ -2661,7 +2661,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       setPostMoveInfo(null);
       postMoveInfoRef.current = null;
     } else {
-      console.log('🔄 No postMoveInfo in state update - not in state keys:', !('postMoveInfo' in state));
+      // postMoveInfo is not present in this state update at all.
+      // Safety net: if we are entering/staying in input or cardSelection phase,
+      // any locally held postMoveInfo must be stale (the HOST already moved on).
+      const incomingPhaseForPMI = state.movePhase || movePhaseRef.current;
+      if ((incomingPhaseForPMI === 'input' || incomingPhaseForPMI === 'cardSelection') && postMoveInfoRef.current) {
+        console.log('🔄 JOINER: Clearing stale postMoveInfo — not in incoming state and phase is', incomingPhaseForPMI);
+        setPostMoveInfo(null);
+        postMoveInfoRef.current = null;
+      } else {
+        console.log('🔄 No postMoveInfo in state update - not in state keys:', !('postMoveInfo' in state));
+      }
     }
     
     // Sync recent logs (append them, don't replace)
@@ -7204,10 +7214,12 @@ const moveToNextGroup = () => {
     // Sync state to Firebase so JOINER knows to move to next group
     // IMPORTANT: Clear postMoveInfo in Firebase by passing clearPostMoveInfo=true
     // AND sync the cleared cards so human_planned flags are properly reset
+    // IMPORTANT: force=true to bypass the 200ms rate limit — a forced handlePaceSubmit sync
+    // may have fired just before this 100ms timeout, which would otherwise drop the clear.
     if (roomCodeRef.current && amHost) {
       console.log('🚀 moveToNextGroup: Syncing to Firebase with cleared cards and clearing postMoveInfo');
       setTimeout(() => {
-        syncMoveToFirebase(null, true, cleared ? clearedCards : null).catch(err => console.error('Failed to sync moveToNextGroup:', err));
+        syncMoveToFirebase(null, true, cleared ? clearedCards : null, true /* force */).catch(err => console.error('Failed to sync moveToNextGroup:', err));
       }, 100);
       // Note: cardSelection will be auto-started by useEffect when conditions are met
     }
