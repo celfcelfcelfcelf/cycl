@@ -5713,11 +5713,18 @@ return { pace, updatedCards, doubleLead };
             
             // Set takes_lead and planned card for both dobbeltføring leaders
             for (const leaderName of manualDobbeltføringLeaders) {
-              const leadR = updated[leaderName];
+              // CRITICAL: Get leader data from cardsForSpeed (which was used to find leaders)
+              // not from updated (which may have stale selected_value from previous state)
+              const leadR = cardsForSpeed[leaderName] || updated[leaderName];
+              const leadRFromCards = cardsForSpeed[leaderName];
+              const leadRFromUpdated = updated[leaderName];
+              console.log(`🔍 DOBBELT DEBUG ${leaderName}: cardsForSpeed.sv=${leadRFromCards?.selected_value}, updated.sv=${leadRFromUpdated?.selected_value}, team=${leadR.team}`);
+              
               // CRITICAL: Use the ORIGINAL team pace (before dobbeltføring +1) for selected_value
               // This ensures leaders play cards that cover their announced pace, not the boosted speed
               const originalPace = originalTeamPaces[leadR.team] || 0;
               const leaderSelectedValue = originalPace > 0 ? originalPace : (leadR.selected_value || 0);
+              console.log(`🔍 DOBBELT DEBUG ${leaderName}: originalPace=${originalPace}, leadR.selected_value=${leadR.selected_value}, leaderSelectedValue=${leaderSelectedValue}`);
               
               // Check if this team is human-controlled (not AI/Comp)
               const isHumanTeam = leadR.team && !leadR.team.startsWith('Comp');
@@ -5779,15 +5786,21 @@ return { pace, updatedCards, doubleLead };
 
             // Only set planned_card_id field if a card was actually assigned
             // For human teams in multiplayer, planned is null and we don't set the field
-            // CRITICAL: Set selected_value to the original team pace (before dobbeltføring boost)
+            // CRITICAL: Preserve existing selected_value if rider already has one from autoPlayTeam
+            // Only fallback to originalTeamPaces if the rider has no selected_value yet
+            const existingSelectedValue = leadR.selected_value || 0;
+            const preservedSelectedValue = existingSelectedValue > 0 
+              ? existingSelectedValue 
+              : leaderSelectedValue;
+            
             updated[leaderName] = { 
               ...leadR, 
               takes_lead: 1,
-              selected_value: leaderSelectedValue,
+              selected_value: preservedSelectedValue,
               ...(planned !== null ? { planned_card_id: planned } : {})
             };
-            console.log(`🎯 DOBBELTFØRING: Set ${leaderName} takes_lead=1, selected_value=${leaderSelectedValue}, planned=${planned}, isHumanTeam=${isHumanTeam}`);
-            addLog(`${leaderName} (${leadR.team}) assigned as dobbeltføring leader for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
+            console.log(`🎯 DOBBELTFØRING: Set ${leaderName} takes_lead=1, selected_value=${preservedSelectedValue} (existing=${existingSelectedValue}, calculated=${leaderSelectedValue}), planned=${planned}, isHumanTeam=${isHumanTeam}`);
+            addLog(`${leaderName} (${leadR.team}) assigned as dobbeltføring leader for group ${groupNum} (selected_value=${preservedSelectedValue}, planned=${planned})`);
           }
             
             return updated;
