@@ -51,7 +51,7 @@ import {
   syncAIMove,
   deleteGame
 } from '../firebase/gameService';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
  
 import ridersFromCsv from '../data/ridersCsv';
@@ -4680,15 +4680,36 @@ return { pace, updatedCards, doubleLead };
       roomCode
     });
     
-    if (draftSelections && draftSelections.length === total) {
+    // In multiplayer, fetch latest selections from Firebase to avoid state timing issues
+    let selectionsToUse = draftSelections;
+    if (gameMode === 'multi' && roomCode) {
+      try {
+        const gameRef = doc(db, 'games', roomCode);
+        const gameSnap = await getDoc(gameRef);
+        if (gameSnap.exists()) {
+          const gameData = gameSnap.data();
+          if (gameData.draftData?.selections && Array.isArray(gameData.draftData.selections)) {
+            console.log('🎮 Using selections from Firebase:', gameData.draftData.selections.length);
+            selectionsToUse = gameData.draftData.selections.map(s => {
+              const rider = ridersData.find(r => r.NAVN === s.riderName);
+              return { team: s.team, rider: rider || { NAVN: s.riderName } };
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch draft selections from Firebase:', err);
+      }
+    }
+    
+    if (selectionsToUse && selectionsToUse.length === total) {
       // Debug: log all draft selections with teams
       console.log('🎮 All draft selections:');
-      draftSelections.forEach((s, i) => {
+      selectionsToUse.forEach((s, i) => {
         console.log(`  ${i}: ${s.rider?.NAVN} -> team: ${s.team}`);
       });
       
       // drafted array with explicit team marker: { rider, team }
-      const drafted = draftSelections.slice(0, total).map(s => ({ rider: s.rider, team: s.team }));
+      const drafted = selectionsToUse.slice(0, total).map(s => ({ rider: s.rider, team: s.team }));
       console.log('🎮 Drafted riders:', drafted.length, 'first:', drafted[0]?.rider?.NAVN, 'team:', drafted[0]?.team);
       
       // In multiplayer, sync game start to Firebase
