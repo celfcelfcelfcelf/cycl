@@ -1232,19 +1232,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       return;
     }
     
-    // All teams submitted (and if choice-2, all submitted for round 2) - auto-start cardSelection after a delay
-    console.log('🚀 All teams submitted paces, scheduling auto-start of cardSelection for group', currentGroup);
+    // All teams submitted (and if choice-2, all submitted for round 2) - finalize and start cardSelection
+    console.log('🚀 All teams submitted paces, scheduling finalization + cardSelection for group', currentGroup);
     const timer = setTimeout(() => {
       try {
-        console.log('🚀 AUTO-START: All paces submitted, setting movePhase to cardSelection');
-        setMovePhase('cardSelection');
-        movePhaseRef.current = 'cardSelection'; // CRITICAL: Update ref immediately so sync uses correct value
-        // Sync to Firebase
-        if (roomCodeRef.current) {
-          syncMoveToFirebase().catch(err => console.error('Failed to sync auto-start:', err));
-        }
+        console.log('🚀 AUTO-START: All paces submitted, calling handlePaceSubmit(forceFinalize=true)');
+        // Call handlePaceSubmit with forceFinalize=true to perform leader assignment
+        // using the complete merged data from teamPacesRef/teamPaceMetaRef (includes Firebase)
+        // This ensures a leader is assigned even when HOST's AI didn't see all remote submissions yet
+        handlePaceSubmit(currentGroup, null, null, false, null, null, null, true /* forceFinalize */);
       } catch (err) {
-        console.error('🚀 AUTO-START: Error setting movePhase:', err);
+        console.error('🚀 AUTO-START: Error in forceFinalize handlePaceSubmit:', err);
       }
     }, 500);
     
@@ -5521,8 +5519,22 @@ return { pace, updatedCards, doubleLead };
     // For each team with a submitted pace > 0, ensure at least one non-attacker
     // rider in the lookup object has selected_value = pace. Pull from
     // cardsRef.current (always kept current via useEffect) when needed.
+    // CRITICAL: When forceFinalize=true, submittedPaces may be incomplete (built from local refs)
+    // Also check newTeamPaces directly which may have Firebase-merged data for all teams
     const cardsForSpeed = { ...cardsToUse };
-    for (const [teamName, pace] of Object.entries(submittedPaces)) {
+    const pacesToPatch = { ...submittedPaces };
+    
+    // Add any missing teams from newTeamPaces (which may have Firebase data not in submittedPaces)
+    for (const [key, pace] of Object.entries(newTeamPaces)) {
+      if (!key.startsWith(`${groupNum}-`)) continue;
+      const teamName = key.split('-')[1];
+      if (teamsWithRiders.includes(teamName) && typeof pacesToPatch[teamName] === 'undefined' && pace > 0) {
+        pacesToPatch[teamName] = pace;
+        addLog(`🔧 Added ${teamName} pace=${pace} from newTeamPaces for cardsForSpeed patching`);
+      }
+    }
+    
+    for (const [teamName, pace] of Object.entries(pacesToPatch)) {
       if (pace <= 0) continue;
       const groupTeamRiders = Object.entries(cardsForSpeed).filter(
         ([, r]) => r.group === groupNum && r.team === teamName && r.attacking_status !== 'attacker' && !r.finished
@@ -5569,6 +5581,10 @@ return { pace, updatedCards, doubleLead };
     });
     
     let speed = speedResult.speed;
+    
+    // Save original team paces BEFORE applying dobbeltføring boost
+    // Leaders need selected_value set to their ORIGINAL announced pace, not the boosted speed
+    const originalTeamPaces = { ...teamPacesForGroup };
     
     // Apply dobbeltføring leaders if automatic dobbeltføring was applied
     if (speedResult.dobbeltforingApplied) {
@@ -5693,7 +5709,10 @@ return { pace, updatedCards, doubleLead };
             // Set takes_lead and planned card for both dobbeltføring leaders
             for (const leaderName of manualDobbeltføringLeaders) {
               const leadR = updated[leaderName];
-              const leaderSelectedValue = leadR.selected_value || 0;
+              // CRITICAL: Use the ORIGINAL team pace (before dobbeltføring +1) for selected_value
+              // This ensures leaders play cards that cover their announced pace, not the boosted speed
+              const originalPace = originalTeamPaces[leadR.team] || 0;
+              const leaderSelectedValue = originalPace > 0 ? originalPace : (leadR.selected_value || 0);
               
               // Check if this team is human-controlled (not AI/Comp)
               const isHumanTeam = leadR.team && !leadR.team.startsWith('Comp');
@@ -5755,9 +5774,11 @@ return { pace, updatedCards, doubleLead };
 
             // Only set planned_card_id field if a card was actually assigned
             // For human teams in multiplayer, planned is null and we don't set the field
+            // CRITICAL: Set selected_value to the original team pace (before dobbeltføring boost)
             updated[leaderName] = { 
               ...leadR, 
-              takes_lead: 1, 
+              takes_lead: 1,
+              selected_value: leaderSelectedValue,
               ...(planned !== null ? { planned_card_id: planned } : {})
             };
             console.log(`🎯 DOBBELTFØRING: Set ${leaderName} takes_lead=1, selected_value=${leaderSelectedValue}, planned=${planned}, isHumanTeam=${isHumanTeam}`);
@@ -7467,6 +7488,12 @@ const startNewRound = async () => {
     setMovePhase('tkConversion');
     movePhaseRef.current = 'tkConversion';
     
+    // Calculate remaining groups - at start of round, no groups have moved yet
+    const allGroups = Object.values(updatedCards)
+      .filter(r => !r.finished)
+      .map(r => r.group);
+    const uniqueGroups = [...new Set(allGroups)];
+    
     // Set postMoveInfoRef immediately so Firebase sync sends it
     const conversionInfo = {
       groupMoved: 0,
@@ -7480,7 +7507,7 @@ const startNewRound = async () => {
         isLead: false,
         failed: false
       })),
-      remainingNotMoved: [],
+      remainingNotMoved: uniqueGroups, // All groups need to move in this round
       sv: 0,
       speed: 0,
       isTK16Conversion: true
@@ -9412,8 +9439,10 @@ const checkCrash = () => {
     
     // In multiplayer, check if ANY human team has riders in this group
     // In single player, only check current player's team
+    // Use roomCodeRef to detect multiplayer (more reliable than gameMode state)
+    const isMultiplayer = !!roomCodeRef.current;
     let humanRiders;
-    if (gameMode === 'multi') {
+    if (isMultiplayer) {
       // Get all human teams (non-AI teams)
       const humanTeams = teams.filter(t => !t.startsWith('Comp'));
       humanRiders = Object.entries(cardsToUse).filter(([, r]) => 
@@ -11552,7 +11581,11 @@ const checkCrash = () => {
                 // CRITICAL: Calculate the correct speed for THIS specific group from teamPaces
                 // We need to find the max pace submitted by any team in THIS group
                 let displaySpeed = 0;
-                let displaySV = slipstream !== undefined ? slipstream : (slipstreamRef.current !== undefined ? slipstreamRef.current : 0);
+                // Prefer the ref (set synchronously in handlePaceSubmit / loadMultiplayerGameState)
+                // over the React state which may lag by one render cycle.
+                // slipstreamRef is initialized to 0 so typeof check is always true — this
+                // mirrors the same pattern used for displaySpeed below.
+                let displaySV = (typeof slipstreamRef.current === 'number') ? slipstreamRef.current : (slipstream || 0);
                 
                 // Debug: Log state when opening dialog
                 console.log('🎴 Card selection opened - currentGroup:', currentGroup, 'teamPaces:', JSON.stringify(teamPaces));
