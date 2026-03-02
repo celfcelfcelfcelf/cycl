@@ -5439,7 +5439,12 @@ return { pace, updatedCards, doubleLead };
     // announced team paces.
     const teamPacesForGroup = {};
     addLog(`🔍 Building teamPacesForGroup for group ${groupNum}: submittedPaces keys=${Object.keys(submittedPaces).length}, teamsWithRiders=${JSON.stringify(teamsWithRiders)}`);
-    if (Object.keys(submittedPaces).length > 0) {
+    
+    // Check if ALL submitted paces are 0 (all teams chose to follow)
+    const hasAnyNonZeroPace = Object.values(submittedPaces).some(p => p > 0);
+    
+    if (Object.keys(submittedPaces).length > 0 && hasAnyNonZeroPace) {
+      // At least one team submitted a non-zero pace - use submitted values
       for (const t of teamsWithRiders) {
         if (!teamsWithRiders.includes(t)) {
           teamPacesForGroup[t] = 0;

@@ -936,7 +936,7 @@ export const generateCards = (rider, isBreakaway = false, rng = Math.random) => 
 };
 
 // AI helper: choose a card to play from a rider's hand (pure function)
-export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false, riderName = '', isAttacker = false) => {
+export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, isDownhill = false, riderName = '', isAttacker = false, isLeadRider = false) => {
   // (function body preserved from App.js)
   let chosenCard = null;
   let bestCardNumber = 999;
@@ -947,7 +947,7 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   
   // Debug logging
   if (riderName) {
-    console.log(`🎴 chooseCardToPlay ${riderName}: sv=${sv} penalty=${penalty} speed=${speed} chosenValue=${chosenValue} isDownhill=${isDownhill} isAttacker=${isAttacker}`);
+    console.log(`🎴 chooseCardToPlay ${riderName}: sv=${sv} penalty=${penalty} speed=${speed} chosenValue=${chosenValue} isDownhill=${isDownhill} isAttacker=${isAttacker} isLeadRider=${isLeadRider}`);
     console.log(`🎴 Top 4 cards:`, availableCardsBase.map(c => `${c.id}(${c.flat}|${c.uphill})`).join(', '));
   }
 
@@ -992,21 +992,25 @@ export const chooseCardToPlay = (riderCards, sv, penalty, speed, chosenValue, is
   // suggested rule: if minimumRequired <= 5 && groupPosition === '_' -> 2
   if (isDownhill && minimumRequired <= 5) minimumRequired = 2;
   
-  // If chosenValue is provided and higher than minimumRequired, use it as the minimum
-  // This ensures riders play at least the value they chose
-  if (chosenValue > 0 && chosenValue > minimumRequired) {
+  // Lead riders MUST play at least their announced value (chosenValue)
+  // For non-lead riders, use chosenValue only if higher than calculated minimum
+  if (isLeadRider && chosenValue > 0) {
+    minimumRequired = chosenValue;
+    if (riderName) console.log(`🎴 ${riderName}: Lead rider - setting minimumRequired to chosenValue (${chosenValue})`);
+  } else if (chosenValue > 0 && chosenValue > minimumRequired) {
     minimumRequired = chosenValue;
     if (riderName) console.log(`🎴 ${riderName}: Raising minimumRequired to chosenValue (${chosenValue})`);
   }
   
     bestCardNumber = 0;
 
-    if (minimumRequired <= 2 && !hasECOnHand) {
+    // Lead riders should NEVER use tk_extra - they must play a real card from their hand
+    if (minimumRequired <= 2 && !hasECOnHand && !isLeadRider) {
       availableCards = [...availableCardsBase, { id: 'tk_extra 99', flat: 2, uphill: 2 }];
       if (riderName) console.log(`🎴 ${riderName}: TK-extra added (minimumRequired=${minimumRequired}, hasECOnHand=${hasECOnHand})`);
     } else {
       availableCards = [...availableCardsBase];
-      if (riderName) console.log(`🎴 ${riderName}: NO TK-extra (minimumRequired=${minimumRequired}, hasECOnHand=${hasECOnHand})`);
+      if (riderName) console.log(`🎴 ${riderName}: NO TK-extra (minimumRequired=${minimumRequired}, hasECOnHand=${hasECOnHand}, isLeadRider=${isLeadRider})`);
     }
 
     if (riderName) console.log(`🎴 ${riderName}: Looking for cards >= minimumRequired (${minimumRequired})`);
@@ -2002,7 +2006,7 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
 
     if (!chosenCard) {
   const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
-  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name);
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name, false, isLeadRider);
       chosenCard = res.chosenCard;
       managed = res.managed;
     }
@@ -2030,6 +2034,33 @@ export const computeNonAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstre
   let cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
   if (track[rider.position] === '_') cardValue = Math.max(cardValue, 5);
   const effectiveValue = Math.max(cardValue - penalty, 0);
+
+    // CRITICAL VALIDATION: Lead riders MUST play minimum their announced value
+    if (isLeadRider && chosenValue > 0 && effectiveValue < chosenValue) {
+      logs.push(`❌ ${name}: Lead rider cannot play ${chosenCard.id} (effective=${effectiveValue}) - announced value was ${chosenValue}`);
+      logs.push(`❌ ${name}: RULE VIOLATION - Lead rider must play at least their announced value!`);
+      // Try to find ANY card in hand that meets the requirement
+      const allCards = rider.cards || [];
+      let emergencyCard = null;
+      for (const c of allCards) {
+        if (c.id && c.id.startsWith('TK-1')) continue;
+        const cVal = slipstream > 2 ? c.flat : c.uphill;
+        const cEff = Math.max(cVal - penalty, 0);
+        if (cEff >= chosenValue) {
+          emergencyCard = c;
+          break;
+        }
+      }
+      if (emergencyCard) {
+        logs.push(`🔧 ${name}: Found emergency card ${emergencyCard.id} that meets requirement`);
+        chosenCard = emergencyCard;
+        cardValue = slipstream > 2 ? chosenCard.flat : chosenCard.uphill;
+        if (track[rider.position] === '_') cardValue = Math.max(cardValue, 5);
+        effectiveValue = Math.max(cardValue - penalty, 0);
+      } else {
+        logs.push(`⚠️ ${name}: NO CARD in hand can meet announced value ${chosenValue} - proceeding with best effort`);
+      }
+    }
 
     const minRequiredToFollow = Math.max(0, groupSpeed - slipstream);
     let eligibleForSlip = effectiveValue >= minRequiredToFollow;
@@ -2679,7 +2710,7 @@ export const computeAttackerMoves = (cardsObj, groupNum, groupSpeed, slipstream,
 
     if (!chosenCard) {
   const isDown = (track && typeof rider.position === 'number') ? track[rider.position] === '_' : false;
-  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name, true); // isAttacker=true
+  const res = chooseCardToPlay(rider.cards || [], slipstream, penalty, groupSpeed, chosenValue, isDown, name, true, false); // isAttacker=true, isLeadRider=false
       chosenCard = res.chosenCard; managed = res.managed;
     }
 
