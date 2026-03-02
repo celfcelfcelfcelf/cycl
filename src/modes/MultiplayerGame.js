@@ -2605,8 +2605,23 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     } else if (hostOwnsFlowState && state.movePhase && state.movePhase !== movePhaseRef.current) {
       console.log('🔄 HOST: Skipping movePhase from Firebase (HOST owns this - local:', movePhaseRef.current, 'firebase:', state.movePhase, ')');
     }
-    // DO NOT load groupSpeed/slipstream from Firebase root level - they should only come from postMoveInfo
-    // Loading them from root causes stale values from previous groups to be used
+    // Load groupSpeed/slipstream for cardSelection phase — HOST computes these in handlePaceSubmit
+    // (including dobbeltføring +1 bonus) and syncs them so the JOINER's card dialog shows the
+    // correct speed. Only applied when movePhase is 'cardSelection' to avoid stale bleed.
+    if (!hostOwnsFlowState &&
+        (state.movePhase === 'cardSelection' || movePhaseRef.current === 'cardSelection') &&
+        typeof state.cardSelectionGroupSpeed === 'number' && state.cardSelectionGroupSpeed > 0) {
+      console.log('\ud83d\udd04 JOINER: Setting groupSpeed from Firebase cardSelectionGroupSpeed:', state.cardSelectionGroupSpeed);
+      setGroupSpeed(state.cardSelectionGroupSpeed);
+      groupSpeedRef.current = state.cardSelectionGroupSpeed;
+    }
+    if (!hostOwnsFlowState &&
+        (state.movePhase === 'cardSelection' || movePhaseRef.current === 'cardSelection') &&
+        typeof state.cardSelectionSlipstream === 'number') {
+      console.log('\ud83d\udd04 JOINER: Setting slipstream from Firebase cardSelectionSlipstream:', state.cardSelectionSlipstream);
+      setSlipstream(state.cardSelectionSlipstream);
+      slipstreamRef.current = state.cardSelectionSlipstream;
+    }
     
     // Sync postMoveInfo (yellow box) - JOINER only; HOST computes it in confirmMove
     console.log('🔄 Checking postMoveInfo in state:', { 
@@ -2845,9 +2860,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
         latestPrelTime: latestPrelTime, // Sync winner baseline time
         sprintGroupsPending: sprintGroupsPending, // Sync pending sprint groups
         groupsMovedThisRound: groupsMovedThisRoundRef.current, // Use ref to avoid stale closure
-        // DO NOT sync groupSpeed/slipstream as global values - they are specific to the group that just moved
-        // and should only exist in postMoveInfo. Syncing them globally causes the next group to see
-        // stale values from the previous group.
+        // Sync groupSpeed/slipstream so the JOINER's card dialog shows the correct
+        // dobbeltføring-adjusted speed. These are only meaningful during cardSelection
+        // phase; stale values are harmless because refs are reset to 0 at every
+        // group/round/stage transition before handlePaceSubmit sets them again.
+        cardSelectionGroupSpeed: phaseToSync === 'cardSelection' ? groupSpeedRef.current : 0,
+        cardSelectionSlipstream: phaseToSync === 'cardSelection' ? slipstreamRef.current : 0,
         logs: logs.slice(-20) // Only sync recent logs to avoid bloat
       };
       
@@ -5486,6 +5504,37 @@ return { pace, updatedCards, doubleLead };
 
     const allPaces = Object.values(teamPacesForGroup);
 
+    // Patch cardsToUse so processDobbeltforing can detect both leaders.
+    // Problem: cardsSnapshotRef may be a stale snapshot from an earlier team's
+    // submission (e.g. the human player's snapshot), missing the latest
+    // selected_value/takes_lead updates that AI auto-play wrote via setCards.
+    // For each team with a submitted pace > 0, ensure at least one non-attacker
+    // rider in the lookup object has selected_value = pace. Pull from
+    // cardsRef.current (always kept current via useEffect) when needed.
+    const cardsForSpeed = { ...cardsToUse };
+    for (const [teamName, pace] of Object.entries(submittedPaces)) {
+      if (pace <= 0) continue;
+      const groupTeamRiders = Object.entries(cardsForSpeed).filter(
+        ([, r]) => r.group === groupNum && r.team === teamName && r.attacking_status !== 'attacker' && !r.finished
+      );
+      const hasMatchingRider = groupTeamRiders.some(([, r]) => Math.round(r.selected_value || 0) === pace);
+      if (!hasMatchingRider) {
+        // Try cardsRef.current for an up-to-date leader or any rider for this team
+        const latestCards = cardsRef.current || {};
+        const latestTeamRiders = Object.entries(latestCards).filter(
+          ([, r]) => r.group === groupNum && r.team === teamName && r.attacking_status !== 'attacker' && !r.finished
+        );
+        const latestLeader = latestTeamRiders.find(([, r]) => r.takes_lead === 1) ||
+                             groupTeamRiders.find(([, r]) => r.takes_lead === 1) ||
+                             latestTeamRiders[0] ||
+                             groupTeamRiders[0];
+        if (latestLeader) {
+          cardsForSpeed[latestLeader[0]] = { ...cardsForSpeed[latestLeader[0]], ...latestCards[latestLeader[0]], selected_value: pace, takes_lead: 1 };
+          addLog(`🔧 Patched ${latestLeader[0]} (${teamName}) selected_value=${pace} takes_lead=1 for dobbeltføring detection`);
+        }
+      }
+    }
+
     // Determine group's current position (guard against empty array → -Infinity → Infinity speed)
     const groupPositions = Object.values(cardsToUse).filter(r => r.group === groupNum && !r.finished).map(r => r.position);
   const groupPos = groupPositions.length > 0 ? Math.max(...groupPositions) : 0;
@@ -5518,7 +5567,7 @@ return { pace, updatedCards, doubleLead };
       // Update teamPacesForGroup with the new speed (includes +1 from dobbeltføring)
       // Find which team(s) contributed to dobbeltføring and update their pace
       for (const leaderName of speedResult.dobbeltforingLeaders) {
-        const leader = cardsToUse[leaderName];
+        const leader = cardsForSpeed[leaderName] || cardsToUse[leaderName];
         if (leader && teamPacesForGroup[leader.team] !== undefined) {
           // Update to the new speed (which already includes the +1 bonus)
           teamPacesForGroup[leader.team] = speed;
@@ -5606,7 +5655,7 @@ return { pace, updatedCards, doubleLead };
         // No need to check or set it again here
         
         // Special handling for manual dobbeltføring: both riders are already marked as leaders
-        const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cardsToUse[name] && cardsToUse[name].group === groupNum);
+        const manualDobbeltføringLeaders = (dobbeltføringLeadersRef.current || []).filter(name => cardsForSpeed[name] && cardsForSpeed[name].group === groupNum);
         
         console.log('🔍 Leader assignment check: group=', groupNum, 'dobbeltføringLeaders=', JSON.stringify(manualDobbeltføringLeaders), 'length=', manualDobbeltføringLeaders.length);
         
