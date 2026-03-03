@@ -3383,6 +3383,14 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       addLog(`🎯 ${teamName}: teamDeclaredPace ${finalPace} ≤ otherMax ${otherMax} → setting pace to 0`);
     } catch(e) {}
     finalPace = 0;
+    // CRITICAL: Clear takes_lead / selected_value for all non-attacker riders on
+    // this team so stale lead flags don't confuse calculateGroupSpeed or falsely
+    // trigger dobbeltføring detection (another team already leads at a higher pace).
+    for (const [name] of teamRiders) {
+      if (updatedCards[name] && updatedCards[name].attacking_status !== 'attacker') {
+        updatedCards[name] = { ...updatedCards[name], takes_lead: 0, selected_value: 0 };
+      }
+    }
   }
   
   pace = Math.round(finalPace || 0);
