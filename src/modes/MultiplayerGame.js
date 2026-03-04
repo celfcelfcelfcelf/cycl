@@ -1162,17 +1162,17 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     const amHost = isHost || (multiplayerPlayers && multiplayerPlayers.length > 0 && multiplayerPlayers.find(p => p.name === playerName)?.isHost);
     if (!amHost) return; // Only host triggers cardSelection
 
-    // Guard: if multiplayer players are known, ensure at least one human team's riders
+    // Guard: if multiplayer players are known, ensure ALL human teams' riders
     // are present in `cards` before proceeding. This prevents premature firing when
     // the AI auto-submits before Firebase has synced the opponent's riders, which
     // would make teamsWithRidersInGroup appear to contain only AI teams and trigger
     // card selection with a wrong (AI-computed) speed.
     if (multiplayerPlayers && multiplayerPlayers.length > 0) {
       const humanPlayerTeams = multiplayerPlayers.map(p => p.team).filter(Boolean);
-      if (humanPlayerTeams.length > 0) {
-        const humanRidersLoaded = Object.values(cards).some(r => humanPlayerTeams.includes(r.team));
-        if (!humanRidersLoaded) {
-          console.log('🚀 Human riders not yet loaded from Firebase - deferring auto-start');
+      for (const humanTeam of humanPlayerTeams) {
+        const hasRiders = Object.values(cards).some(r => r.team === humanTeam);
+        if (!hasRiders) {
+          console.log('🚀 Team', humanTeam, 'riders not yet loaded from Firebase - deferring auto-start');
           return;
         }
       }
