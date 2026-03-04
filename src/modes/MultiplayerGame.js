@@ -2609,17 +2609,22 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     }
     // Load groupSpeed/slipstream for cardSelection phase — HOST computes these in handlePaceSubmit
     // (including dobbeltføring +1 bonus) and syncs them so the JOINER's card dialog shows the
-    // correct speed. Only applied when movePhase is 'cardSelection' to avoid stale bleed.
+    // correct speed. Only applied when movePhase is 'cardSelection' AND teamPaceMeta is non-empty
+    // to avoid applying stale speed from the previous game.
+    const incomingPaceMetaForSpeed = state.teamPaceMeta || {};
+    const hasPaceMetaForSpeed = Object.keys(incomingPaceMetaForSpeed).length > 0;
     if (!hostOwnsFlowState &&
         (state.movePhase === 'cardSelection' || movePhaseRef.current === 'cardSelection') &&
-        typeof state.cardSelectionGroupSpeed === 'number' && state.cardSelectionGroupSpeed > 0) {
+        typeof state.cardSelectionGroupSpeed === 'number' && state.cardSelectionGroupSpeed > 0 &&
+        hasPaceMetaForSpeed) {
       console.log('\ud83d\udd04 JOINER: Setting groupSpeed from Firebase cardSelectionGroupSpeed:', state.cardSelectionGroupSpeed);
       setGroupSpeed(state.cardSelectionGroupSpeed);
       groupSpeedRef.current = state.cardSelectionGroupSpeed;
     }
     if (!hostOwnsFlowState &&
         (state.movePhase === 'cardSelection' || movePhaseRef.current === 'cardSelection') &&
-        typeof state.cardSelectionSlipstream === 'number') {
+        typeof state.cardSelectionSlipstream === 'number' &&
+        hasPaceMetaForSpeed) {
       console.log('\ud83d\udd04 JOINER: Setting slipstream from Firebase cardSelectionSlipstream:', state.cardSelectionSlipstream);
       setSlipstream(state.cardSelectionSlipstream);
       slipstreamRef.current = state.cardSelectionSlipstream;
