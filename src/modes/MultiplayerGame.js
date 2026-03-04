@@ -2258,10 +2258,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
     if (state.teamPaces !== undefined) {
       console.log('🔄 Setting teamPaces from Firebase:', state.teamPaces);
       setTeamPaces(prev => {
-        // If Firebase sends empty object OR round has changed, replace completely
+        // Only replace if round has changed (clears old submissions).
+        // Do NOT replace with empty Firebase data — that just means HOST hasn't
+        // synced yet and would wipe locally-submitted AI paces, causing a deadlock.
         const firebaseKeys = Object.keys(state.teamPaces);
         const roundChanged = state.round !== undefined && state.round !== previousRound;
-        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
+        const shouldReplace = roundChanged;
         
         // When round changes, drop all old data. Otherwise merge normally.
         // CRITICAL: Preserve null values for attacks (don't convert null to NaN)
@@ -2278,10 +2280,12 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
       console.log('🔄 Setting teamPaceMeta from Firebase:', state.teamPaceMeta);
       setTeamPaceMeta(prev => {
         console.log('🔄 Previous teamPaceMeta:', prev);
-        // If Firebase sends empty object OR round has changed, replace completely
+        // Only replace if round has changed (clears old submissions).
+        // Do NOT replace with empty Firebase data — that just means HOST hasn't
+        // synced yet and would wipe locally-submitted AI paces, causing a deadlock.
         const firebaseKeys = Object.keys(state.teamPaceMeta);
         const roundChanged = state.round !== undefined && state.round !== previousRound;
-        const shouldReplace = firebaseKeys.length === 0 || roundChanged;
+        const shouldReplace = roundChanged;
         
         // When round changes (0→1, 1→2, etc.), drop all old submissions
         // Otherwise merge normally - don't filter based on pace round (choice-1 vs choice-2)
