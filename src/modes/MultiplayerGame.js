@@ -3504,7 +3504,12 @@ return { pace, updatedCards, doubleLead };
     for (let i = 1; i < numberOfTeams; i++) teamList.push(`Comp${i}`);
   }
 
-  const total = numberOfTeams * ridersPerTeam;
+  // When an explicit {rider, team} array is provided (multiplayer), trust its length
+  // rather than the potentially-stale numberOfTeams/ridersPerTeam React state which
+  // may have been captured in a subscriber closure before state updates propagated.
+  const total = (Array.isArray(drafted) && drafted.length > 0 && drafted[0]?.rider)
+    ? drafted.length
+    : numberOfTeams * ridersPerTeam;
   const breakawayCount = Math.min(numAttackers, total); // use slider value, capped at total riders
 
   // Build selectedRidersWithTeam depending on drafted argument
