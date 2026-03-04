@@ -5836,6 +5836,8 @@ return { pace, updatedCards, doubleLead };
             addLog(`${leaderName} (${leadR.team}) assigned as dobbeltføring leader for group ${groupNum} (selected_value=${preservedSelectedValue}, planned=${planned})`);
           }
             
+            // Update ref immediately so confirmMove gets the correct takes_lead=1
+            cardsRef.current = updated;
             return updated;
           });
         } else {
@@ -6149,6 +6151,8 @@ return { pace, updatedCards, doubleLead };
             console.log(`🎯 NORMAL: Set ${bestName} takes_lead=1, selected_value=${leaderSelectedValue}, planned=${planned}, isHumanTeam=${isHumanTeam}`);
             addLog(`${bestName} (${chosenTeam}) assigned as lead for group ${groupNum} (selected_value=${leaderSelectedValue}, planned=${planned})`);
 
+            // Update ref immediately so confirmMove gets the correct takes_lead=1
+            cardsRef.current = updated;
             return updated;
           });
         }
