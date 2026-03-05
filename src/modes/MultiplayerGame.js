@@ -5450,6 +5450,12 @@ return { pace, updatedCards, doubleLead };
     if (anyAttack) {
       setTeamPaceRound(prev => ({ ...(prev || {}), [groupNum]: 2 }));
       teamPaceRoundRef.current = { ...(teamPaceRoundRef.current || {}), [groupNum]: 2 }; // Update ref immediately
+      // Clear duplicate-submission guard for this group so all teams (human + AI)
+      // can re-submit their choice-2 pace without being blocked by choice-1 entries.
+      if (teamSubmissionsForGroupRef.current[groupNum]) {
+        teamSubmissionsForGroupRef.current[groupNum] = new Set();
+        console.log('🔓 Cleared teamSubmissionsForGroupRef for group', groupNum, 'on choice-2 open');
+      }
       addLog(`Choice-2 opened for group ${groupNum} due to attack — teams may revise their choices`);
       console.log('❌ RETURN: Opening choice-2 for attack');
 
