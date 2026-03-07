@@ -211,7 +211,7 @@ const CyclingGame = ({ onBackToMenu }) => {
   const [multiplayerPlayers, setMultiplayerPlayers] = useState([]);
   const [multiplayerConfig, setMultiplayerConfig] = useState({
     numberOfTeams: 3,
-    ridersPerTeam: 2,
+    ridersPerTeam: 3,
     trackName: 'Yorkshire',
     track: '',
     isStageRace: false,
@@ -245,7 +245,7 @@ const [draftDebugMsg, setDraftDebugMsg] = useState(null);
   }); // Default, will be overridden by host selection or Firebase data
   const [track, setTrack] = useState('');
   const [numberOfTeams, setNumberOfTeams] = useState(3);
-  const [ridersPerTeam, setRidersPerTeam] = useState(2);
+  const [ridersPerTeam, setRidersPerTeam] = useState(3);
   const [numberOfStages, setNumberOfStages] = useState(1); // number of stages (1-5)
   const [selectedStages, setSelectedStages] = useState([]); // array of {name, track} for multi-stage races
   const [currentStageIndex, setCurrentStageIndex] = useState(0); // which stage we're currently on
