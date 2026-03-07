@@ -1797,6 +1797,12 @@ export const pickValue = (riderName, cardsState, trackStr, paces = [], numberOfT
       const tm_chance_wo_sprint = maxTeamMateWinChanceWoSprint / Math.max(1, 1 / groupSize);
       ideal_move = ideal_move * Math.pow(Math.max(1, tm_chance_wo_sprint), 0.6);
     }
+
+    // TK-1 cards in hand reduce ideal_move: each TK-1 penalises proportional to distance left
+    const tk1Count = (rider.cards || []).slice(0, 4).filter(c => c && c.id === 'TK-1: 99').length;
+    if (tk1Count > 0) {
+      ideal_move = ideal_move - tk1Count * (len_left / 50);
+    }
   }
 
   const sv = getSlipstreamValue(rider.position, rider.position + Math.floor(ideal_move), trackStr);

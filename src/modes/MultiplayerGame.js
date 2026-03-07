@@ -5903,9 +5903,20 @@ return { pace, updatedCards, doubleLead };
             if (candidates.length === 0) {
               const teamRiders = groupRiders.filter(r => r.team === chosenTeam && r.attacking_status !== 'attacker');
               
+              // In multiplayer, human teams pick their own card in the card-selection dialog.
+              // Never reduce the group speed based on their card values here — they will play
+              // a card matching the declared group speed themselves.  Just assign the first
+              // available non-attacker rider as leader so the dialog can open correctly.
+              const isHumanMultiplayerTeam = roomCodeRef.current && !chosenTeam.startsWith('Comp');
+              if (isHumanMultiplayerTeam && teamRiders.length > 0) {
+                candidates = [teamRiders[0]];
+                addLog(`${teamRiders[0].name} (${chosenTeam}) assigned as leader (human team - card picked in dialog)`);
+                console.log(`🎯 Human team ${chosenTeam}: skipping card-constraint check, assigning ${teamRiders[0].name} as leader at speed ${speedVal}`);
+              }
+
               // Note: This is normal when handlePaceSubmit is called after cards have been reset
               // The fallback logic below will find a capable rider
-              console.log(`🔍 No rider in ${chosenTeam} with selected_value=${speedVal}, using fallback search for capable rider...`);
+              if (candidates.length === 0) console.log(`🔍 No rider in ${chosenTeam} with selected_value=${speedVal}, using fallback search for capable rider...`);
               
               for (const r of teamRiders) {
                 const top4 = (r.cards || []).slice(0, 4);
